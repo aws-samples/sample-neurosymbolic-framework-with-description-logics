@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ontology-qa-cli"
+version = "0.1.0"
+description = "A CLI tool for querying OWL DL ontologies using natural language"
+requires-python = ">=3.10"
+dependencies = [
+    "owlready2>=0.45",
+    "boto3>=1.34.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "hypothesis>=6.92.0",
+    "pytest-mock>=3.12.0",
+]
+
+[project.scripts]
+ontology-qa-build = "ontology_qa_cli.builder:main"
+ontology-qa-query = "ontology_qa_cli.query:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.setuptools.packages.find]
+include = ["ontology_qa_cli*"]

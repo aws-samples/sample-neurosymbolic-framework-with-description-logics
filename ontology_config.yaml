@@ -1,0 +1,83 @@
+ontologies:
+  - name: "FMA"
+    owl_file: "~/fma.owl"
+    questions:
+      - question: "What are the parts of the heart?"
+        expected_answer: |
+          The human heart is a four-chambered muscular organ comprising the
+          right/left atria (upper chambers) and right/left ventricles (lower
+          chambers). It includes four valves (tricuspid, pulmonary, mitral, 
+          aortic) to control flow, the septum dividing the sides, and major
+          vessels like the vena cava and aorta to pump blood
+      - question: "What is the function of the liver?"
+        expected_answer: |
+          The liver is a vital organ performing over 500 functions, primarily
+          filtering toxins from over 250 gallons of blood daily, aiding digestion
+          via bile production, and metabolizing nutrients. It regulates blood
+          clotting, stores iron and vitamins, and maintains steady blood sugar
+          levels. The liver is unique in its ability to regenerate, even if
+          90% is removed
+      - question: "Which organ system is the uterine tube part of?"
+        expected_answer: |
+          The uterine tube (or fallopian tube) is part of the female reproductive
+          system. These paired tubes connect the ovaries to the uterus, serving
+          as the pathway for the egg (ovum) to travel and as the primary site
+          for fertilization.
+      - question: "What is the smallest part of the small intestine?"
+        expected_answer: |
+          The smallest part of the small intestine is the duodenum. It is the
+          first, shortest, and widest section, measuring approximately 10
+          inches in length. in length. The duodenum connects the stomach
+          to the jejunum and is C-shaped, wrapping around the head of the
+          pancreas.
+      - question: "What is the esophagus continuous with superiorly?"
+        expected_answer: |
+          The esophagus is continuous superiorly with the laryngopharynx
+          (or laryngeal part of the pharynx).
+      - question: "What is posterior to the esophagus?"
+        expected_answer: |
+          The primary structure posterior to the esophagus throughout its course
+          is the vertebral column (spine), along with the prevertebral fascia and
+          muscles. It is also closely related posteriorly to the descending
+          thoracic aorta, the thoracic duct, and the azygos vein within the
+          thoracic cavity.
+      - question: "What surfaces bound the pleural cavity?"
+        expected_answer: |
+          The pleural cavity is a potential, fluid-filled space bounded by two
+          layers of serous membrane, the visceral and parietal pleurae, which
+          surround each lung. It is located entirely within the thoracic cavity.
+      - question: "What is contained within the middle mediastinum?"
+        expected_answer: |
+          The middle mediastinum is the central and largest subdivision of the
+          inferior mediastinum, primarily defined by the area occupied by the
+          heart and its surrounding protective sac.
+      - question: "What are the Latin synonyms for the uterine tube?"
+        expected_answer: |
+          The primary Latin term for the uterine tube is tuba uterina. Key
+          synonyms, including Latinized Greek and historical terms, are salpinx
+          (often used in plural as salpinges) and tuba Falloppii (or Fallopian
+          tube), named after the anatomist Gabriele Falloppio. It is also 
+          referred to as oviductus.
+      - question: "What does the neural tube develop into?"
+        expected_answer: |
+          The neural tube is the embryonic precursor to the entire central
+          nervous system (CNS), developing into the brain, spinal cord, and
+          associated structures.
+      - question: "What is the germ layer origin of the kidney?"
+        expected_answer: |
+          The kidney originates from the intermediate mesoderm. Specifically,
+          this mesodermal region forms the urogenital ridge and the nephrogenic
+          cord, which sequentially give rise to the pronephros, mesonephros,
+          and the final, permanent kidney known as the metanephros.
+      - question: "Is blood classified as solid or liquid?"
+        expected_answer: |
+          Blood is primarily classified as a liquid connective tissue. It is a
+          fluid, but it is technically a mixture composed of about 55% liquid
+          plasma and 45% solid cellular components (red blood cells, white blood
+          cells, and platelets). It is often described as a non-Newtonian fluid,
+          acting as a viscous fluid that can exhibit elastic properties.
+      - question: "Is the carotid artery part of the circulatory system?"
+        expected_answer: |
+          Yes, the carotid arteries are a vital part of the circulatory system.
+          They are major blood vessels in the neck that supply oxygen-rich
+          blood directly to the brain, neck, and face.
