@@ -1,7 +1,6 @@
 """Program fixer using kiro-cli for ontology QA CLI."""
 import logging
 import sys
-import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,11 +19,14 @@ class FixResult:
     modified_program: Optional[str]  # Source code if successful
     exit_code: int
     error_message: Optional[str]
+    stdout: str = ""  # Captured kiro-cli stdout
+    stderr: str = ""  # Captured kiro-cli stderr
 
 
 def generate_task_file(
     failed_judgments: list,  # list[JudgmentResult]
     program_path: Path,
+    ontology_file: Path = None,
 ) -> str:
     """Generate TASK.md content instructing kiro-cli to fix the program.
 
@@ -34,6 +36,7 @@ def generate_task_file(
     Args:
         failed_judgments: List of JudgmentResult objects for questions that were judged incorrect.
         program_path: Path to the query program file that needs fixing.
+        ontology_file: Path to the OWL ontology file used by the program.
 
     Returns:
         The TASK.md content as a string.
@@ -41,11 +44,21 @@ def generate_task_file(
     lines = []
     lines.append("# Fix Query Program")
     lines.append("")
+
+    ontology_note = ""
+    if ontology_file:
+        ontology_note = (
+            f"\n\n    The ontology file is located at `{ontology_file}`. "
+            "Note: this file is very large. Do NOT try to read the entire file. "
+            "Instead, inspect small subsets (e.g. grep for specific class names, "
+            "or read the first few hundred lines to understand the structure)."
+        )
+
     lines.append(dedent(f"""\
         Fix the query program `{program_path}` based on the feedback below.
         The program is producing incorrect answers for the following questions.
         Modify the program so that it produces correct answers for these cases
-        while maintaining correctness for other questions.
+        while maintaining correctness for other questions.{ontology_note}
 
         Some rules:
         - the program being evolved must be invoked with two positional
@@ -93,80 +106,118 @@ def fix_program(
     current_program: str,
     failed_judgments: list,
     working_dir: Path,
-    timeout: int = 600,
+    timeout: int = 1000,
+    ontology_file: Path = None,
 ) -> FixResult:
     """Invoke kiro-cli to fix the query program based on judge feedback.
 
-    Creates a temporary directory with the program and TASK.md,
-    invokes kiro-cli, and reads back the modified program.
+    Writes the program and TASK.md into working_dir, invokes kiro-cli there,
+    and reads back the modified program.
 
     Args:
         current_program: The current source code of the query program.
         failed_judgments: List of JudgmentResult objects for failed questions.
-        working_dir: Parent directory in which to create the temp directory.
+        working_dir: Directory to use for the fix (e.g. the iteration directory).
+        timeout: Timeout in seconds for kiro-cli.
 
     Returns:
         FixResult indicating success/failure and the modified program if successful.
     """
-    # Create a temporary directory inside working_dir
-    temp_dir = Path(tempfile.mkdtemp(dir=working_dir, prefix="kiro_fix_"))
+    working_dir.mkdir(parents=True, exist_ok=True)
 
-    program_file = temp_dir / "query_program.py"
-    task_file = temp_dir / "TASK.md"
+    program_file = working_dir / "query_program.py"
+    task_file = working_dir / "TASK.md"
 
     # Write the current program source
     program_file.write_text(current_program)
 
     # Generate and write the TASK.md
-    task_content = generate_task_file(failed_judgments, Path("query_program.py"))
+    task_content = generate_task_file(failed_judgments, Path("query_program.py"), ontology_file=ontology_file)
     task_file.write_text(task_content)
 
     kiro_prompt = "Read TASK.md in this directory and follow the guidance in there to fix query_program.py."
     logger.info("kiro-cli command prompt: %s", kiro_prompt)
     logger.info(
-        "kiro-cli invocation: temp_dir=%s, program=%d bytes, prompt=%d bytes, task_md=%d bytes",
-        temp_dir, len(current_program), len(kiro_prompt), len(task_content),
+        "kiro-cli invocation: working_dir=%s, program=%d bytes, prompt=%d bytes, task_md=%d bytes",
+        working_dir, len(current_program), len(kiro_prompt), len(task_content),
     )
 
-    # Invoke kiro-cli
+    # Invoke kiro-cli with streaming output via pty for line-buffered output
     start_time = time.monotonic()
+    BG_BLACK = "\033[40m\033[97m"
+    BG_RED = "\033[41m\033[97m"
+    RESET = "\033[0m"
+
     try:
-        result = subprocess.run(
+        import pty
+        import os
+        import select
+        import errno
+
+        # Create a pty so kiro-cli thinks it's writing to a terminal (line-buffered)
+        master_fd, slave_fd = pty.openpty()
+
+        proc = subprocess.Popen(
             [
                 "kiro-cli", "chat", "--no-interactive", "--trust-all-tools",
                 kiro_prompt,
             ],
-            cwd=str(temp_dir),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
+            cwd=str(working_dir),
+            stdout=slave_fd,
+            stderr=slave_fd,
+            text=False,
         )
-    except subprocess.TimeoutExpired as e:
-        elapsed = time.monotonic() - start_time
-        # e.stdout/stderr may be bytes even with text=True on timeout
-        partial_stdout = e.stdout.decode("utf-8", errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
-        partial_stderr = e.stderr.decode("utf-8", errors="replace") if isinstance(e.stderr, bytes) else (e.stderr or "")
-        error_msg = f"kiro-cli timed out after {elapsed:.1f}s (limit: {timeout}s)"
-        logger.error(error_msg)
+        os.close(slave_fd)  # Close slave in parent; child has it
 
-        BG_BLACK = "\033[40m\033[97m"
-        BG_RED = "\033[41m\033[97m"
-        RESET = "\033[0m"
+        collected_output = []
+        print(f"{BG_BLACK}--- kiro-cli output ---{RESET}")
 
-        if partial_stdout:
-            print(f"{BG_BLACK}--- kiro-cli stdout (partial, timed out) ---{RESET}")
-            sys.stdout.write(partial_stdout)
-            print(f"\n{BG_BLACK}--- end stdout ---{RESET}")
-        if partial_stderr:
-            print(f"{BG_RED}--- kiro-cli stderr (partial, timed out) ---{RESET}")
-            sys.stdout.write(partial_stderr)
-            print(f"\n{BG_RED}--- end stderr ---{RESET}")
-        return FixResult(
-            success=False,
-            modified_program=None,
-            exit_code=-1,
-            error_message=error_msg,
-        )
+        while True:
+            # Check timeout
+            elapsed = time.monotonic() - start_time
+            remaining = timeout - elapsed
+            if remaining <= 0:
+                proc.kill()
+                proc.wait()
+                os.close(master_fd)
+                error_msg = f"kiro-cli timed out after {elapsed:.1f}s (limit: {timeout}s)"
+                logger.error(error_msg)
+                print(f"\n{BG_RED}--- kiro-cli TIMED OUT ---{RESET}")
+                return FixResult(
+                    success=False,
+                    modified_program=None,
+                    exit_code=-1,
+                    error_message=error_msg,
+                    stdout="".join(collected_output),
+                    stderr="",
+                )
+
+            ready, _, _ = select.select([master_fd], [], [], min(remaining, 0.5))
+            if ready:
+                try:
+                    data = os.read(master_fd, 4096)
+                except OSError as e:
+                    if e.errno == errno.EIO:
+                        # Child closed the pty
+                        break
+                    raise
+                if not data:
+                    break
+                text = data.decode("utf-8", errors="replace")
+                collected_output.append(text)
+                sys.stdout.write(text)
+                sys.stdout.flush()
+            elif proc.poll() is not None:
+                # Process exited and no more data
+                break
+
+        os.close(master_fd)
+        proc.wait()
+        print(f"\n{BG_BLACK}--- end kiro-cli output ---{RESET}")
+
+        full_stdout = "".join(collected_output)
+        full_stderr = ""  # Combined into stdout via pty
+
     except FileNotFoundError:
         error_msg = "kiro-cli executable not found (expected at /usr/bin/kiro-cli)"
         logger.error(error_msg)
@@ -178,33 +229,21 @@ def fix_program(
         )
 
     elapsed = time.monotonic() - start_time
-    logger.info("kiro-cli completed in %.1fs with exit code %d", elapsed, result.returncode)
+    logger.info("kiro-cli completed in %.1fs with exit code %d", elapsed, proc.returncode)
 
-    # ANSI escape codes for colored backgrounds
-    BG_BLACK = "\033[40m\033[97m"  # black bg, white text
-    BG_RED = "\033[41m\033[97m"    # red bg, white text
-    RESET = "\033[0m"
-
-    if result.stdout:
-        print(f"{BG_BLACK}--- kiro-cli stdout ---{RESET}")
-        sys.stdout.write(result.stdout)
-        print(f"\n{BG_BLACK}--- end stdout ---{RESET}")
-    if result.stderr:
-        print(f"{BG_RED}--- kiro-cli stderr ---{RESET}")
-        sys.stdout.write(result.stderr)
-        print(f"\n{BG_RED}--- end stderr ---{RESET}")
-
-    if result.returncode != 0:
+    if proc.returncode != 0:
         error_msg = (
-            f"kiro-cli exited with code {result.returncode}: "
-            f"{result.stderr.strip() or result.stdout.strip()}"
+            f"kiro-cli exited with code {proc.returncode}: "
+            f"{full_stderr.strip() or full_stdout.strip()}"
         )
         logger.error(error_msg)
         return FixResult(
             success=False,
             modified_program=None,
-            exit_code=result.returncode,
+            exit_code=proc.returncode,
             error_message=error_msg,
+            stdout=full_stdout,
+            stderr=full_stderr,
         )
 
     # Read back the modified program
@@ -218,6 +257,8 @@ def fix_program(
             modified_program=None,
             exit_code=0,
             error_message=error_msg,
+            stdout=full_stdout,
+            stderr=full_stderr,
         )
 
     return FixResult(
@@ -225,4 +266,6 @@ def fix_program(
         modified_program=modified_program,
         exit_code=0,
         error_message=None,
+        stdout=full_stdout,
+        stderr=full_stderr,
     )

@@ -4,6 +4,7 @@ import logging
 import random
 import sys
 import argparse
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -63,8 +64,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--kiro-timeout",
         type=int,
-        default=600,
-        help="Timeout in seconds for kiro-cli invocations (default: 600).",
+        default=1200,
+        help="Timeout in seconds for kiro-cli invocations (default: 1200).",
     )
     parser.add_argument(
         "--max-questions",
@@ -80,6 +81,20 @@ def run_build(args: argparse.Namespace) -> None:
     # Expand ~ in all path arguments
     args.ontology_config = args.ontology_config.expanduser()
     args.output_dir = args.output_dir.expanduser()
+
+    # 0. Check AWS credentials are available
+    import os
+    has_key_pair = os.environ.get("AWS_ACCESS_KEY_ID") and os.environ.get("AWS_SECRET_ACCESS_KEY")
+    has_profile = os.environ.get("AWS_PROFILE")
+    has_role = os.environ.get("AWS_ROLE_ARN") or os.environ.get("AWS_WEB_IDENTITY_TOKEN_FILE")
+    has_sso = os.environ.get("AWS_SSO_ACCOUNT_ID") or os.path.exists(os.path.expanduser("~/.aws/credentials"))
+    if not (has_key_pair or has_profile or has_role or has_sso):
+        print(
+            "Error: No AWS credentials found. Set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, "
+            "AWS_PROFILE, or configure ~/.aws/credentials before running.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     # 1. Load config
     config = load_config(args.ontology_config)
@@ -131,41 +146,100 @@ def run_build(args: argparse.Namespace) -> None:
     best_iteration = 1
     best_iteration_path = None
     total_iterations = 0
-    previous_program_source = ""  # Empty so iteration 1 patch shows full seed
+    previous_program_source = current_program_source  # No patch for iteration 1
 
     # 8. Main evaluation loop
     for iteration in range(1, args.max_iterations + 1):
         print(f"\n[{_timestamp()}] Starting evaluation round {iteration}")
+        iteration_start = time.monotonic()
 
         # Write current program for execution
         program_path = run_ctx.base_dir / f"iteration_{iteration}" / "query_program.py"
         program_path.parent.mkdir(parents=True, exist_ok=True)
         program_path.write_text(current_program_source)
 
-        # Save patch showing what changed from previous iteration
-        _save_patch(previous_program_source, current_program_source, program_path.parent)
+        # Save patch showing what changed from previous iteration (skip iteration 1)
+        if iteration > 1:
+            _save_patch(previous_program_source, current_program_source, program_path.parent)
 
         # Select questions for this round
         questions = ontology.questions
         if args.max_questions and args.max_questions < len(questions):
             questions = random.sample(questions, args.max_questions)
 
-        # Execute query program on all questions
-        judgment_results: list[JudgmentResult] = []
+        # Execute query program on all questions in parallel
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        for qa in questions:
+        def _evaluate_question(qa):
+            """Run and judge a single question. Returns (qa, exec_result, judgment, duration)."""
+            t0 = time.monotonic()
             exec_result = execute_query_program(
                 program_path=program_path,
                 onto_file=owl_path,
                 question=qa.question,
             )
 
-            # Log stdout and stderr with colored backgrounds and prefix
-            BG_BLACK = "\033[40m\033[97m"  # black bg, white text
-            BG_RED = "\033[41m\033[97m"    # red bg, white text
-            RESET = "\033[0m"
+            if exec_result.success and exec_result.answer is not None:
+                judgment = judge_answer(
+                    question=qa.question,
+                    generated_answer=exec_result.answer,
+                    expected_answer=qa.expected_answer,
+                    bedrock_client=bedrock_client,
+                )
+                judgment.stdout = exec_result.stdout
+                judgment.stderr = exec_result.stderr
+                duration = time.monotonic() - t0
+                return (qa, exec_result, judgment, duration)
+            else:
+                generated = exec_result.answer or "(no answer produced)"
+                assessment = (
+                    f"Execution failed with exit code {exec_result.exit_code}. "
+                    f"stderr: {exec_result.stderr}"
+                    if exec_result.exit_code != 0
+                    else "No answer line found in stdout."
+                )
+                judgment = JudgmentResult(
+                    question=qa.question,
+                    generated_answer=generated,
+                    expected_answer=qa.expected_answer,
+                    assessment=assessment,
+                    is_correct=False,
+                    stdout=exec_result.stdout,
+                    stderr=exec_result.stderr,
+                )
+                duration = time.monotonic() - t0
+                return (qa, exec_result, judgment, duration)
 
-            print(f"  Question: {qa.question}")
+        # Run all questions in parallel, collect results
+        results_by_question = {}
+        eval_start = time.monotonic()
+        with ThreadPoolExecutor(max_workers=min(len(questions), 8)) as executor:
+            futures = {executor.submit(_evaluate_question, qa): qa for qa in questions}
+            for future in as_completed(futures):
+                qa = futures[future]
+                try:
+                    results_by_question[qa.question] = future.result()
+                except Exception as e:
+                    print(
+                        f"Error: Evaluation failed for question '{qa.question}' - {type(e).__name__}: {e}",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+        eval_elapsed = time.monotonic() - eval_start
+
+        # Print results sequentially (no interleaving) and collect judgments
+        BG_BLACK = "\033[40m\033[97m"
+        BG_RED = "\033[41m\033[97m"
+        RESET = "\033[0m"
+
+        judgment_results: list[JudgmentResult] = []
+        for qa in questions:
+            qa_key = qa.question
+            if qa_key not in results_by_question:
+                continue
+            _, exec_result, judgment, duration = results_by_question[qa_key]
+
+            print(f"  Question: {qa.question} ({duration:.1f}s)")
             if exec_result.stdout.strip():
                 prefixed_stdout = "\n".join(
                     f"{BG_BLACK}program> {line}{RESET}"
@@ -179,44 +253,9 @@ def run_build(args: argparse.Namespace) -> None:
                 )
                 print(prefixed_stderr)
 
-            if exec_result.success and exec_result.answer is not None:
-                # Judge the answer
-                try:
-                    judgment = judge_answer(
-                        question=qa.question,
-                        generated_answer=exec_result.answer,
-                        expected_answer=qa.expected_answer,
-                        bedrock_client=bedrock_client,
-                    )
-                    judgment.stdout = exec_result.stdout
-                    judgment.stderr = exec_result.stderr
-                    judgment_results.append(judgment)
-                except Exception as e:
-                    print(
-                        f"Error: Bedrock judge failed - {type(e).__name__}: {e}",
-                        file=sys.stderr,
-                    )
-                    sys.exit(1)
-            else:
-                # Failed execution - record as incorrect
-                generated = exec_result.answer or "(no answer produced)"
-                assessment = (
-                    f"Execution failed with exit code {exec_result.exit_code}. "
-                    f"stderr: {exec_result.stderr}"
-                    if exec_result.exit_code != 0
-                    else "No answer line found in stdout."
-                )
-                judgment_results.append(
-                    JudgmentResult(
-                        question=qa.question,
-                        generated_answer=generated,
-                        expected_answer=qa.expected_answer,
-                        assessment=assessment,
-                        is_correct=False,
-                        stdout=exec_result.stdout,
-                        stderr=exec_result.stderr,
-                    )
-                )
+            judgment_results.append(judgment)
+
+        print(f"  --- All {len(questions)} questions evaluated in {eval_elapsed:.1f}s (wall clock) ---")
 
         # Compute accuracy
         accuracy = compute_accuracy(judgment_results)
@@ -232,7 +271,7 @@ def run_build(args: argparse.Namespace) -> None:
         failed_judgments = [j for j in judgment_results if not j.is_correct]
         task_file_content = None
         if failed_judgments:
-            task_file_content = generate_task_file(failed_judgments, program_path)
+            task_file_content = generate_task_file(failed_judgments, program_path, ontology_file=owl_path)
 
         # Save iteration artifacts
         save_iteration(
@@ -245,6 +284,17 @@ def run_build(args: argparse.Namespace) -> None:
         )
 
         total_iterations = iteration
+
+        # Print iteration summary
+        iteration_duration = time.monotonic() - iteration_start
+        correct_count = sum(1 for j in judgment_results if j.is_correct)
+        program_loc = len(current_program_source.splitlines())
+        print(f"Iteration summary: iteration={iteration}")
+        print(f"Iteration summary: accuracy={accuracy:.2%} ({correct_count}/{len(judgment_results)} correct)")
+        print(f"Iteration summary: eval_duration={eval_elapsed:.1f}s")
+        print(f"Iteration summary: iteration_duration={iteration_duration:.1f}s")
+        print(f"Iteration summary: best_so_far={best_accuracy:.2%} (iteration {best_iteration})")
+        print(f"Iteration summary: program_loc={program_loc}")
 
         # Check if threshold is met
         if accuracy >= args.threshold:
@@ -260,13 +310,20 @@ def run_build(args: argparse.Namespace) -> None:
             fix_result = fix_program(
                 current_program=current_program_source,
                 failed_judgments=failed_judgments,
-                working_dir=run_ctx.base_dir,
+                working_dir=program_path.parent,
                 timeout=args.kiro_timeout,
+                ontology_file=owl_path,
             )
             print(
                 f"[{_timestamp()}] kiro-cli invocation complete - "
-                f"working dir: {run_ctx.base_dir}, exit code: {fix_result.exit_code}"
+                f"working dir: {program_path.parent}, exit code: {fix_result.exit_code}"
             )
+
+            # Persist kiro-cli stdout and stderr
+            if fix_result.stdout:
+                (program_path.parent / "kiro_stdout.txt").write_text(fix_result.stdout)
+            if fix_result.stderr:
+                (program_path.parent / "kiro_stderr.txt").write_text(fix_result.stderr)
 
             if fix_result.success and fix_result.modified_program:
                 previous_program_source = current_program_source
