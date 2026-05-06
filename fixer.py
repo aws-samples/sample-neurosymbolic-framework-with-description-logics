@@ -47,11 +47,21 @@ def generate_task_file(
 
     ontology_note = ""
     if ontology_file:
+        cache_file = ontology_file.with_suffix(".sqlite3")
         ontology_note = (
             f"\n\n    The ontology file is located at `{ontology_file}`. "
             "Note: this file is very large. Do NOT try to read the entire file. "
             "Instead, inspect small subsets (e.g. grep for specific class names, "
             "or read the first few hundred lines to understand the structure)."
+            f"\n\n    IMPORTANT: A pre-built SQLite cache exists at `{cache_file}`. "
+            "When you need to query the ontology interactively (e.g. to explore classes "
+            "or test queries), use the SQLite cache for much faster loading:\n"
+            "    ```python\n"
+            "    import owlready2\n"
+            f"    owlready2.default_world.set_backend(filename='{cache_file}')\n"
+            f"    onto = owlready2.get_ontology('file://{ontology_file}').load()\n"
+            "    ```\n"
+            "    Do NOT load the raw .owl file directly — it takes too long."
         )
 
     lines.append(dedent(f"""\
@@ -175,24 +185,28 @@ def fix_program(
         while True:
             # Check timeout
             elapsed = time.monotonic() - start_time
-            remaining = timeout - elapsed
-            if remaining <= 0:
-                proc.kill()
-                proc.wait()
-                os.close(master_fd)
-                error_msg = f"kiro-cli timed out after {elapsed:.1f}s (limit: {timeout}s)"
-                logger.error(error_msg)
-                print(f"\n{BG_RED}--- kiro-cli TIMED OUT ---{RESET}")
-                return FixResult(
-                    success=False,
-                    modified_program=None,
-                    exit_code=-1,
-                    error_message=error_msg,
-                    stdout="".join(collected_output),
-                    stderr="",
-                )
+            if timeout is not None:
+                remaining = timeout - elapsed
+                if remaining <= 0:
+                    proc.kill()
+                    proc.wait()
+                    os.close(master_fd)
+                    error_msg = f"kiro-cli timed out after {elapsed:.1f}s (limit: {timeout}s)"
+                    logger.error(error_msg)
+                    print(f"\n{BG_RED}--- kiro-cli TIMED OUT ---{RESET}")
+                    return FixResult(
+                        success=False,
+                        modified_program=None,
+                        exit_code=-1,
+                        error_message=error_msg,
+                        stdout="".join(collected_output),
+                        stderr="",
+                    )
+                select_timeout = min(remaining, 0.5)
+            else:
+                select_timeout = 0.5
 
-            ready, _, _ = select.select([master_fd], [], [], min(remaining, 0.5))
+            ready, _, _ = select.select([master_fd], [], [], select_timeout)
             if ready:
                 try:
                     data = os.read(master_fd, 4096)

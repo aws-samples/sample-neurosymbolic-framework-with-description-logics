@@ -64,8 +64,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--kiro-timeout",
         type=int,
-        default=1200,
-        help="Timeout in seconds for kiro-cli invocations (default: 1200).",
+        default=None,
+        help="Timeout in seconds for kiro-cli invocations (default: no timeout).",
     )
     parser.add_argument(
         "--max-questions",
@@ -289,12 +289,11 @@ def run_build(args: argparse.Namespace) -> None:
         iteration_duration = time.monotonic() - iteration_start
         correct_count = sum(1 for j in judgment_results if j.is_correct)
         program_loc = len(current_program_source.splitlines())
-        print(f"Iteration summary: iteration={iteration}")
-        print(f"Iteration summary: accuracy={accuracy:.2%} ({correct_count}/{len(judgment_results)} correct)")
-        print(f"Iteration summary: eval_duration={eval_elapsed:.1f}s")
-        print(f"Iteration summary: iteration_duration={iteration_duration:.1f}s")
-        print(f"Iteration summary: best_so_far={best_accuracy:.2%} (iteration {best_iteration})")
-        print(f"Iteration summary: program_loc={program_loc}")
+        print(
+            f"Iteration summary: iteration={iteration} accuracy={accuracy:.2%} ({correct_count}/{len(judgment_results)} correct) "
+            f"eval_duration={eval_elapsed:.1f}s iteration_duration={iteration_duration:.1f}s "
+            f"best_so_far={best_accuracy:.2%} (iteration {best_iteration}) program_loc={program_loc}"
+        )
 
         # Check if threshold is met
         if accuracy >= args.threshold:
