@@ -289,14 +289,14 @@ def run_build(args: argparse.Namespace) -> None:
         iteration_duration = time.monotonic() - iteration_start
         correct_count = sum(1 for j in judgment_results if j.is_correct)
         program_loc = len(current_program_source.splitlines())
-        print(
-            f"Iteration summary: iteration={iteration} accuracy={accuracy:.2%} ({correct_count}/{len(judgment_results)} correct) "
-            f"eval_duration={eval_elapsed:.1f}s iteration_duration={iteration_duration:.1f}s "
-            f"best_so_far={best_accuracy:.2%} (iteration {best_iteration}) program_loc={program_loc}"
-        )
 
         # Check if threshold is met
         if accuracy >= args.threshold:
+            print(
+                f"Iteration summary: iteration={iteration} accuracy={accuracy:.2%} ({correct_count}/{len(judgment_results)} correct) "
+                f"eval_duration={eval_elapsed:.1f}s iteration_duration={iteration_duration:.1f}s "
+                f"program_loc={program_loc}"
+            )
             print(
                 f"\nSuccess! Accuracy threshold met: {accuracy:.2%} "
                 f"(threshold: {args.threshold:.2%}) after {iteration} iteration(s)."
@@ -304,6 +304,7 @@ def run_build(args: argparse.Namespace) -> None:
             break
 
         # Fix program if accuracy is below threshold
+        kiro_duration = 0.0
         if failed_judgments:
             print(f"[{_timestamp()}] Fixing program based on {len(failed_judgments)} failed question(s)...")
             fix_result = fix_program(
@@ -313,6 +314,7 @@ def run_build(args: argparse.Namespace) -> None:
                 timeout=args.kiro_timeout,
                 ontology_file=owl_path,
             )
+            kiro_duration = fix_result.duration
             print(
                 f"[{_timestamp()}] kiro-cli invocation complete - "
                 f"working dir: {program_path.parent}, exit code: {fix_result.exit_code}"
@@ -333,6 +335,14 @@ def run_build(args: argparse.Namespace) -> None:
                     f"[{_timestamp()}] kiro-cli fix failed (exit code {fix_result.exit_code}): "
                     f"{fix_result.error_message}. Retaining previous program."
                 )
+
+        iteration_duration = time.monotonic() - iteration_start
+        program_loc = len(current_program_source.splitlines())
+        print(
+            f"Iteration summary: iteration={iteration} accuracy={accuracy:.2%} ({correct_count}/{len(judgment_results)} correct) "
+            f"eval_duration={eval_elapsed:.1f}s kiro_duration={kiro_duration:.1f}s iteration_duration={iteration_duration:.1f}s "
+            f"program_loc={program_loc}"
+        )
     else:
         # Max iterations reached without meeting threshold
         print(

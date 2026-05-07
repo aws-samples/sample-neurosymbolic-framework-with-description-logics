@@ -21,6 +21,7 @@ class FixResult:
     error_message: Optional[str]
     stdout: str = ""  # Captured kiro-cli stdout
     stderr: str = ""  # Captured kiro-cli stderr
+    duration: float = 0.0  # Wall-clock seconds
 
 
 def generate_task_file(
@@ -201,6 +202,7 @@ def fix_program(
                         error_message=error_msg,
                         stdout="".join(collected_output),
                         stderr="",
+                        duration=elapsed,
                     )
                 select_timeout = min(remaining, 0.5)
             else:
@@ -240,6 +242,7 @@ def fix_program(
             modified_program=None,
             exit_code=-1,
             error_message=error_msg,
+            duration=0.0,
         )
 
     elapsed = time.monotonic() - start_time
@@ -258,6 +261,7 @@ def fix_program(
             error_message=error_msg,
             stdout=full_stdout,
             stderr=full_stderr,
+            duration=elapsed,
         )
 
     # Read back the modified program
@@ -273,6 +277,7 @@ def fix_program(
             error_message=error_msg,
             stdout=full_stdout,
             stderr=full_stderr,
+            duration=elapsed,
         )
 
     return FixResult(
@@ -282,4 +287,5 @@ def fix_program(
         error_message=None,
         stdout=full_stdout,
         stderr=full_stderr,
+        duration=elapsed,
     )
