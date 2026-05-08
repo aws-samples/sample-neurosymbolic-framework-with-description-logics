@@ -73,6 +73,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Maximum number of questions to use per iteration (random sample). Uses all if not specified.",
     )
+    parser.add_argument(
+        "--num-failures-to-fix",
+        type=int,
+        default=None,
+        help="Number of failed questions to include in TASK.md for kiro-cli to fix each round. Defaults to all failures.",
+    )
     return parser.parse_args()
 
 
@@ -147,6 +153,11 @@ def run_build(args: argparse.Namespace) -> None:
     best_iteration_path = None
     total_iterations = 0
     previous_program_source = current_program_source  # No patch for iteration 1
+
+    # Track costs
+    total_judge_input_tokens = 0
+    total_judge_output_tokens = 0
+    total_kiro_duration = 0.0
 
     # 8. Main evaluation loop
     for iteration in range(1, args.max_iterations + 1):
@@ -257,6 +268,11 @@ def run_build(args: argparse.Namespace) -> None:
 
         print(f"  --- All {len(questions)} questions evaluated in {eval_elapsed:.1f}s (wall clock) ---")
 
+        # Accumulate token usage
+        for j in judgment_results:
+            total_judge_input_tokens += j.input_tokens
+            total_judge_output_tokens += j.output_tokens
+
         # Compute accuracy
         accuracy = compute_accuracy(judgment_results)
         print(f"[{_timestamp()}] Evaluation round {iteration} complete - accuracy: {accuracy:.2%}")
@@ -269,9 +285,14 @@ def run_build(args: argparse.Namespace) -> None:
 
         # Determine task file content for saving
         failed_judgments = [j for j in judgment_results if not j.is_correct]
+        # Limit failures sent to kiro-cli if --num-failures-to-fix is set
+        failures_to_fix = failed_judgments
+        if args.num_failures_to_fix and args.num_failures_to_fix < len(failed_judgments):
+            failures_to_fix = random.sample(failed_judgments, args.num_failures_to_fix)
+
         task_file_content = None
         if failed_judgments:
-            task_file_content = generate_task_file(failed_judgments, program_path, ontology_file=owl_path)
+            task_file_content = generate_task_file(failures_to_fix, program_path, ontology_file=owl_path)
 
         # Save iteration artifacts
         save_iteration(
@@ -309,12 +330,13 @@ def run_build(args: argparse.Namespace) -> None:
             print(f"[{_timestamp()}] Fixing program based on {len(failed_judgments)} failed question(s)...")
             fix_result = fix_program(
                 current_program=current_program_source,
-                failed_judgments=failed_judgments,
+                failed_judgments=failures_to_fix,
                 working_dir=program_path.parent,
                 timeout=args.kiro_timeout,
                 ontology_file=owl_path,
             )
             kiro_duration = fix_result.duration
+            total_kiro_duration += kiro_duration
             print(
                 f"[{_timestamp()}] kiro-cli invocation complete - "
                 f"working dir: {program_path.parent}, exit code: {fix_result.exit_code}"
@@ -364,6 +386,13 @@ def run_build(args: argparse.Namespace) -> None:
 
     # Print path to best-performing program
     print(f"\nBest-performing query program: {best_iteration_path}")
+
+    # Print cost/usage report
+    total_judge_tokens = total_judge_input_tokens + total_judge_output_tokens
+    print(f"\n--- Cost Report ---")
+    print(f"Judge LLM tokens: {total_judge_input_tokens:,} input + {total_judge_output_tokens:,} output = {total_judge_tokens:,} total")
+    print(f"kiro-cli total duration: {total_kiro_duration:.1f}s across {total_iterations} iteration(s)")
+    print(f"-------------------")
 
 
 def _timestamp() -> str:

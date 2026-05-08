@@ -13,6 +13,8 @@ class JudgmentResult:
     is_correct: bool  # Binary verdict
     stdout: str = ""  # Captured stdout from query program execution
     stderr: str = ""  # Captured stderr from query program execution
+    input_tokens: int = 0  # Bedrock input tokens used for judging
+    output_tokens: int = 0  # Bedrock output tokens used for judging
 
 
 _JUDGE_SYSTEM_PROMPT = (
@@ -63,6 +65,11 @@ def judge_answer(
     # Extract the response text
     response_text = response["output"]["message"]["content"][0]["text"]
 
+    # Extract token usage
+    usage = response.get("usage", {})
+    input_tokens = usage.get("inputTokens", 0)
+    output_tokens = usage.get("outputTokens", 0)
+
     # Parse the verdict from the response
     assessment, is_correct = _parse_judgment_response(response_text)
 
@@ -72,6 +79,8 @@ def judge_answer(
         expected_answer=expected_answer,
         assessment=assessment,
         is_correct=is_correct,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
     )
 
 

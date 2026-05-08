@@ -81,3 +81,65 @@ ontologies:
           Yes, the carotid arteries are a vital part of the circulatory system.
           They are major blood vessels in the neck that supply oxygen-rich
           blood directly to the brain, neck, and face.
+  - name: "GO"
+    owl_file: "~/go-plus.owl"
+    questions:
+      - question: "Does TP53 interact with DNA?"
+        expected_answer: |
+          Yes, it has DNA-binding transcription factor activity.
+      - question: "What happens when TP53 is active?"
+        expected_answer: |
+          It coordinates the apoptotic process (programmed cell death) and
+          cell cycle arrest.
+      - question: "Where does TP53 go to do its job?"
+        expected_answer: |
+          It is primarily found in the nucleus and cytoplasm, but can also
+          relocate to the mitochondria during stress.
+      - question: "What is BRCA1's main role in the cell?"
+        expected_answer: |
+          Its primary process is DNA repair, specifically repairing
+          double-strand breaks.
+      - question: "How does BRCA1 physically perform that repair?"
+        expected_answer: |
+          It exhibits ubiquitin-protein transferase activity,
+          helping to flag other proteins for the repair process.
+      - question: "Where is BRCA1 located during a 'crisis'?"
+        expected_answer: |
+          It localizes to nuclear replication forks and sites of DNA damage.
+      - question: "What kind of receptor is EGFR?"
+        expected_answer: |
+           It has transmembrane receptor protein tyrosine kinase activity.
+      - question: "What kind of receptor is EGFR?"
+        expected_answer: |
+           It has transmembrane receptor protein tyrosine kinase activity.
+      - question: "What macro-level change does EGFR cause?"
+        expected_answer: |
+           It triggers cell proliferation (rapid division) and
+           angiogenesis (the growth of new blood vessels).
+      - question: "Where is EGFR positioned to catch signals?"
+        expected_answer: |
+           It is anchored in the plasma membrane, with parts projecting
+           outside the cell to "catch" growth factors.
+      - question: "Is GAPDH just a structural component or does it have enzymatic activity?"
+        expected_answer: |
+           It has glyceraldehyde-3-phosphate dehydrogenase
+           activity, meaning it's an active enzyme in glycolysis.
+      - question: "What specific chemical reaction does GAPDH catalyze?"
+        expected_answer: |
+            It is involved in oxidation-reduction processes.
+      - question: "Does SLC6A4 move molecules across a membrane or just signal from the outside?"
+        expected_answer: |
+            SLC6A4 is annotated with serotonin transmembrane transporter activity,
+            confirming it physically moves serotonin.
+      - question: "For SLC6A4, in which specific direction is the transport moving?"
+        expected_answer: |
+            It is involved in serotonin uptake, moving the neurotransmitter
+            from the synaptic cleft back into the neuron.
+      - question: "Does COL1A1 (Collagen) produce a protein that stays inside the cell or leaves it?"
+        expected_answer: |
+            COL1A1 is located in the extracellular matrix, meaning it is
+            secreted to the outside of the cell.
+      - question: "What is COL1A1's contribution to tissue strength?"
+        expected_answer: |
+            It is annotated with the biological process collagen fibril organization.
+
