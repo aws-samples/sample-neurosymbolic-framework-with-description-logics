@@ -514,6 +514,24 @@ def run_build(args: argparse.Namespace) -> None:
             f"| {s['judge_input_tokens'] + s['judge_output_tokens']:,} "
             f"| {iter_cost:.4f} |"
         )
+
+    # Summary row
+    sum_eval = sum(s['eval_duration'] for s in iteration_stats)
+    sum_kiro = sum(s['kiro_duration'] for s in iteration_stats)
+    sum_total = sum(s['iteration_duration'] for s in iteration_stats)
+    sum_tokens = sum(s['judge_input_tokens'] + s['judge_output_tokens'] for s in iteration_stats)
+    sum_cost = _compute_cost(total_judge_input_tokens, total_judge_output_tokens, judge_model, llm_costs)
+    report_lines.append(
+        f"| **Total** "
+        f"| | "
+        f"| "
+        f"| **{sum_eval:.0f}** "
+        f"| **{sum_kiro:.0f}** "
+        f"| **{sum_total:.0f}** "
+        f"| | | "
+        f"| **{sum_tokens:,}** "
+        f"| **{sum_cost:.4f}** |"
+    )
     report_lines.append("")
 
     report_content = "\n".join(report_lines)
