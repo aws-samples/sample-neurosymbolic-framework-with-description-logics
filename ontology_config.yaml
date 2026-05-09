@@ -142,4 +142,64 @@ ontologies:
       - question: "What is COL1A1's contribution to tissue strength?"
         expected_answer: |
             It is annotated with the biological process collagen fibril organization.
+  
+  - name: "SNOMED"
+    owl_file: "~/ontology-2026-05-08_20-47-35.owl"
+    questions:
+      - question: "Give me a list of all descendants of 'Diabetes' that have a finding site of 'Eye'"
+        expected_answer: |
+          Based on SNOMED CT terminology, descendants of 'Diabetes mellitus'
+          (finding site: 'Eye') are categorized under various oculopathies and
+          retinal disorders. The most common descendants include Diabetic
+          retinopathy, macular edema, and other related complications
 
+      - question: "Find every disorder that is located in the heart AND involves tissue death (infarct)"
+        expected_answer: |
+          Here is a breakdown of disorders and subtypes that directly cause or
+          represent death of heart muscle tissue:1. Types of Myocardial Infarction
+          (Heart Attack)These are classified by the cause of the blockage or the
+          electrocardiogram (ECG) results, all resulting in cardiomyocyte 
+          necrosis: ST-Elevation Myocardial Infarction (STEMI): A major heart attack
+          where a coronary artery is completely blocked, leading to significant
+          tissue death.Non-ST Elevation Myocardial Infarction (NSTEMI): A heart
+          attack caused by a partial blockage that still causes tissue death (less
+          than a STEMI but still significant).Type 1 Myocardial Infarction: Typically
+          caused by atherosclerotic plaque rupture and thrombosis.Type 2 Myocardial
+          Infarction: Occurs due to a mismatch in oxygen supply and demand (e.g.,
+          severe anemia, spasm, or arrhythmia).Type 3, 4, and 5 Myocardial
+          Infarctions: Sudden fatal events or procedure-related (angioplasty/stent)
+          tissue death.2. Acute Coronary Syndromes (ACS)While unstable angina is
+          often considered "pre-infarct" (no cell death), it is grouped with MI
+          in the ACS spectrum because it frequently leads to infarction. Acute
+          Coronary Syndrome (ACS): Refers to any group of symptoms resulting from
+          sudden, reduced blood flow to the heart, causing infarction.3. Acute
+          Complications Causing Further Tissue DeathThese are conditions that happen
+          during or immediately following a heart attack that result in further,
+          specific damage to the heart structures:Ischemic Cardiomyopathy: Chronic
+          weakened heart muscle due to inadequate blood supply.Infarct Extension:
+          New extension of the original necrosis.Papillary Muscle Rupture: A fatal
+          complication of a heart attack where a papillary muscle dies and tears.
+          Ventricular Septal Defect (VSD) / Free Wall Rupture: Occurs when the
+          necrotic (dead) wall of the heart ruptures.Ventricular Aneurysm: 
+          A weak, dead section of the heart muscle that develops after a large
+          infarction. 4. Other Conditions Involving NecrosisInfective Endocarditis: 
+          This infection causes vegetation that can lead to destruction of cardiac
+          tissues (necrosis) through abscess formation and emboli.Myocarditis
+          (Fulminant/Acute): Severe inflammation of the heart muscle that can
+          lead to widespread necrosis.Cardiomyopathy (specific types): Chronic,
+          progressive damage and death of heart muscle cells.Summary of Key
+          Mechanisms: Coagulative Necrosis: The specific type of cell death
+          observed during a myocardial infarction.Ischemia: The prolonged lack
+          of oxygen that triggers the infarction
+      - question: "Show me every medical problem that specifically affects the lung tissue (parenchyma)"
+        expected_answer: |
+          Diseases of the lung parenchyma primarily affect the gas-exchanging
+          tissues—the alveoli, alveolar sacs, and interstitium—rather than the
+          airways. These conditions are classified by parenchymal destruction
+          (density loss/holes) or increased density (fibrosis/inflammation),
+          commonly resulting in restrictive lung disease or reduced gas exchange.
+      - question: "What are all the specific sub-types and variations of Pneumonia?"
+        expected_answer: |
+          Pneumonia is classified by its cause, where it was acquired, and which
+          part of the lung it affects. The main types are bacterial, viral,
+          fungal, and aspiration pneumonia.

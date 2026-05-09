@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import boto3
+import yaml
 
 from ontology_qa_cli.config import load_config, resolve_ontology
 from ontology_qa_cli.seed import generate_seed
@@ -18,6 +19,25 @@ from ontology_qa_cli.judge import judge_answer, compute_accuracy, JudgmentResult
 logger = logging.getLogger(__name__)
 from ontology_qa_cli.fixer import fix_program, generate_task_file
 from ontology_qa_cli.run_manager import create_run_directory, save_iteration, write_summary
+
+
+def _load_llm_costs(costs_path: Path) -> dict:
+    """Load LLM cost configuration. Returns a dict of model_id -> {input_cost_per_1k, output_cost_per_1k}."""
+    if not costs_path.exists():
+        return {}
+    try:
+        data = yaml.safe_load(costs_path.read_text())
+        return data.get("models", {})
+    except Exception:
+        return {}
+
+
+def _compute_cost(input_tokens: int, output_tokens: int, model_id: str, llm_costs: dict) -> float:
+    """Compute USD cost for a given token count and model."""
+    model_costs = llm_costs.get(model_id, {})
+    input_rate = model_costs.get("input_cost_per_1k", 0.0)
+    output_rate = model_costs.get("output_cost_per_1k", 0.0)
+    return (input_tokens / 1000.0) * input_rate + (output_tokens / 1000.0) * output_rate
 
 
 def parse_args() -> argparse.Namespace:
@@ -79,6 +99,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Number of failed questions to include in TASK.md for kiro-cli to fix each round. Defaults to all failures.",
     )
+    parser.add_argument(
+        "--llm-costs",
+        type=Path,
+        default=Path("llm-costs.yaml"),
+        help="Path to LLM cost configuration file (default: llm-costs.yaml).",
+    )
     return parser.parse_args()
 
 
@@ -87,6 +113,9 @@ def run_build(args: argparse.Namespace) -> None:
     # Expand ~ in all path arguments
     args.ontology_config = args.ontology_config.expanduser()
     args.output_dir = args.output_dir.expanduser()
+
+    # Load LLM cost configuration
+    llm_costs = _load_llm_costs(args.llm_costs.expanduser())
 
     # 0. Check AWS credentials are available
     import os
@@ -158,6 +187,7 @@ def run_build(args: argparse.Namespace) -> None:
     total_judge_input_tokens = 0
     total_judge_output_tokens = 0
     total_kiro_duration = 0.0
+    iteration_stats = []  # Per-iteration stats for the report
 
     # 8. Main evaluation loop
     for iteration in range(1, args.max_iterations + 1):
@@ -313,6 +343,21 @@ def run_build(args: argparse.Namespace) -> None:
 
         # Check if threshold is met
         if accuracy >= args.threshold:
+            # Collect stats for this final iteration before breaking
+            iter_input_tokens = sum(j.input_tokens for j in judgment_results)
+            iter_output_tokens = sum(j.output_tokens for j in judgment_results)
+            iteration_stats.append({
+                "iteration": iteration,
+                "accuracy": accuracy,
+                "correct": correct_count,
+                "total_questions": len(judgment_results),
+                "eval_duration": eval_elapsed,
+                "kiro_duration": 0.0,
+                "iteration_duration": iteration_duration,
+                "program_loc": program_loc,
+                "judge_input_tokens": iter_input_tokens,
+                "judge_output_tokens": iter_output_tokens,
+            })
             print(
                 f"Iteration summary: iteration={iteration} accuracy={accuracy:.2%} ({correct_count}/{len(judgment_results)} correct) "
                 f"eval_duration={eval_elapsed:.1f}s iteration_duration={iteration_duration:.1f}s "
@@ -365,6 +410,22 @@ def run_build(args: argparse.Namespace) -> None:
             f"eval_duration={eval_elapsed:.1f}s kiro_duration={kiro_duration:.1f}s iteration_duration={iteration_duration:.1f}s "
             f"program_loc={program_loc}"
         )
+
+        # Collect per-iteration stats for the report
+        iter_input_tokens = sum(j.input_tokens for j in judgment_results)
+        iter_output_tokens = sum(j.output_tokens for j in judgment_results)
+        iteration_stats.append({
+            "iteration": iteration,
+            "accuracy": accuracy,
+            "correct": correct_count,
+            "total_questions": len(judgment_results),
+            "eval_duration": eval_elapsed,
+            "kiro_duration": kiro_duration,
+            "iteration_duration": iteration_duration,
+            "program_loc": program_loc,
+            "judge_input_tokens": iter_input_tokens,
+            "judge_output_tokens": iter_output_tokens,
+        })
     else:
         # Max iterations reached without meeting threshold
         print(
@@ -387,12 +448,78 @@ def run_build(args: argparse.Namespace) -> None:
     # Print path to best-performing program
     print(f"\nBest-performing query program: {best_iteration_path}")
 
-    # Print cost/usage report
+    # Generate run report as markdown
+    run_end_time = datetime.now(timezone.utc)
+    run_duration = (run_end_time - run_ctx.start_time).total_seconds()
     total_judge_tokens = total_judge_input_tokens + total_judge_output_tokens
-    print(f"\n--- Cost Report ---")
-    print(f"Judge LLM tokens: {total_judge_input_tokens:,} input + {total_judge_output_tokens:,} output = {total_judge_tokens:,} total")
-    print(f"kiro-cli total duration: {total_kiro_duration:.1f}s across {total_iterations} iteration(s)")
-    print(f"-------------------")
+
+    # Compute costs
+    judge_model = "us.anthropic.claude-opus-4-6-v1"
+    total_judge_cost = _compute_cost(total_judge_input_tokens, total_judge_output_tokens, judge_model, llm_costs)
+
+    report_lines = []
+    report_lines.append(f"# Run Report: {run_ctx.ontology_name}")
+    report_lines.append("")
+    report_lines.append("## Parameters")
+    report_lines.append("")
+    report_lines.append(f"| Parameter | Value |")
+    report_lines.append(f"|-----------|-------|")
+    report_lines.append(f"| Ontology | {run_ctx.ontology_name} |")
+    report_lines.append(f"| Config | {args.ontology_config} |")
+    report_lines.append(f"| Threshold | {args.threshold:.0%} |")
+    report_lines.append(f"| Max iterations | {args.max_iterations} |")
+    report_lines.append(f"| Max questions | {args.max_questions or 'all'} |")
+    report_lines.append(f"| Num failures to fix | {args.num_failures_to_fix or 'all'} |")
+    report_lines.append(f"| Kiro timeout | {args.kiro_timeout or 'none'} |")
+    report_lines.append(f"| Output dir | {run_ctx.base_dir} |")
+    report_lines.append("")
+    report_lines.append("## Summary")
+    report_lines.append("")
+    report_lines.append(f"| Metric | Value |")
+    report_lines.append(f"|--------|-------|")
+    report_lines.append(f"| Start time | {run_ctx.start_time.strftime('%Y-%m-%d %H:%M:%S UTC')} |")
+    report_lines.append(f"| End time | {run_end_time.strftime('%Y-%m-%d %H:%M:%S UTC')} |")
+    report_lines.append(f"| Duration | {run_duration:.0f}s ({run_duration/60:.1f} min) |")
+    report_lines.append(f"| Total iterations | {total_iterations} |")
+    report_lines.append(f"| Final accuracy | {best_accuracy:.2%} |")
+    report_lines.append(f"| Best iteration | {best_iteration} |")
+    report_lines.append(f"| Termination reason | {terminated_reason} |")
+    report_lines.append(f"| Judge tokens (input) | {total_judge_input_tokens:,} |")
+    report_lines.append(f"| Judge tokens (output) | {total_judge_output_tokens:,} |")
+    report_lines.append(f"| Judge tokens (total) | {total_judge_tokens:,} |")
+    report_lines.append(f"| Judge LLM cost | ${total_judge_cost:.4f} |")
+    report_lines.append(f"| kiro-cli total duration | {total_kiro_duration:.0f}s ({total_kiro_duration/60:.1f} min) |")
+    report_lines.append("")
+    report_lines.append("## Iterations")
+    report_lines.append("")
+    report_lines.append("| Iteration | Accuracy | Correct | Eval (s) | Kiro (s) | Total (s) | LOC | Patch | Evaluation | Judge Tokens | Cost ($) |")
+    report_lines.append("|-----------|----------|---------|----------|----------|-----------|-----|-------|------------|--------------|----------|")
+    for s in iteration_stats:
+        iter_cost = _compute_cost(s['judge_input_tokens'], s['judge_output_tokens'], judge_model, llm_costs)
+        iter_num = s['iteration']
+        iter_dir = f"iteration_{iter_num}"
+        loc_link = f"[{s['program_loc']}]({iter_dir}/query_program.py)"
+        patch_link = f"[patch]({iter_dir}/changes.patch)" if iter_num > 1 else "—"
+        eval_link = f"[eval]({iter_dir}/evaluation.json)"
+        report_lines.append(
+            f"| {iter_num} "
+            f"| {s['accuracy']:.0%} "
+            f"| {s['correct']}/{s['total_questions']} "
+            f"| {s['eval_duration']:.0f} "
+            f"| {s['kiro_duration']:.0f} "
+            f"| {s['iteration_duration']:.0f} "
+            f"| {loc_link} "
+            f"| {patch_link} "
+            f"| {eval_link} "
+            f"| {s['judge_input_tokens'] + s['judge_output_tokens']:,} "
+            f"| {iter_cost:.4f} |"
+        )
+    report_lines.append("")
+
+    report_content = "\n".join(report_lines)
+    report_path = run_ctx.base_dir / "REPORT.md"
+    report_path.write_text(report_content)
+    print(f"Run report saved to: {report_path}")
 
 
 def _timestamp() -> str:
