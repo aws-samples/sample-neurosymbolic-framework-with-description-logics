@@ -202,3 +202,4 @@ For example, you can see the [REPORT.md](blob/main/assets/sample-run/REPORT.md) 
 the run.
 
 Here is a test: [self](README.md)
+[LLM costs](llm-costs.yaml)
