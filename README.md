@@ -197,8 +197,8 @@ ontologies:
 Paths support `~/` expansion.
 
 ## A Sample Run
-We can see here the [output from a run](blob/main/assets/sample-run) of the Builder CLI.
-For example, you can see the [REPORT.md](blob/main/assets/sample-run/REPORT.md) that summarizes
+We can see here the [output from a run](assets/sample-run) of the Builder CLI.
+For example, you can see the [REPORT.md](assets/sample-run/REPORT.md) that summarizes
 the run.
 
 Here is a test: [self](README.md)
