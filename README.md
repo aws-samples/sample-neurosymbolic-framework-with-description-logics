@@ -39,7 +39,7 @@ API to traverse the ontology. This means that querying a description logic ontol
 system requires us to write and critique a _program_, not just a declarative query (such as a
 `SQL SELECT`).
 
-## Ontology Statistics
+## Ontology statistics
 
 The ontologies used here are not toy ontologies, these are used in biomedical research. The following
 table shows some descriptive statistics for these three ontologies:
@@ -197,6 +197,6 @@ ontologies:
 Paths support `~/` expansion.
 
 ## A Sample Run
-We can see here the [output from a run](assets/sample-run) of the Builder CLI.
-For example, you can see the [REPORT.md](assets/sample-run/REPORT.md) that summarizes
+We can see here the [output from a run](/assets/sample-run) of the Builder CLI.
+For example, you can see the [REPORT.md](/assets/sample-run/REPORT.md) that summarizes
 the run.
