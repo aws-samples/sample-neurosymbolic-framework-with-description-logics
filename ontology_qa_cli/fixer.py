@@ -1,5 +1,6 @@
 """Program fixer using kiro-cli for ontology QA CLI."""
 import logging
+import re
 import sys
 import time
 from dataclasses import dataclass
@@ -13,6 +14,14 @@ from ontology_qa_cli.judge import JudgmentResult
 logger = logging.getLogger(__name__)
 
 
+def _extract_credits(output: str) -> float:
+    """Extract kiro credits from output like 'Credits: 2.90 • Time: 3m 20s'."""
+    match = re.search(r"Credits:\s*([\d.]+)", output)
+    if match:
+        return float(match.group(1))
+    return 0.0
+
+
 @dataclass
 class FixResult:
     success: bool
@@ -22,6 +31,7 @@ class FixResult:
     stdout: str = ""  # Captured kiro-cli stdout
     stderr: str = ""  # Captured kiro-cli stderr
     duration: float = 0.0  # Wall-clock seconds
+    credits: float = 0.0  # Kiro credits used
 
 
 def generate_task_file(
@@ -262,6 +272,7 @@ def fix_program(
             stdout=full_stdout,
             stderr=full_stderr,
             duration=elapsed,
+            credits=_extract_credits(full_stdout),
         )
 
     # Read back the modified program
@@ -278,6 +289,7 @@ def fix_program(
             stdout=full_stdout,
             stderr=full_stderr,
             duration=elapsed,
+            credits=_extract_credits(full_stdout),
         )
 
     return FixResult(
@@ -288,4 +300,5 @@ def fix_program(
         stdout=full_stdout,
         stderr=full_stderr,
         duration=elapsed,
+        credits=_extract_credits(full_stdout),
     )

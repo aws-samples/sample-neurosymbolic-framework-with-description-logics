@@ -187,9 +187,11 @@ def run_build(args: argparse.Namespace) -> None:
     total_judge_input_tokens = 0
     total_judge_output_tokens = 0
     total_kiro_duration = 0.0
+    total_kiro_credits = 0.0
     iteration_stats = []  # Per-iteration stats for the report
 
     # 8. Main evaluation loop
+    interrupted = False
     for iteration in range(1, args.max_iterations + 1):
         print(f"\n[{_timestamp()}] Starting evaluation round {iteration}")
         iteration_start = time.monotonic()
@@ -353,6 +355,7 @@ def run_build(args: argparse.Namespace) -> None:
                 "total_questions": len(judgment_results),
                 "eval_duration": eval_elapsed,
                 "kiro_duration": 0.0,
+                "kiro_credits": 0.0,
                 "iteration_duration": iteration_duration,
                 "program_loc": program_loc,
                 "judge_input_tokens": iter_input_tokens,
@@ -371,6 +374,7 @@ def run_build(args: argparse.Namespace) -> None:
 
         # Fix program if accuracy is below threshold
         kiro_duration = 0.0
+        kiro_credits = 0.0
         if failed_judgments:
             print(f"[{_timestamp()}] Fixing program based on {len(failed_judgments)} failed question(s)...")
             fix_result = fix_program(
@@ -381,7 +385,9 @@ def run_build(args: argparse.Namespace) -> None:
                 ontology_file=owl_path,
             )
             kiro_duration = fix_result.duration
+            kiro_credits = fix_result.credits
             total_kiro_duration += kiro_duration
+            total_kiro_credits += kiro_credits
             print(
                 f"[{_timestamp()}] kiro-cli invocation complete - "
                 f"working dir: {program_path.parent}, exit code: {fix_result.exit_code}"
@@ -421,10 +427,28 @@ def run_build(args: argparse.Namespace) -> None:
             "total_questions": len(judgment_results),
             "eval_duration": eval_elapsed,
             "kiro_duration": kiro_duration,
+            "kiro_credits": kiro_credits,
             "iteration_duration": iteration_duration,
             "program_loc": program_loc,
             "judge_input_tokens": iter_input_tokens,
             "judge_output_tokens": iter_output_tokens,
+        })
+
+        # Update run state for interrupt handling
+        _run_state.update({
+            "run_ctx": run_ctx,
+            "args": args,
+            "best_accuracy": best_accuracy,
+            "best_iteration": best_iteration,
+            "best_iteration_path": best_iteration_path,
+            "total_iterations": total_iterations,
+            "terminated_reason": "in_progress",
+            "total_judge_input_tokens": total_judge_input_tokens,
+            "total_judge_output_tokens": total_judge_output_tokens,
+            "total_kiro_duration": total_kiro_duration,
+            "total_kiro_credits": total_kiro_credits,
+            "iteration_stats": iteration_stats,
+            "llm_costs": llm_costs,
         })
     else:
         # Max iterations reached without meeting threshold
@@ -434,7 +458,12 @@ def run_build(args: argparse.Namespace) -> None:
         )
 
     # Write summary
-    terminated_reason = "threshold_met" if best_accuracy >= args.threshold else "max_iterations"
+    if interrupted:
+        terminated_reason = "interrupted"
+    elif best_accuracy >= args.threshold:
+        terminated_reason = "threshold_met"
+    else:
+        terminated_reason = "max_iterations"
     write_summary(
         run_ctx=run_ctx,
         final_accuracy=best_accuracy,
@@ -448,14 +477,56 @@ def run_build(args: argparse.Namespace) -> None:
     # Print path to best-performing program
     print(f"\nBest-performing query program: {best_iteration_path}")
 
-    # Generate run report as markdown
+    # Store state for report generation (also used by KeyboardInterrupt handler)
+    _run_state.update({
+        "run_ctx": run_ctx,
+        "args": args,
+        "best_accuracy": best_accuracy,
+        "best_iteration": best_iteration,
+        "best_iteration_path": best_iteration_path,
+        "total_iterations": total_iterations,
+        "terminated_reason": terminated_reason,
+        "total_judge_input_tokens": total_judge_input_tokens,
+        "total_judge_output_tokens": total_judge_output_tokens,
+        "total_kiro_duration": total_kiro_duration,
+        "total_kiro_credits": total_kiro_credits,
+        "iteration_stats": iteration_stats,
+        "llm_costs": llm_costs,
+    })
+    _generate_report(interrupted=False, **_run_state)
+
+
+# Module-level state for interrupt handling
+_run_state = {}
+
+
+def _generate_report(
+    interrupted: bool,
+    run_ctx,
+    args,
+    best_accuracy: float,
+    best_iteration: int,
+    best_iteration_path,
+    total_iterations: int,
+    terminated_reason: str,
+    total_judge_input_tokens: int,
+    total_judge_output_tokens: int,
+    total_kiro_duration: float,
+    total_kiro_credits: float,
+    iteration_stats: list,
+    llm_costs: dict,
+) -> None:
+    """Generate the REPORT.md file."""
     run_end_time = datetime.now(timezone.utc)
     run_duration = (run_end_time - run_ctx.start_time).total_seconds()
     total_judge_tokens = total_judge_input_tokens + total_judge_output_tokens
 
-    # Compute costs
     judge_model = "us.anthropic.claude-opus-4-6-v1"
+    KIRO_CREDIT_COST = 0.04  # USD per credit
     total_judge_cost = _compute_cost(total_judge_input_tokens, total_judge_output_tokens, judge_model, llm_costs)
+
+    if interrupted:
+        terminated_reason = "interrupted"
 
     report_lines = []
     report_lines.append(f"# Run Report: {run_ctx.ontology_name}")
@@ -489,11 +560,15 @@ def run_build(args: argparse.Namespace) -> None:
     report_lines.append(f"| Judge tokens (total) | {total_judge_tokens:,} |")
     report_lines.append(f"| Judge LLM cost | ${total_judge_cost:.4f} |")
     report_lines.append(f"| kiro-cli total duration | {total_kiro_duration:.0f}s ({total_kiro_duration/60:.1f} min) |")
+    report_lines.append(f"| kiro-cli total credits | {total_kiro_credits:.2f} |")
+    report_lines.append(f"| kiro-cli cost | ${total_kiro_credits * KIRO_CREDIT_COST:.4f} |")
+    total_cost = total_judge_cost + (total_kiro_credits * KIRO_CREDIT_COST)
+    report_lines.append(f"| **Total cost** | **${total_cost:.4f}** |")
     report_lines.append("")
     report_lines.append("## Iterations")
     report_lines.append("")
-    report_lines.append("| Iteration | Accuracy | Correct | Eval (s) | Kiro (s) | Total (s) | LOC | Patch | Evaluation | Judge Tokens | Cost ($) |")
-    report_lines.append("|-----------|----------|---------|----------|----------|-----------|-----|-------|------------|--------------|----------|")
+    report_lines.append("| Iteration | Accuracy | Correct | Eval (s) | Kiro (s) | Total (s) | LOC | Patch | Evaluation | Judge Tokens | Judge Cost ($) | Kiro Credits | Kiro Cost ($) |")
+    report_lines.append("|-----------|----------|---------|----------|----------|-----------|-----|-------|------------|--------------|----------------|--------------|---------------|")
     for s in iteration_stats:
         iter_cost = _compute_cost(s['judge_input_tokens'], s['judge_output_tokens'], judge_model, llm_costs)
         iter_num = s['iteration']
@@ -501,6 +576,8 @@ def run_build(args: argparse.Namespace) -> None:
         loc_link = f"[{s['program_loc']}]({iter_dir}/query_program.py)"
         patch_link = f"[patch]({iter_dir}/changes.patch)" if iter_num > 1 else "—"
         eval_link = f"[eval]({iter_dir}/evaluation.json)"
+        iter_kiro_credits = s.get('kiro_credits', 0.0)
+        iter_kiro_cost = iter_kiro_credits * KIRO_CREDIT_COST
         report_lines.append(
             f"| {iter_num} "
             f"| {s['accuracy']:.0%} "
@@ -512,27 +589,61 @@ def run_build(args: argparse.Namespace) -> None:
             f"| {patch_link} "
             f"| {eval_link} "
             f"| {s['judge_input_tokens'] + s['judge_output_tokens']:,} "
-            f"| {iter_cost:.4f} |"
+            f"| {iter_cost:.4f} "
+            f"| {iter_kiro_credits:.2f} "
+            f"| {iter_kiro_cost:.4f} |"
         )
 
-    # Summary row
-    sum_eval = sum(s['eval_duration'] for s in iteration_stats)
-    sum_kiro = sum(s['kiro_duration'] for s in iteration_stats)
-    sum_total = sum(s['iteration_duration'] for s in iteration_stats)
-    sum_tokens = sum(s['judge_input_tokens'] + s['judge_output_tokens'] for s in iteration_stats)
-    sum_cost = _compute_cost(total_judge_input_tokens, total_judge_output_tokens, judge_model, llm_costs)
-    report_lines.append(
-        f"| **Total** "
-        f"| | "
-        f"| "
-        f"| **{sum_eval:.0f}** "
-        f"| **{sum_kiro:.0f}** "
-        f"| **{sum_total:.0f}** "
-        f"| | | "
-        f"| **{sum_tokens:,}** "
-        f"| **{sum_cost:.4f}** |"
-    )
+    if not interrupted and iteration_stats:
+        # Summary row (only for completed runs)
+        sum_eval = sum(s['eval_duration'] for s in iteration_stats)
+        sum_kiro = sum(s['kiro_duration'] for s in iteration_stats)
+        sum_total = sum(s['iteration_duration'] for s in iteration_stats)
+        sum_tokens = sum(s['judge_input_tokens'] + s['judge_output_tokens'] for s in iteration_stats)
+        sum_cost = _compute_cost(total_judge_input_tokens, total_judge_output_tokens, judge_model, llm_costs)
+        sum_kiro_credits = sum(s.get('kiro_credits', 0.0) for s in iteration_stats)
+        sum_kiro_cost = sum_kiro_credits * KIRO_CREDIT_COST
+        report_lines.append(
+            f"| **Total** "
+            f"| "
+            f"| "
+            f"| **{sum_eval:.0f}** "
+            f"| **{sum_kiro:.0f}** "
+            f"| **{sum_total:.0f}** "
+            f"| "
+            f"| "
+            f"| "
+            f"| **{sum_tokens:,}** "
+            f"| **{sum_cost:.4f}** "
+            f"| **{sum_kiro_credits:.2f}** "
+            f"| **{sum_kiro_cost:.4f}** |"
+        )
     report_lines.append("")
+
+    # Add Mermaid line chart for accuracy and LOC over iterations
+    if iteration_stats:
+        report_lines.append("## Progress")
+        report_lines.append("")
+        x_axis = ", ".join(str(s["iteration"]) for s in iteration_stats)
+        accuracy_pcts = ", ".join(f'{s["accuracy"] * 100:.0f}' for s in iteration_stats)
+        loc_values = ", ".join(str(s["program_loc"]) for s in iteration_stats)
+
+        report_lines.append("```mermaid")
+        report_lines.append("xychart-beta")
+        report_lines.append(f'    title "Accuracy over iterations"')
+        report_lines.append(f'    x-axis "Iteration" [{x_axis}]')
+        report_lines.append(f'    y-axis "Accuracy (%)" 0 --> 100')
+        report_lines.append(f'    line "Accuracy" [{accuracy_pcts}]')
+        report_lines.append("```")
+        report_lines.append("")
+        report_lines.append("```mermaid")
+        report_lines.append("xychart-beta")
+        report_lines.append(f'    title "Program size over iterations"')
+        report_lines.append(f'    x-axis "Iteration" [{x_axis}]')
+        report_lines.append(f'    y-axis "Lines of code"')
+        report_lines.append(f'    line "LOC" [{loc_values}]')
+        report_lines.append("```")
+        report_lines.append("")
 
     report_content = "\n".join(report_lines)
     report_path = run_ctx.base_dir / "REPORT.md"
@@ -570,7 +681,13 @@ def main() -> None:
         stream=sys.stdout,
     )
     args = parse_args()
-    run_build(args)
+    try:
+        run_build(args)
+    except KeyboardInterrupt:
+        print("\n\nInterrupted by user. Generating partial report...")
+        # run_build stores state needed for report in _run_state
+        if _run_state:
+            _generate_report(interrupted=True, **_run_state)
 
 
 if __name__ == "__main__":

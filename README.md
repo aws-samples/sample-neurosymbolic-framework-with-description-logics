@@ -14,6 +14,44 @@ We demonstrate this system with working code and with three different real-world
 
 The system iteratively improves its query program through an automated feedback loop: it evaluates answers against known Q&A pairs using an LLM-as-a-judge, then uses kiro-cli to fix the code based on the feedback. Each iteration produces a better program that more accurately answers questions using the target ontology.
 
+## Description logics
+
+This project leverages ontologies that are available as an OWL description logic.
+
+[Description logics](https://en.wikipedia.org/wiki/Description_logic) are a
+family of logic-based knowledge representation languages that can be used to
+represent the terminological knowledge of an application domain in a
+structured way.
+
+The name _description logics_ is motivated by the fact that,
+on the one hand, the important notions of the domain are described by concept descriptions,
+i.e., expressions that are built from atomic concepts (unary predicates) and atomic roles
+(binary predicates) using the concept and role constructors provided by the particular logic.
+
+The main reason for using description logics rather than general first-order predicate logic
+when representing knowledge is that most DLs are actually decidable fragments of first-order
+predicate logic, i.e., there are effective procedures for doing inference.
+
+Unlike propositional or predicate logics, description logics do not have a declarative query
+language (like [SQL](https://en.wikipedia.org/wiki/SQL), or [SMT-LIB](https://smt-lib.org)).
+Rather, description logics are imperatively queried by writing a Python program that uses an
+API to traverse the ontology. This means that querying a description logic ontology in an agentic
+system requires us to write and critique a _program_, not just a declarative query (such as a
+`SQL SELECT`).
+
+## Ontology Statistics
+
+The ontologies used here are not toy ontologies, these are used in biomedical research. The following
+table shows some descriptive statistics for these three ontologies:
+
+<!-- Regenerate with: python -m ontology_qa_cli.ontology_stats -->
+
+| Ontology | File Size | Lines | Classes | Object Properties | Data Properties | Individuals | Axioms (Restrictions) |
+|----------|-----------|-------|---------|-------------------|-----------------|-------------|----------------------|
+| FMA | 254 MB | 3,877,972 | 104,721 | 139 | 29 | 2 | 157,831 |
+| GO | 226 MB | 3,902,991 | 84,523 | 319 | 0 | 48 | 105,495 |
+| SNOMED | 202 MB | 2,977,123 | 796,512 | 0 | — | — | 1,069,097 |
+
 ## Prerequisites
 
 - Python 3.10+
@@ -83,6 +121,26 @@ Options:
 
 - `--config PATH` — Path to YAML config file (default: `ontology_config.yaml`)
 - `--runs-dir PATH` — Base directory where builder runs are stored (default: `runs/`)
+
+### Ontology Stats CLI
+
+Generate a markdown table with descriptive statistics for all ontologies in the config:
+
+```bash
+python -m ontology_qa_cli.ontology_stats
+```
+
+This outputs a markdown table to stdout showing file size, line count, number of classes, properties, individuals, and axioms for each ontology. You can redirect it to a file or pipe it:
+
+```bash
+python -m ontology_qa_cli.ontology_stats > ontology_stats.md
+```
+
+To use a custom config file:
+
+```bash
+python -m ontology_qa_cli.ontology_stats path/to/ontology_config.yaml
+```
 
 ## Configuration
 
