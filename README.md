@@ -200,8 +200,3 @@ Paths support `~/` expansion.
 We can see here the [output from a run](assets/sample-run) of the Builder CLI.
 For example, you can see the [REPORT.md](assets/sample-run/REPORT.md) that summarizes
 the run.
-
-Here is a test: [self](README.md)
-[LLM costs](llm-costs.yaml)
-[assets](assets)
-[assets/sample-run](assets/sample-run)
