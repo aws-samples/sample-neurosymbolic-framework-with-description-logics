@@ -1,0 +1,326 @@
+"""Query program for a SNOMED CT OWL ontology.
+
+Uses an LLM to parse the question into a structured query, then uses
+a pre-built SQLite cache to answer it by traversing the ontology graph.
+"""
+import json
+import sys
+import sqlite3
+from pathlib import Path
+
+import boto3
+
+MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+
+
+def call_llm(messages, system=None):
+    client = boto3.client("bedrock-runtime", region_name="us-east-1")
+    body = {"anthropic_version": "bedrock-2023-05-31", "max_tokens": 4096, "messages": messages}
+    if system:
+        body["system"] = system
+    resp = client.invoke_model(modelId=MODEL_ID, body=json.dumps(body))
+    return json.loads(resp["body"].read())["content"][0]["text"]
+
+
+def parse_question(question):
+    system = """You parse medical ontology questions into structured queries against SNOMED CT. Return ONLY valid JSON.
+
+The ontology has concepts connected by:
+- subclass_of (is-a hierarchy, but may be incomplete for some concepts)
+- relationships: subject --role--> target (e.g., Finding site, Associated morphology, Due to, Causative agent)
+
+Common roles: "Finding site", "Associated morphology", "Due to", "Causative agent", "Pathological process", "After"
+
+Return JSON with:
+- "concept": main concept to find descendants/subtypes of (null if searching by relationships only)
+- "roles": list of role constraints, each with "role_name" and "target_name"
+- "use_due_to": true if "descendants of X" likely means "caused by X" (e.g., diabetes complications)
+- "search_terms": list of text terms to search in concept labels as fallback
+- "broader_search_terms": list of broader/related terms that could indicate the condition even without explicit ontology relationships (e.g., for "tissue death" include ["necrosis", "infarct", "ischaem", "ischem", "cardiomyopathy", "rupture", "aneurysm"])
+- "include_complications": true if the question implies we should include complications/sequelae of the condition (e.g., "involves tissue death" should include post-infarction complications)
+
+Use proper SNOMED CT concept names for targets:
+- Body structures: "Heart structure", "Eye structure", "Structure of parenchyma of lung"
+- Morphologies: "Infarct", "Necrosis", "Inflammation"
+
+Examples:
+Q: "descendants of Diabetes with finding site Eye"
+{"concept":"Diabetes mellitus","roles":[{"role_name":"Finding site","target_name":"Eye structure"}],"use_due_to":true,"search_terms":["diabetes","eye"],"broader_search_terms":[],"include_complications":false}
+
+Q: "disorders in heart involving tissue death (infarct)"
+{"concept":null,"roles":[{"role_name":"Finding site","target_name":"Heart structure"},{"role_name":"Associated morphology","target_name":"Infarct"}],"use_due_to":false,"search_terms":["infarct","heart","myocardial"],"broader_search_terms":["necrosis","necro","ischaem","ischem","cardiomyopathy","rupture","aneurysm","endocarditis","myocarditis"],"include_complications":true}
+
+Q: "problems affecting lung parenchyma"
+{"concept":null,"roles":[{"role_name":"Finding site","target_name":"Structure of parenchyma of lung"}],"use_due_to":false,"search_terms":["lung","parenchyma","alveol","interstitial"],"broader_search_terms":["pneumonia","emphysema","fibrosis","pneumonitis"],"include_complications":false}
+
+Q: "sub-types of Pneumonia"
+{"concept":"Pneumonia","roles":[],"use_due_to":false,"search_terms":["pneumonia"],"broader_search_terms":[],"include_complications":false}"""
+
+    resp = call_llm([{"role": "user", "content": question}], system=system)
+    if "```" in resp:
+        resp = resp.split("```")[1]
+        if resp.startswith("json"):
+            resp = resp[4:]
+    return json.loads(resp.strip())
+
+
+def find_concept(conn, name):
+    """Find a concept ID by label."""
+    if not name:
+        return None
+    cur = conn.cursor()
+    for query in [
+        ("SELECT concept_id FROM labels WHERE label = ? AND label_type='skos:prefLabel'", (name,)),
+        ("SELECT concept_id FROM labels WHERE label = ?", (name,)),
+        ("SELECT concept_id FROM labels WHERE LOWER(label) = LOWER(?) AND label_type='skos:prefLabel'", (name,)),
+        ("SELECT concept_id FROM labels WHERE label LIKE ? AND label_type='skos:prefLabel' LIMIT 1", (f"%{name}%",)),
+    ]:
+        cur.execute(*query)
+        row = cur.fetchone()
+        if row:
+            return row[0]
+    return None
+
+
+def get_descendants(conn, concept_id, max_depth=15):
+    """Get all descendants of a concept via subclass_of."""
+    descendants = set()
+    frontier = {concept_id}
+    for _ in range(max_depth):
+        if not frontier:
+            break
+        placeholders = ",".join("?" * len(frontier))
+        cur = conn.cursor()
+        cur.execute(f"SELECT child FROM subclass_of WHERE parent IN ({placeholders})", list(frontier))
+        children = {row[0] for row in cur.fetchall()}
+        new = children - descendants
+        descendants.update(new)
+        frontier = new
+    return descendants
+
+
+def get_concept_and_descendants(conn, concept_id):
+    result = {concept_id}
+    result.update(get_descendants(conn, concept_id))
+    return result
+
+
+def get_label(conn, concept_id):
+    cur = conn.cursor()
+    cur.execute("SELECT label FROM labels WHERE concept_id = ? AND label_type='skos:prefLabel'", (concept_id,))
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
+def find_subjects_with_role_in_targets(conn, role_id, target_set):
+    placeholders = ",".join("?" * len(target_set))
+    cur = conn.cursor()
+    cur.execute(f"SELECT DISTINCT subject FROM relationships WHERE role = ? AND target IN ({placeholders})",
+                [role_id] + list(target_set))
+    return {row[0] for row in cur.fetchall()}
+
+
+def find_subjects_with_role_targeting(conn, role_id, target_set):
+    """Find subjects that have a given role pointing to any concept in target_set."""
+    if not target_set:
+        return set()
+    placeholders = ",".join("?" * len(target_set))
+    cur = conn.cursor()
+    cur.execute(f"SELECT DISTINCT subject FROM relationships WHERE role = ? AND target IN ({placeholders})",
+                [role_id] + list(target_set))
+    return {row[0] for row in cur.fetchall()}
+
+
+def text_search(conn, terms, limit=500):
+    """Search for concepts by label text matching."""
+    cur = conn.cursor()
+    results = set()
+    for term in terms:
+        cur.execute("SELECT concept_id, label FROM labels WHERE LOWER(label) LIKE ? AND label_type='skos:prefLabel' LIMIT ?",
+                    (f"%{term.lower()}%", limit))
+        for row in cur.fetchall():
+            results.add((row[0], row[1]))
+    return results
+
+
+def get_concepts_with_finding_site_in(conn, site_set):
+    """Get all concepts that have Finding site pointing to any concept in site_set."""
+    finding_site_id = find_concept(conn, "Finding site")
+    if not finding_site_id:
+        return set()
+    return find_subjects_with_role_in_targets(conn, finding_site_id, site_set)
+
+
+def main(onto_file: str, question: str) -> None:
+    cache_file = Path(onto_file).with_suffix(".sqlite3")
+    conn = sqlite3.connect(str(cache_file))
+
+    parsed = parse_question(question)
+    concept_name = parsed.get("concept")
+    roles = parsed.get("roles", [])
+    use_due_to = parsed.get("use_due_to", False)
+    search_terms = parsed.get("search_terms", [])
+    broader_search_terms = parsed.get("broader_search_terms", [])
+    include_complications = parsed.get("include_complications", False)
+
+    concept_id = find_concept(conn, concept_name) if concept_name else None
+
+    # Get candidate set
+    candidates = None
+
+    if concept_id:
+        desc = get_descendants(conn, concept_id)
+        if use_due_to:
+            due_to_id = find_concept(conn, "Due to")
+            if due_to_id:
+                concept_set = get_concept_and_descendants(conn, concept_id)
+                due_to_subjects = find_subjects_with_role_in_targets(conn, due_to_id, concept_set)
+                desc = desc | due_to_subjects
+        if desc:
+            candidates = desc
+        elif search_terms:
+            text_results = text_search(conn, search_terms)
+            candidates = {cid for cid, _ in text_results}
+
+    # Apply role constraints
+    # Separate finding site roles from morphology/other roles
+    site_roles = []
+    morph_roles = []
+    for role_spec in roles:
+        if role_spec["role_name"] == "Finding site":
+            site_roles.append(role_spec)
+        else:
+            morph_roles.append(role_spec)
+
+    # First apply site constraints to get location-filtered set
+    site_set = None
+    site_target_concepts = None
+    for role_spec in site_roles:
+        role_id = find_concept(conn, role_spec["role_name"])
+        target_id = find_concept(conn, role_spec["target_name"])
+        if role_id and target_id:
+            site_target_concepts = get_concept_and_descendants(conn, target_id)
+            matching = find_subjects_with_role_in_targets(conn, role_id, site_target_concepts)
+            if site_set is None:
+                site_set = matching
+            else:
+                site_set = site_set & matching
+
+    # Apply morphology constraints
+    morph_matching = None
+    for role_spec in morph_roles:
+        role_id = find_concept(conn, role_spec["role_name"])
+        target_id = find_concept(conn, role_spec["target_name"])
+        if role_id and target_id:
+            target_set = get_concept_and_descendants(conn, target_id)
+            # Also include parent concepts of the target (e.g., Necrosis is parent of Infarct)
+            cur = conn.cursor()
+            cur.execute("SELECT parent FROM subclass_of WHERE child = ?", (target_id,))
+            for row in cur.fetchall():
+                parent_descendants = get_concept_and_descendants(conn, row[0])
+                target_set = target_set | parent_descendants
+            matching = find_subjects_with_role_in_targets(conn, role_id, target_set)
+            if morph_matching is None:
+                morph_matching = matching
+            else:
+                morph_matching = morph_matching & matching
+
+    # Combine: start with strict intersection
+    if site_set is not None and morph_matching is not None:
+        candidates = site_set & morph_matching if candidates is None else candidates & site_set & morph_matching
+    elif site_set is not None:
+        candidates = site_set if candidates is None else candidates & site_set
+    elif morph_matching is not None:
+        candidates = morph_matching if candidates is None else candidates & morph_matching
+
+    # Broaden results: add concepts in the site that match broader search terms
+    if broader_search_terms and site_set:
+        broader_candidates = set()
+        for cid in site_set:
+            lbl = get_label(conn, cid)
+            if lbl:
+                lbl_lower = lbl.lower()
+                for term in broader_search_terms:
+                    if term.lower() in lbl_lower:
+                        broader_candidates.add(cid)
+                        break
+        if candidates is None:
+            candidates = broader_candidates
+        else:
+            candidates = candidates | broader_candidates
+
+    # Include complications (After relationship)
+    if include_complications and morph_matching:
+        after_id = find_concept(conn, "After")
+        due_to_id = find_concept(conn, "Due to")
+        # Find concepts that are "After" or "Due to" any of the morph_matching concepts
+        if after_id:
+            after_subjects = find_subjects_with_role_targeting(conn, after_id, morph_matching)
+            # Filter to those in the site
+            if site_set:
+                after_subjects = after_subjects & site_set
+            if candidates is None:
+                candidates = after_subjects
+            else:
+                candidates = candidates | after_subjects
+        if due_to_id and morph_matching:
+            due_to_subjects = find_subjects_with_role_targeting(conn, due_to_id, morph_matching)
+            if site_set:
+                due_to_subjects = due_to_subjects & site_set
+            if candidates is None:
+                candidates = due_to_subjects
+            else:
+                candidates = candidates | due_to_subjects
+
+    # If still no candidates and we have search terms, use text search
+    if not candidates and search_terms:
+        text_results = text_search(conn, search_terms)
+        candidates = {cid for cid, _ in text_results}
+
+    if candidates is None:
+        candidates = set()
+
+    # Get labels
+    results = []
+    for cid in candidates:
+        lbl = get_label(conn, cid)
+        if lbl:
+            results.append(lbl)
+
+    results = sorted(set(results))[:300]
+
+    # Use LLM to compose answer
+    if results:
+        result_text = "\n".join(f"- {r}" for r in results)
+        summary_prompt = f"""Based on these results from the SNOMED CT ontology for the question: "{question}"
+
+Results found ({len(results)} concepts):
+{result_text}
+
+Provide a comprehensive, well-organized answer. Structure your response as follows:
+1. Start with a brief overview sentence explaining what these conditions represent and how they relate to the question.
+2. Organize the results into meaningful clinical categories and subcategories.
+3. For each category, explain what it represents and give key examples.
+4. Include information about the underlying mechanisms or pathophysiology where relevant.
+5. Mention both the major/common conditions and notable specialized subtypes.
+
+Important guidelines:
+- Provide a CATEGORICAL and CONCEPTUAL overview, not just a flat list of conditions.
+- Explain the clinical significance and relationships between categories.
+- Include broader context about how these conditions relate to each other pathophysiologically.
+- Do not include any ontology identifiers (like concept IDs).
+- Write as flowing prose with clear category descriptions, not as bullet points or markdown."""
+        answer = call_llm([{"role": "user", "content": summary_prompt}])
+    else:
+        answer = "No matching concepts found in the ontology for this query."
+
+    # Ensure answer is on a single line for proper extraction
+    answer = " ".join(answer.split())
+    print(f"Answer: {answer}")
+    conn.close()
+
+
+if __name__ == "__main__":
+    onto_file = sys.argv[1]
+    question = sys.argv[2]
+    main(onto_file, question)

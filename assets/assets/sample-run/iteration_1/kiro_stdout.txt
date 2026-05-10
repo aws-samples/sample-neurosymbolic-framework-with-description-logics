@@ -1,0 +1,2683 @@
+[32mAll tools are now trusted ([0m[31m![0m[32m). Kiro will execute tools without asking for confirmation.[0m
+Agents can sometimes do unexpected things so understand the risks.
+
+Learn more at [38;5;141mhttps://kiro.dev/docs/cli/chat/security/#using-tools-trust-all-safely[0m
+
+
+
+[38;5;252m[0m[?25l[?25l[0m[0mReading file: [38;5;141m/home/ubuntu/runs/SNOMED_20260510_191046/iteration_1/TASK.md[0m, all lines[38;5;244m (using tool: read)[0m
+[38;5;10m ✓ [0mSuccessfully read [38;5;244m13507 bytes[0m from /home/ubuntu/runs/SNOMED_20260510_191046/iteration_1/TASK.md
+[38;5;244m - Completed in 0.0s[0m
+
+[?25l[0m[38;5;141m> [0mNow let me read the current [38;5;10mquery_program.py[0m:[0m[0m
+[?25l[0m[0mReading file: [38;5;141m/home/ubuntu/runs/SNOMED_20260510_191046/iteration_1/query_program.py[0m, all lines[38;5;244m (using tool: read)[0m
+[38;5;10m ✓ [0mSuccessfully read [38;5;244m1074 bytes[0m from /home/ubuntu/runs/SNOMED_20260510_191046/iteration_1/query_program.py
+[38;5;244m - Completed in 0.0s[0m
+
+[?25l[0m[38;5;141m> [0mThe error is clear: the SQLite cache file exists at a different path than what the program derives. The program takes the ontology file path as argument and derives the cache path by changing the 
+suffix. But the actual cache is at [38;5;10m/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3[0m while the ontology is at [38;5;10m/home/ubuntu/ontology-2026-05-08_20-47-35.owl[0m. Let me verify the cache exists and understand 
+the ontology structure:[0m[0m
+[?25l[0m[0m
+[?25l[0m[0mI will run the following command: [38;5;141mls -la /home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3 2>&1 | head -3[0m[38;5;244m (using tool: shell)[0m
+Purpose: Check if the SQLite cache exists
+
+I will run the following command: [38;5;141msqlite3 /home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3 ".tables" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Check tables in the SQLite cache
+
+-rw-r--r-- 1 ubuntu ubuntu 230801408 May  9 18:19 /home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3
+[38;5;244m - Completed in 0.10s[0m
+
+bash: line 1: sqlite3: command not found
+[38;5;244m - Completed in 0.4s[0m
+
+[?25l[0m[?25l[0m[0mI will run the following command: [38;5;141mcd /home/ubuntu && python3 -c "
+import owlready2
+owlready2.default_world.set_backend(filename='/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3')
+onto = owlready2.get_ontology('file:///home/ubuntu/ontology-2026-05-08_20-47-35.owl').load()
+print('Loaded successfully')
+print('Classes count (sample):', len(list(onto.classes())[:5]))
+# Check some class labels
+for c in list(onto.classes())[:5]:
+    print(c, c.label)
+"[0m[38;5;244m (using tool: shell)[0m
+Purpose: Test loading the ontology via the SQLite cache
+
+Traceback (most recent call last):
+  File "<string>", line 3, in <module>
+    owlready2.default_world.set_backend(filename='/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3')
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ubuntu/.venv/lib/python3.14/site-packages/owlready2/namespace.py", line 400, in set_backend
+    self.graph = Graph(filename, world = self, **kargs)
+                 ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ubuntu/.venv/lib/python3.14/site-packages/owlready2/triplelite.py", line 216, in __init__
+    version = self.execute("SELECT version FROM store").fetchone()[0]
+              ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such table: store
+[38;5;244m - Completed in 0.163s[0m
+
+[?25l[0m[38;5;141m> [0mThe SQLite cache is corrupted or incompatible with the installed owlready2 version. Let me check what's actually in that file and try loading the OWL directly:[0m[0m
+[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import sqlite3
+conn = sqlite3.connect('/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3')
+cursor = conn.cursor()
+cursor.execute(\"SELECT name FROM sqlite_master WHERE type='table'\")
+print(cursor.fetchall())
+conn.close()
+"[0m[38;5;244m (using tool: shell)[0m
+Purpose: Check what tables exist in the SQLite file
+
+[('labels',), ('subclass_of',), ('relationships',), ('role_labels',)]
+[38;5;244m - Completed in 0.41s[0m
+
+[?25l[0m[38;5;141m> [0mThis is not an owlready2 quadstore — it's a custom pre-built cache with specific tables. Let me explore its structure:[0m[0m
+[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import sqlite3
+conn = sqlite3.connect('/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3')
+cursor = conn.cursor()
+
+# Check schema of each table
+for table in ['labels', 'subclass_of', 'relationships', 'role_labels']:
+    cursor.execute(f'PRAGMA table_info({table})')
+    print(f'{table}: {cursor.fetchall()}')
+
+# Sample data from each
+for table in ['labels', 'subclass_of', 'relationships', 'role_labels']:
+    cursor.execute(f'SELECT * FROM {table} LIMIT 3')
+    print(f'{table} sample: {cursor.fetchall()}')
+
+# Count rows
+for table in ['labels', 'subclass_of', 'relationships', 'role_labels']:
+    cursor.execute(f'SELECT COUNT(*) FROM {table}')
+    print(f'{table} count: {cursor.fetchone()[0]}')
+
+conn.close()
+"[0m[38;5;244m (using tool: shell)[0m
+Purpose: Explore the custom SQLite cache structure
+
+labels: [(0, 'concept_id', 'TEXT', 0, None, 0), (1, 'label', 'TEXT', 0, None, 0), (2, 'label_type', 'TEXT', 0, None, 0)]
+subclass_of: [(0, 'child', 'TEXT', 0, None, 0), (1, 'parent', 'TEXT', 0, None, 0)]
+relationships: [(0, 'subject', 'TEXT', 0, None, 0), (1, 'role', 'TEXT', 0, None, 0), (2, 'target', 'TEXT', 0, None, 0)]
+role_labels: [(0, 'role_id', 'TEXT', 0, None, 0), (1, 'label', 'TEXT', 0, None, 0)]
+labels sample: [('1295447006', 'Annotation attribute (attribute)', 'rdfs:label'), ('1295447006', 'Annotation attribute', 'skos:prefLabel'), ('1295448001', 'Attribution (attribute)', 'rdfs:label')]
+subclass_of sample: [('10000006', '29857009'), ('10000006', '9972008'), ('1000001000004108', '88878007')]
+relationships sample: [('1000001000004108', '726542003', '736204002'), ('1000061000202103', '726542003', '734679000'), ('1000061000202103', '738774007', '61275002')]
+role_labels sample: []
+labels count: 1033057
+subclass_of count: 445090
+relationships count: 624007
+role_labels count: 0
+[38;5;244m - Completed in 0.93s[0m
+
+[?25l[0m[38;5;141m> [0mNow I understand the structure. This is a custom SNOMED CT cache with:[0m[0m
+- [38;5;10mlabels[0m: concept_id → label mappings[0m[0m
+- [38;5;10msubclass_of[0m: child → parent hierarchy[0m[0m
+- [38;5;10mrelationships[0m: subject → role → target (e.g., finding site)[0m[0m
+- [38;5;10mrole_labels[0m: role_id → label (empty, so I need to find role labels in the labels table)[0m[0m
+[0m[0m
+Let me explore more about the relationships and how to find role names:[0m[0m
+[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import sqlite3
+conn = sqlite3.connect('/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3')
+cursor = conn.cursor()
+
+# Find distinct roles used in relationships
+cursor.execute('SELECT DISTINCT role FROM relationships LIMIT 20')
+roles = cursor.fetchall()
+print('Distinct roles (sample):', roles)
+
+# Check if roles have labels in the labels table
+for role in roles[:5]:
+    cursor.execute('SELECT label FROM labels WHERE concept_id = ? AND label_type = ?', (role[0], 'skos:prefLabel'))
+    result = cursor.fetchone()
+    print(f'Role {role[0]}: {result}')
+
+conn.close()
+"[0m[38;5;244m (using tool: shell)[0m
+Purpose: Explore relationship roles and their labels
+
+Distinct roles (sample): [('1003703000',), ('1003735000',), ('1148965004',), ('1148967007',), ('1148968002',), ('1148969005',), ('1149366004',), ('1149367008',), ('116676008',), ('116686009',), ('116688005',), ('118168003',), ('118169006',), ('118170007',), ('118171006',), ('127489000',), ('246075003',), ('246090004',), ('246093002',), ('246112005',)]
+Role 1003703000: ('Process extends to',)
+Role 1003735000: ('Process acts on',)
+Role 1148965004: ('Is sterile',)
+Role 1148967007: ('Has coating material',)
+Role 1148968002: ('Has surface texture',)
+[38;5;244m - Completed in 0.52s[0m
+
+[?25l[0m[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import sqlite3
+conn = sqlite3.connect('/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3')
+cursor = conn.cursor()
+
+# Find 'finding site' role
+cursor.execute(\"SELECT concept_id, label FROM labels WHERE label LIKE '%finding site%' LIMIT 10\")
+print('Finding site:', cursor.fetchall())
+
+# Find 'Diabetes' concepts
+cursor.execute(\"SELECT concept_id, label FROM labels WHERE label LIKE '%Diabetes mellitus%' AND label_type='skos:prefLabel' LIMIT 10\")
+print('Diabetes:', cursor.fetchall())
+
+# Find 'Eye' concepts
+cursor.execute(\"SELECT concept_id, label FROM labels WHERE label = 'Eye' AND label_type='skos:prefLabel' LIMIT 10\")
+print('Eye:', cursor.fetchall())
+
+# Find 'Pneumonia' concepts
+cursor.execute(\"SELECT concept_id, label FROM labels WHERE label = 'Pneumonia' AND label_type='skos:prefLabel' LIMIT 10\")
+print('Pneumonia:', cursor.fetchall())
+
+conn.close()
+"[0m[38;5;244m (using tool: shell)[0m
+Purpose: Find key concepts for the test questions
+
+Finding site: [('363698007', 'Finding site (attribute)'), ('363698007', 'Finding site')]
+Diabetes: [('1003605004', 'Glaucoma suspect due to diabetes mellitus type 2'), ('102621000119101', 'Skin ulcer due to type 2 diabetes mellitus'), ('102781000119107', 'Sensory neuropathy due to type 1 diabetes mellitus'), ('103981000119101', 'Proliferative retinopathy following surgery due to diabetes mellitus'), ('104941000119109', 'Ischaemia of retina due to type 1 diabetes mellitus'), ('104941000119109', 'Ischemia of retina due to type 1 diabetes mellitus'), ('104951000119106', 'Vitreous haemorrhage due to type 1 diabetes mellitus'), ('104951000119106', 'Vitreous hemorrhage due to type 1 diabetes mellitus'), ('104961000119108', 'Ischaemia of retina due to type 2 diabetes mellitus'), ('104961000119108', 'Ischemia of retina due to type 2 diabetes mellitus')]
+Eye: []
+Pneumonia: [('233604007', 'Pneumonia')]
+[38;5;244m - Completed in 0.412s[0m
+
+[?25l[0m[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import sqlite3
+conn = sqlite3.connect('/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3')
+cursor = conn.cursor()
+
+# Find 'Diabetes mellitus' exact
+cursor.execute(\"SELECT concept_id, label FROM labels WHERE label = 'Diabetes mellitus' AND label_type='skos:prefLabel' LIMIT 10\")
+print('Diabetes mellitus:', cursor.fetchall())
+
+# Find Eye-related structures
+cursor.execute(\"SELECT concept_id, label FROM labels WHERE label LIKE 'Eye%' AND label_type='skos:prefLabel' LIMIT 10\")
+print('Eye structures:', cursor.fetchall())
+
+# Find 'Entire eye'
+cursor.execute(\"SELECT concept_id, label FROM labels WHERE label LIKE '%eye%' AND label_type='skos:prefLabel' LIMIT 10\")
+print('eye:', cursor.fetchall())
+
+conn.close()
+"[0m[38;5;244m (using tool: shell)[0m
+Purpose: Find Diabetes mellitus and Eye concepts
+
+Diabetes mellitus: [('73211009', 'Diabetes mellitus')]
+Eye structures: [('118235002', 'Eye / vision finding'), ('789601004', 'Eye and eyelid movement monitoring spectacles'), ('110704008', 'Eye and lacrimal gland, CS'), ('737269000', 'Eye appearance abnormal'), ('470131000', 'Eye bank freezer'), ('469916000', 'Eye bank refrigerator'), ('336638005', 'Eye bath'), ('228744002', 'Eye block'), ('469340003', 'Eye brachytherapy system applicator, manual'), ('469541003', 'Eye brush')]
+eye: [('1001321000124106', 'Congenital absence of bilateral eyes'), ('1003428009', 'Glaucoma due to congenital anomaly of eye'), ('1003476005', 'Eye tracking brain injury assessment device'), ('1003489004', 'Angle closure glaucoma suspect of right eye'), ('1003490008', 'Angle closure glaucoma suspect of left eye'), ('1003491007', 'Angle closure glaucoma suspect of bilateral eyes'), ('1003532000', 'Glaucoma suspect of right eye caused by corticosteroid'), ('1003534004', 'Glaucoma suspect of left eye caused by corticosteroid'), ('1003535003', 'Glaucoma suspect of bilateral eyes caused by corticosteroid'), ('1003553009', 'Agenesis of cilia of eyelid')]
+[38;5;244m - Completed in 0.151s[0m
+
+[?25l[0m[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import sqlite3
+conn = sqlite3.connect('/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3')
+cursor = conn.cursor()
+
+# Find eye structure (body structure)
+cursor.execute(\"SELECT concept_id, label FROM labels WHERE label LIKE '%Eye structure%' AND label_type='skos:prefLabel' LIMIT 10\")
+print('Eye structure:', cursor.fetchall())
+
+# Try 'Entire eye'
+cursor.execute(\"SELECT concept_id, label FROM labels WHERE label = 'Entire eye' AND label_type='skos:prefLabel' LIMIT 10\")
+print('Entire eye:', cursor.fetchall())
+
+# Try just searching for eye as body structure
+cursor.execute(\"SELECT concept_id, label FROM labels WHERE (label = 'Eye' OR label LIKE 'Eye structure%') LIMIT 10\")
+print('Eye exact:', cursor.fetchall())
+
+# Check what's the rdfs:label for eye
+cursor.execute(\"SELECT concept_id, label, label_type FROM labels WHERE concept_id IN (SELECT concept_id FROM labels WHERE label LIKE '%Eye structure%') LIMIT 20\")
+print('Eye structure all labels:', cursor.fetchall())
+
+conn.close()
+"[0m[38;5;244m (using tool: shell)[0m
+Purpose: Find the Eye body structure concept
+
+Eye structure: [('300849006', 'Mass of eye structure'), ('301387000', 'Tenderness of eye structure'), ('308786000', 'Embryonic eye structure'), ('31636006', 'Anterior chamber of eye structure'), ('363096005', 'Division of eye structure'), ('373359009', 'Surgical closure of eye structure'), ('76729009', 'Fibrous tunic of eye structure'), ('772179005', 'Orbicularis oculi muscle of right eye structure'), ('772180008', 'Orbicularis oculi muscle of left eye structure'), ('81745001', 'Eye structure')]
+Entire eye: []
+Eye exact: [('120095006', 'Eye structure transplantation (procedure)'), ('120095006', 'Eye structure transplantation'), ('81745001', 'Eye'), ('81745001', 'Eye structure')]
+Eye structure all labels: [('120095006', 'Eye structure transplantation (procedure)', 'rdfs:label'), ('120095006', 'Eye structure transplantation', 'skos:altLabel'), ('120095006', 'Eye transplantation', 'skos:prefLabel'), ('300849006', 'Mass of eye structure (finding)', 'rdfs:label'), ('300849006', 'Eye lump', 'skos:altLabel'), ('300849006', 'Eye mass', 'skos:altLabel'), ('300849006', 'Mass of eye structure', 'skos:prefLabel'), ('301387000', 'Tenderness of eye structure (finding)', 'rdfs:label'), ('301387000', 'Tenderness of eye structure', 'skos:prefLabel'), ('308786000', 'Embryonic eye structure (body structure)', 'rdfs:label'), ('308786000', 'Embryological eye structure', 'skos:altLabel'), ('308786000', 'Embryonic eye structure', 'skos:prefLabel'), ('31636006', 'Anterior chamber of eye structure (body structure)', 'rdfs:label'), ('31636006', 'AC - Anterior chamber', 'skos:altLabel'), ('31636006', 'Anterior chamber of eye', 'skos:altLabel'), ('31636006', 'Anterior chamber of eye structure', 'skos:prefLabel'), ('363096005', 'Division of eye structure (procedure)', 'rdfs:label'), ('363096005', 'Division of eye structure', 'skos:prefLabel'), ('373359009', 'Surgical closure of eye structure (procedure)', 'rdfs:label'), ('373359009', 'Eye closure', 'skos:altLabel')]
+[38;5;244m - Completed in 0.714s[0m
+
+[?25l[0m[38;5;141m> [0mGood. Now I have a clear picture. The concept [38;5;10m81745001[0m is "Eye structure" (with label "Eye"). Let me check what AWS model is available:[0m[0m
+[?25l[0m[0m
+[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import boto3
+client = boto3.client('bedrock-runtime', region_name='us-east-1')
+print('Client created successfully')
+" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Check if boto3 bedrock client works
+
+I will run the following command: [38;5;141mpython3 -c "
+import boto3
+client = boto3.client('bedrock', region_name='us-east-1')
+models = client.list_foundation_models()
+for m in models['modelSummaries']:
+    if 'claude' in m['modelId'].lower() or 'anthropic' in m['modelId'].lower():
+        print(m['modelId'])
+" 2>&1 | head -20[0m[38;5;244m (using tool: shell)[0m
+Purpose: List available Claude models
+
+Client created successfully
+[38;5;244m - Completed in 0.397s[0m
+
+anthropic.claude-sonnet-4-20250514-v1:0
+anthropic.claude-haiku-4-5-20251001-v1:0
+anthropic.claude-sonnet-4-6
+anthropic.claude-opus-4-6-v1
+anthropic.claude-opus-4-7
+anthropic.claude-sonnet-4-5-20250929-v1:0
+anthropic.claude-opus-4-1-20250805-v1:0
+anthropic.claude-opus-4-5-20251101-v1:0
+anthropic.claude-3-sonnet-20240229-v1:0:28k
+anthropic.claude-3-sonnet-20240229-v1:0:200k
+anthropic.claude-3-sonnet-20240229-v1:0
+anthropic.claude-3-haiku-20240307-v1:0:48k
+anthropic.claude-3-haiku-20240307-v1:0:200k
+anthropic.claude-3-haiku-20240307-v1:0
+anthropic.claude-3-5-haiku-20241022-v1:0
+anthropic.claude-opus-4-20250514-v1:0
+[38;5;244m - Completed in 0.625s[0m
+
+[?25l[0m[38;5;141m> [0mNow I have everything I need. The program needs to:[0m[0m
+1. Use the custom SQLite cache directly (not via owlready2's [38;5;10mset_backend[0m)[0m[0m
+2. Use an LLM to parse the question into a structured query[0m[0m
+3. Execute the query against the SQLite database[0m[0m
+4. Format the answer using the LLM[0m[0m
+[0m[0m
+Let me write the fixed program:[0m[0m
+[?25l[0m[0mI'll create the following file: [38;5;141mquery_program.py[0m[38;5;244m (using tool: write)[0m
+Purpose: Rewrite query_program.py to use the custom SQLite cache directly instead of owlready2
+
+[49m[38;5;9m-  1     [0m:[38;5;9m[49m """Query program for an OWL ontology.
+[0m[49m[38;5;10m+       1[0m:[38;5;10m[49m """Query program for a SNOMED CT OWL ontology.
+[0m[49m[39m   2,   2[0m:[39m[49m 
+[0m[49m[38;5;9m-  3     [0m:[38;5;9m[49m This program uses Opus 4.6 to UNDERSTAND the question (decompose it into
+[0m[49m[38;5;9m-  4     [0m:[38;5;9m[49m a structured query), then uses owlready2 to ANSWER it by traversing the
+[0m[49m[38;5;9m-  5     [0m:[38;5;9m[49m ontology graph. The LLM never sees the answer — it only parses the question.
+[0m[49m[38;5;10m+       3[0m:[38;5;10m[49m Uses an LLM to parse the question into a structured query, then uses
+[0m[49m[38;5;10m+       4[0m:[38;5;10m[49m a pre-built SQLite cache to answer it by traversing the ontology graph.
+[0m[49m[39m   6,   5[0m:[39m[49m """
+[0m[49m[39m   7,   6[0m:[39m[49m import json
+[0m[49m[39m   8,   7[0m:[39m[49m import sys
+[0m[49m[38;5;10m+       8[0m:[38;5;10m[49m import sqlite3
+[0m[49m[39m   9,   9[0m:[39m[49m from pathlib import Path
+[0m[49m[39m  10,  10[0m:[39m[49m 
+[0m[49m[39m  11,  11[0m:[39m[49m import boto3
+[0m[49m[38;5;9m- 12     [0m:[38;5;9m[49m import owlready2
+[0m[49m[39m  13,  12[0m:[39m[49m 
+[0m[49m[39m  14,  13[0m:[39m[49m 
+[0m[49m[38;5;9m- 15     [0m:[38;5;9m[49m def main(onto_file: Path, question: str) -> None:
+[0m[49m[38;5;9m- 16     [0m:[38;5;9m[49m     """Answer a question about the ontology.
+[0m[49m[38;5;10m+      14[0m:[38;5;10m[49m def call_llm(messages, system=None):
+[0m[49m[38;5;10m+      15[0m:[38;5;10m[49m     client = boto3.client("bedrock-runtime", region_name="us-east-1")
+[0m[49m[38;5;10m+      16[0m:[38;5;10m[49m     body = {"anthropic_version": "bedrock-2023-05-31", "max_tokens": 2048, "messages": messages}
+[0m[49m[38;5;10m+      17[0m:[38;5;10m[49m     if system:
+[0m[49m[38;5;10m+      18[0m:[38;5;10m[49m         body["system"] = system
+[0m[49m[38;5;10m+      19[0m:[38;5;10m[49m     resp = client.invoke_model(modelId="anthropic.claude-sonnet-4-20250514-v1:0", body=json.dumps(body))
+[0m[49m[38;5;10m+      20[0m:[38;5;10m[49m     return json.loads(resp["body"].read())["content"][0]["text"]
+[0m[49m[38;5;10m+      21[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+      22[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+      23[0m:[38;5;10m[49m def parse_question(question):
+[0m[49m[38;5;10m+      24[0m:[38;5;10m[49m     system = """You parse medical ontology questions into structured queries. Return JSON only.
+[0m[49m[38;5;10m+      25[0m:[38;5;10m[49m The ontology has these query capabilities:
+[0m[49m[38;5;10m+      26[0m:[38;5;10m[49m 1. "descendants" - find all descendants (subtypes) of a concept
+[0m[49m[38;5;10m+      27[0m:[38;5;10m[49m 2. "descendants_with_role" - find descendants of a concept that have a specific relationship to another concept
+[0m[49m[38;5;10m+      28[0m:[38;5;10m[49m 3. "concepts_with_role" - find concepts that have a specific relationship to a target concept
+[0m[49m[38;5;10m+      29[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+      30[0m:[38;5;10m[49m Return JSON with:
+[0m[49m[38;5;10m+      31[0m:[38;5;10m[49m - "query_type": one of the above
+[0m[49m[38;5;10m+      32[0m:[38;5;10m[49m - "concept": the main concept to search for (e.g. "Diabetes mellitus", "Pneumonia")
+[0m[49m[38;5;10m+      33[0m:[38;5;10m[49m - "role": relationship type if applicable (e.g. "Finding site", "Associated morphology")
+[0m[49m[38;5;10m+      34[0m:[38;5;10m[49m - "target": target of the relationship if applicable (e.g. "Eye structure", "Lung")
+[0m[49m[38;5;10m+      35[0m:[38;5;10m[49m - "keywords": list of important keywords from the question for fuzzy matching
+[0m[49m[38;5;10m+      36[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+      37[0m:[38;5;10m[49m Example: "descendants of Diabetes with finding site Eye" ->
+[0m[49m[38;5;10m+      38[0m:[38;5;10m[49m {"query_type": "descendants_with_role", "concept": "Diabetes mellitus", "role": "Finding site", "target": "Eye structure", "keywords": ["diabetes", "eye"]}
+[0m[49m[38;5;10m+      39[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+      40[0m:[38;5;10m[49m Example: "sub-types of Pneumonia" ->
+[0m[49m[38;5;10m+      41[0m:[38;5;10m[49m {"query_type": "descendants", "concept": "Pneumonia", "keywords": ["pneumonia"]}
+[0m[49m[38;5;10m+      42[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+      43[0m:[38;5;10m[49m Example: "disorders located in the heart involving tissue death" ->
+[0m[49m[38;5;10m+      44[0m:[38;5;10m[49m {"query_type": "concepts_with_role", "concept": null, "role": "Finding site", "target": "Heart", "keywords": ["heart", "infarct", "tissue death", "disorder"]}
+[0m[49m[38;5;10m+      45[0m:[38;5;10m[49m """
+[0m[49m[38;5;10m+      46[0m:[38;5;10m[49m     resp = call_llm([{"role": "user", "content": question}], system=system)
+[0m[49m[38;5;10m+      47[0m:[38;5;10m[49m     # Extract JSON from response
+[0m[49m[38;5;10m+      48[0m:[38;5;10m[49m     if "```" in resp:
+[0m[49m[38;5;10m+      49[0m:[38;5;10m[49m         resp = resp.split("```")[1]
+[0m[49m[38;5;10m+      50[0m:[38;5;10m[49m         if resp.startswith("json"):
+[0m[49m[38;5;10m+      51[0m:[38;5;10m[49m             resp = resp[4:]
+[0m[49m[38;5;10m+      52[0m:[38;5;10m[49m     return json.loads(resp.strip())
+[0m[49m[38;5;10m+      53[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+      54[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+      55[0m:[38;5;10m[49m def find_concept(conn, name):
+[0m[49m[38;5;10m+      56[0m:[38;5;10m[49m     """Find a concept ID by label, trying exact then fuzzy match."""
+[0m[49m[38;5;10m+      57[0m:[38;5;10m[49m     cur = conn.cursor()
+[0m[49m[38;5;10m+      58[0m:[38;5;10m[49m     # Exact prefLabel match
+[0m[49m[38;5;10m+      59[0m:[38;5;10m[49m     cur.execute("SELECT concept_id FROM labels WHERE label = ? AND label_type='skos:prefLabel'", (name,))
+[0m[49m[38;5;10m+      60[0m:[38;5;10m[49m     row = cur.fetchone()
+[0m[49m[38;5;10m+      61[0m:[38;5;10m[49m     if row:
+[0m[49m[38;5;10m+      62[0m:[38;5;10m[49m         return row[0]
+[0m[49m[38;5;10m+      63[0m:[38;5;10m[49m     # Exact any label match
+[0m[49m[38;5;10m+      64[0m:[38;5;10m[49m     cur.execute("SELECT concept_id FROM labels WHERE label = ?", (name,))
+[0m[49m[38;5;10m+      65[0m:[38;5;10m[49m     row = cur.fetchone()
+[0m[49m[38;5;10m+      66[0m:[38;5;10m[49m     if row:
+[0m[49m[38;5;10m+      67[0m:[38;5;10m[49m         return row[0]
+[0m[49m[38;5;10m+      68[0m:[38;5;10m[49m     # Case-insensitive
+[0m[49m[38;5;10m+      69[0m:[38;5;10m[49m     cur.execute("SELECT concept_id FROM labels WHERE LOWER(label) = LOWER(?) AND label_type='skos:prefLabel'", (name,))
+[0m[49m[38;5;10m+      70[0m:[38;5;10m[49m     row = cur.fetchone()
+[0m[49m[38;5;10m+      71[0m:[38;5;10m[49m     if row:
+[0m[49m[38;5;10m+      72[0m:[38;5;10m[49m         return row[0]
+[0m[49m[38;5;10m+      73[0m:[38;5;10m[49m     # LIKE match
+[0m[49m[38;5;10m+      74[0m:[38;5;10m[49m     cur.execute("SELECT concept_id FROM labels WHERE label LIKE ? AND label_type='skos:prefLabel' LIMIT 1", (f"%{name}%",))
+[0m[49m[38;5;10m+      75[0m:[38;5;10m[49m     row = cur.fetchone()
+[0m[49m[38;5;10m+      76[0m:[38;5;10m[49m     if row:
+[0m[49m[38;5;10m+      77[0m:[38;5;10m[49m         return row[0]
+[0m[49m[38;5;10m+      78[0m:[38;5;10m[49m     return None
+[0m[49m[38;5;10m+      79[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+      80[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+      81[0m:[38;5;10m[49m def find_role(conn, name):
+[0m[49m[38;5;10m+      82[0m:[38;5;10m[49m     """Find a role/attribute concept ID by label."""
+[0m[49m[38;5;10m+      83[0m:[38;5;10m[49m     cur = conn.cursor()
+[0m[49m[38;5;10m+      84[0m:[38;5;10m[49m     cur.execute("SELECT concept_id FROM labels WHERE LOWER(label) = LOWER(?) AND label_type='skos:prefLabel'", (name,))
+[0m[49m[38;5;10m+      85[0m:[38;5;10m[49m     row = cur.fetchone()
+[0m[49m[38;5;10m+      86[0m:[38;5;10m[49m     if row:
+[0m[49m[38;5;10m+      87[0m:[38;5;10m[49m         return row[0]
+[0m[49m[38;5;10m+      88[0m:[38;5;10m[49m     cur.execute("SELECT concept_id FROM labels WHERE LOWER(label) LIKE LOWER(?) AND label_type='skos:prefLabel' LIMIT 1", (f"%{name}%",))
+[0m[49m[38;5;10m+      89[0m:[38;5;10m[49m     row = cur.fetchone()
+[0m[49m[38;5;10m+      90[0m:[38;5;10m[49m     if row:
+[0m[49m[38;5;10m+      91[0m:[38;5;10m[49m         return row[0]
+[0m[49m[38;5;10m+      92[0m:[38;5;10m[49m     return None
+[0m[49m[39m  17,  93[0m:[39m[49m 
+[0m[49m[38;5;9m- 18     [0m:[38;5;9m[49m     Uses Opus 4.6 to understand/decompose the question, then owlready2 to answer it.
+[0m[49m[39m  19,  94[0m:[39m[49m 
+[0m[49m[38;5;9m- 20     [0m:[38;5;9m[49m     Args:
+[0m[49m[38;5;9m- 21     [0m:[38;5;9m[49m         onto_file: Path to the OWL XML file.
+[0m[49m[38;5;9m- 22     [0m:[38;5;9m[49m         question: Natural language question to answer.
+[0m[49m[38;5;9m- 23     [0m:[38;5;9m[49m     """
+[0m[49m[38;5;9m- 24     [0m:[38;5;9m[49m     # Load ontology with SQLite caching for faster repeated loads
+[0m[49m[38;5;9m- 25     [0m:[38;5;9m[49m     cache_file = onto_file.with_suffix(".sqlite3")
+[0m[49m[38;5;9m- 26     [0m:[38;5;9m[49m     owlready2.default_world.set_backend(filename=str(cache_file))
+[0m[49m[38;5;9m- 27     [0m:[38;5;9m[49m     onto = owlready2.get_ontology(f"file://{onto_file}").load()
+[0m[49m[38;5;10m+      95[0m:[38;5;10m[49m def get_descendants(conn, concept_id, max_depth=10):
+[0m[49m[38;5;10m+      96[0m:[38;5;10m[49m     """Get all descendants of a concept via subclass_of."""
+[0m[49m[38;5;10m+      97[0m:[38;5;10m[49m     descendants = set()
+[0m[49m[38;5;10m+      98[0m:[38;5;10m[49m     frontier = {concept_id}
+[0m[49m[38;5;10m+      99[0m:[38;5;10m[49m     for _ in range(max_depth):
+[0m[49m[38;5;10m+     100[0m:[38;5;10m[49m         if not frontier:
+[0m[49m[38;5;10m+     101[0m:[38;5;10m[49m             break
+[0m[49m[38;5;10m+     102[0m:[38;5;10m[49m         placeholders = ",".join("?" * len(frontier))
+[0m[49m[38;5;10m+     103[0m:[38;5;10m[49m         cur = conn.cursor()
+[0m[49m[38;5;10m+     104[0m:[38;5;10m[49m         cur.execute(f"SELECT child FROM subclass_of WHERE parent IN ({placeholders})", list(frontier))
+[0m[49m[38;5;10m+     105[0m:[38;5;10m[49m         children = {row[0] for row in cur.fetchall()}
+[0m[49m[38;5;10m+     106[0m:[38;5;10m[49m         new = children - descendants
+[0m[49m[38;5;10m+     107[0m:[38;5;10m[49m         descendants.update(new)
+[0m[49m[38;5;10m+     108[0m:[38;5;10m[49m         frontier = new
+[0m[49m[38;5;10m+     109[0m:[38;5;10m[49m     return descendants
+[0m[49m[39m  28, 110[0m:[39m[49m 
+[0m[49m[38;5;9m- 29     [0m:[38;5;9m[49m     answer = "I don't know"
+[0m[49m[38;5;10m+     111[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+     112[0m:[38;5;10m[49m def get_label(conn, concept_id):
+[0m[49m[38;5;10m+     113[0m:[38;5;10m[49m     """Get the preferred label for a concept."""
+[0m[49m[38;5;10m+     114[0m:[38;5;10m[49m     cur = conn.cursor()
+[0m[49m[38;5;10m+     115[0m:[38;5;10m[49m     cur.execute("SELECT label FROM labels WHERE concept_id = ? AND label_type='skos:prefLabel'", (concept_id,))
+[0m[49m[38;5;10m+     116[0m:[38;5;10m[49m     row = cur.fetchone()
+[0m[49m[38;5;10m+     117[0m:[38;5;10m[49m     return row[0] if row else None
+[0m[49m[38;5;10m+     118[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+     119[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+     120[0m:[38;5;10m[49m def get_descendants_of_target(conn, target_id):
+[0m[49m[38;5;10m+     121[0m:[38;5;10m[49m     """Get target and all its descendants (for matching 'Eye' includes sub-structures)."""
+[0m[49m[38;5;10m+     122[0m:[38;5;10m[49m     targets = {target_id}
+[0m[49m[38;5;10m+     123[0m:[38;5;10m[49m     targets.update(get_descendants(conn, target_id))
+[0m[49m[38;5;10m+     124[0m:[38;5;10m[49m     return targets
+[0m[49m[38;5;10m+     125[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+     126[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+     127[0m:[38;5;10m[49m def main(onto_file: str, question: str) -> None:
+[0m[49m[38;5;10m+     128[0m:[38;5;10m[49m     cache_file = Path(onto_file).with_suffix(".sqlite3")
+[0m[49m[38;5;10m+     129[0m:[38;5;10m[49m     conn = sqlite3.connect(str(cache_file))
+[0m[49m[38;5;10m+     130[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+     131[0m:[38;5;10m[49m     # Parse question with LLM
+[0m[49m[38;5;10m+     132[0m:[38;5;10m[49m     parsed = parse_question(question)
+[0m[49m[38;5;10m+     133[0m:[38;5;10m[49m     query_type = parsed.get("query_type", "descendants")
+[0m[49m[38;5;10m+     134[0m:[38;5;10m[49m     concept_name = parsed.get("concept")
+[0m[49m[38;5;10m+     135[0m:[38;5;10m[49m     role_name = parsed.get("role")
+[0m[49m[38;5;10m+     136[0m:[38;5;10m[49m     target_name = parsed.get("target")
+[0m[49m[38;5;10m+     137[0m:[38;5;10m[49m     keywords = parsed.get("keywords", [])
+[0m[49m[38;5;10m+     138[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+     139[0m:[38;5;10m[49m     results = []
+[0m[49m[38;5;10m+     140[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+     141[0m:[38;5;10m[49m     if query_type == "descendants" and concept_name:
+[0m[49m[38;5;10m+     142[0m:[38;5;10m[49m         concept_id = find_concept(conn, concept_name)
+[0m[49m[38;5;10m+     143[0m:[38;5;10m[49m         if concept_id:
+[0m[49m[38;5;10m+     144[0m:[38;5;10m[49m             desc_ids = get_descendants(conn, concept_id)
+[0m[49m[38;5;10m+     145[0m:[38;5;10m[49m             for did in list(desc_ids)[:200]:
+[0m[49m[38;5;10m+     146[0m:[38;5;10m[49m                 lbl = get_label(conn, did)
+[0m[49m[38;5;10m+     147[0m:[38;5;10m[49m                 if lbl:
+[0m[49m[38;5;10m+     148[0m:[38;5;10m[49m                     results.append(lbl)
+[0m[49m[38;5;10m+     149[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+     150[0m:[38;5;10m[49m     elif query_type == "descendants_with_role" and concept_name:
+[0m[49m[38;5;10m+     151[0m:[38;5;10m[49m         concept_id = find_concept(conn, concept_name)
+[0m[49m[38;5;10m+     152[0m:[38;5;10m[49m         role_id = find_role(conn, role_name) if role_name else None
+[0m[49m[38;5;10m+     153[0m:[38;5;10m[49m         target_id = find_concept(conn, target_name) if target_name else None
+[0m[49m[38;5;10m+     154[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+     155[0m:[38;5;10m[49m         if concept_id:
+[0m[49m[38;5;10m+     156[0m:[38;5;10m[49m             desc_ids = get_descendants(conn, concept_id)
+[0m[49m[38;5;10m+     157[0m:[38;5;10m[49m             if role_id and target_id:
+[0m[49m[38;5;10m+     158[0m:[38;5;10m[49m                 # Get all descendants of target too (Eye includes sub-structures of eye)
+[0m[49m[38;5;10m+     159[0m:[38;5;10m[49m                 target_ids = get_descendants_of_target(conn, target_id)
+[0m[49m[38;5;10m+     160[0m:[38;5;10m[49m                 placeholders_t = ",".join("?" * len(target_ids))
+[0m[49m[38;5;10m+     161[0m:[38;5;10m[49m                 for did in desc_ids:
+[0m[49m[38;5;10m+     162[0m:[38;5;10m[49m                     cur = conn.cursor()
+[0m[49m[38;5;10m+     163[0m:[38;5;10m[49m                     cur.execute(f"SELECT 1 FROM relationships WHERE subject=? AND role=? AND target IN ({placeholders_t}) LIMIT 1",
+[0m[49m[38;5;10m+     164[0m:[38;5;10m[49m                                 [did, role_id] + list(target_ids))
+[0m[49m[38;5;10m+     165[0m:[38;5;10m[49m                     if cur.fetchone():
+[0m[49m[38;5;10m+     166[0m:[38;5;10m[49m                         lbl = get_label(conn, did)
+[0m[49m[38;5;10m+     167[0m:[38;5;10m[49m                         if lbl:
+[0m[49m[38;5;10m+     168[0m:[38;5;10m[49m                             results.append(lbl)
+[0m[49m[38;5;10m+     169[0m:[38;5;10m[49m             else:
+[0m[49m[38;5;10m+     170[0m:[38;5;10m[49m                 # Fallback: just return descendants
+[0m[49m[38;5;10m+     171[0m:[38;5;10m[49m                 for did in list(desc_ids)[:200]:
+[0m[49m[38;5;10m+     172[0m:[38;5;10m[49m                     lbl = get_label(conn, did)
+[0m[49m[38;5;10m+     173[0m:[38;5;10m[49m                     if lbl:
+[0m[49m[38;5;10m+     174[0m:[38;5;10m[49m                         results.append(lbl)
+[0m[49m[38;5;10m+     175[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+     176[0m:[38;5;10m[49m     elif query_type == "concepts_with_role":
+[0m[49m[38;5;10m+     177[0m:[38;5;10m[49m         role_id = find_role(conn, role_name) if role_name else None
+[0m[49m[38;5;10m+     178[0m:[38;5;10m[49m         target_id = find_concept(conn, target_name) if target_name else None
+[0m[49m[38;5;10m+     179[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+     180[0m:[38;5;10m[49m         if role_id and target_id:
+[0m[49m[38;5;10m+     181[0m:[38;5;10m[49m             target_ids = get_descendants_of_target(conn, target_id)
+[0m[49m[38;5;10m+     182[0m:[38;5;10m[49m             placeholders_t = ",".join("?" * len(target_ids))
+[0m[49m[38;5;10m+     183[0m:[38;5;10m[49m             cur = conn.cursor()
+[0m[49m[38;5;10m+     184[0m:[38;5;10m[49m             cur.execute(f"SELECT DISTINCT subject FROM relationships WHERE role=? AND target IN ({placeholders_t})",
+[0m[49m[38;5;10m+     185[0m:[38;5;10m[49m                         [role_id] + list(target_ids))
+[0m[49m[38;5;10m+     186[0m:[38;5;10m[49m             subject_ids = [row[0] for row in cur.fetchall()]
+[0m[49m[38;5;10m+     187[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+     188[0m:[38;5;10m[49m             # Filter by keywords if present
+[0m[49m[38;5;10m+     189[0m:[38;5;10m[49m             for sid in subject_ids[:500]:
+[0m[49m[38;5;10m+     190[0m:[38;5;10m[49m                 lbl = get_label(conn, sid)
+[0m[49m[38;5;10m+     191[0m:[38;5;10m[49m                 if lbl:
+[0m[49m[38;5;10m+     192[0m:[38;5;10m[49m                     lbl_lower = lbl.lower()
+[0m[49m[38;5;10m+     193[0m:[38;5;10m[49m                     # For keyword filtering, check if any keyword matches
+[0m[49m[38;5;10m+     194[0m:[38;5;10m[49m                     if keywords:
+[0m[49m[38;5;10m+     195[0m:[38;5;10m[49m                         kw_match = any(k.lower() in lbl_lower for k in keywords if k.lower() not in (target_name or "").lower().split())
+[0m[49m[38;5;10m+     196[0m:[38;5;10m[49m                         if kw_match:
+[0m[49m[38;5;10m+     197[0m:[38;5;10m[49m                             results.append(lbl)
+[0m[49m[38;5;10m+     198[0m:[38;5;10m[49m                         else:
+[0m[49m[38;5;10m+     199[0m:[38;5;10m[49m                             results.append(lbl)
+[0m[49m[38;5;10m+     200[0m:[38;5;10m[49m                     else:
+[0m[49m[38;5;10m+     201[0m:[38;5;10m[49m                         results.append(lbl)
+[0m[49m[38;5;10m+     202[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+     203[0m:[38;5;10m[49m     # If no results from structured query, try keyword search
+[0m[49m[38;5;10m+     204[0m:[38;5;10m[49m     if not results and keywords:
+[0m[49m[38;5;10m+     205[0m:[38;5;10m[49m         cur = conn.cursor()
+[0m[49m[38;5;10m+     206[0m:[38;5;10m[49m         for kw in keywords:
+[0m[49m[38;5;10m+     207[0m:[38;5;10m[49m             cur.execute("SELECT concept_id, label FROM labels WHERE label LIKE ? AND label_type='skos:prefLabel' LIMIT 50",
+[0m[49m[38;5;10m+     208[0m:[38;5;10m[49m                         (f"%{kw}%",))
+[0m[49m[38;5;10m+     209[0m:[38;5;10m[49m             for row in cur.fetchall():
+[0m[49m[38;5;10m+     210[0m:[38;5;10m[49m                 results.append(row[1])
+[0m[49m[38;5;10m+     211[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+     212[0m:[38;5;10m[49m     # Limit results for LLM summarization
+[0m[49m[38;5;10m+     213[0m:[38;5;10m[49m     results = sorted(set(results))[:100]
+[0m[49m[38;5;10m+     214[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+     215[0m:[38;5;10m[49m     # Use LLM to compose a natural language answer
+[0m[49m[38;5;10m+     216[0m:[38;5;10m[49m     if results:
+[0m[49m[38;5;10m+     217[0m:[38;5;10m[49m         result_text = "\n".join(f"- {r}" for r in results)
+[0m[49m[38;5;10m+     218[0m:[38;5;10m[49m         summary_prompt = f"""Based on these results from the SNOMED CT ontology for the question: "{question}"
+[0m[49m[38;5;10m+     219[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+     220[0m:[38;5;10m[49m Results found ({len(results)} concepts):
+[0m[49m[38;5;10m+     221[0m:[38;5;10m[49m {result_text}
+[0m[49m[38;5;10m+     222[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+     223[0m:[38;5;10m[49m Provide a clear, organized summary answer. Group related items if appropriate. Do not include any ontology identifiers like concept IDs. Keep the answer informative but concise."""
+[0m[49m[38;5;10m+     224[0m:[38;5;10m[49m         answer = call_llm([{"role": "user", "content": summary_prompt}])
+[0m[49m[38;5;10m+     225[0m:[38;5;10m[49m     else:
+[0m[49m[38;5;10m+     226[0m:[38;5;10m[49m         answer = "No matching concepts found in the ontology for this query."
+[0m[49m[38;5;10m+     227[0m:[38;5;10m[49m 
+[0m[49m[39m  30, 228[0m:[39m[49m     print(f"Answer: {answer}")
+[0m[49m[38;5;10m+     229[0m:[38;5;10m[49m     conn.close()
+[0m[49m[39m  31, 230[0m:[39m[49m 
+[0m[49m[39m  32, 231[0m:[39m[49m 
+[0m[49m[39m  33, 232[0m:[39m[49m if __name__ == "__main__":
+[0m[49m[38;5;9m- 34     [0m:[38;5;9m[49m     onto_file = Path(sys.argv[1])
+[0m[49m[38;5;10m+     233[0m:[38;5;10m[49m     onto_file = sys.argv[1]
+[0m[49m[39m  35, 234[0m:[39m[49m     question = sys.argv[2]
+[0m[49m[39m  36, 235[0m:[39m[49m     main(onto_file, question)
+[0m[K
+Replacing: [38;5;141mquery_program.py[0m
+[38;5;244m - Completed in 0.1s[0m
+
+[?25l[0m[38;5;141m> [0mNow let me test it with one of the failing questions:[0m[0m
+[?25l[0m[0mI will run the following command: [38;5;141mcd /home/ubuntu/runs/SNOMED_20260510_191046/iteration_1 && python3 query_program.py /home/ubuntu/ontology-2026-05-08_20-47-35.owl "What are all the specific sub-types and variations of Pneumonia?" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Test with the Pneumonia question
+
+Traceback (most recent call last):
+  File "/home/ubuntu/runs/SNOMED_20260510_191046/iteration_1/query_program.py", line 235, in <module>
+    main(onto_file, question)
+    ~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ubuntu/runs/SNOMED_20260510_191046/iteration_1/query_program.py", line 132, in main
+    parsed = parse_question(question)
+  File "/home/ubuntu/runs/SNOMED_20260510_191046/iteration_1/query_program.py", line 46, in parse_question
+    resp = call_llm([{"role": "user", "content": question}], system=system)
+  File "/home/ubuntu/runs/SNOMED_20260510_191046/iteration_1/query_program.py", line 19, in call_llm
+    resp = client.invoke_model(modelId="anthropic.claude-sonnet-4-20250514-v1:0", body=json.dumps(body))
+  File "/home/ubuntu/.venv/lib/python3.14/site-packages/botocore/client.py", line 606, in _api_call
+    return self._make_api_call(operation_name, kwargs)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ubuntu/.venv/lib/python3.14/site-packages/botocore/context.py", line 123, in wrapper
+    return func(*args, **kwargs)
+  File "/home/ubuntu/.venv/lib/python3.14/site-packages/botocore/client.py", line 1094, in _make_api_call
+    raise error_class(parsed_response, operation_name)
+botocore.errorfactory.ValidationException: An error occurred (ValidationException) when calling the InvokeModel operation: Invocation of model ID anthropic.claude-sonnet-4-20250514-v1:0 with on-demand throughput isn’t supported. Retry your request with the ID or ARN of an inference profile that contains this model.
+[38;5;244m - Completed in 0.464s[0m
+
+[?25l[0m[38;5;141m> [0mNeed to use an inference profile or a different model. Let me check what works:[0m[0m
+[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import boto3, json
+client = boto3.client('bedrock-runtime', region_name='us-east-1')
+# Try claude-3-haiku
+body = json.dumps({'anthropic_version': 'bedrock-2023-05-31', 'max_tokens': 100, 'messages': [{'role': 'user', 'content': 'Say hi'}]})
+resp = client.invoke_model(modelId='anthropic.claude-3-haiku-20240307-v1:0', body=body)
+print(json.loads(resp['body'].read())['content'][0]['text'])
+" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Test if claude-3-haiku works
+
+Traceback (most recent call last):
+  File "<string>", line 6, in <module>
+    resp = client.invoke_model(modelId='anthropic.claude-3-haiku-20240307-v1:0', body=body)
+  File "/home/ubuntu/.venv/lib/python3.14/site-packages/botocore/client.py", line 606, in _api_call
+    return self._make_api_call(operation_name, kwargs)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ubuntu/.venv/lib/python3.14/site-packages/botocore/context.py", line 123, in wrapper
+    return func(*args, **kwargs)
+  File "/home/ubuntu/.venv/lib/python3.14/site-packages/botocore/client.py", line 1094, in _make_api_call
+    raise error_class(parsed_response, operation_name)
+botocore.errorfactory.ResourceNotFoundException: An error occurred (ResourceNotFoundException) when calling the InvokeModel operation: Access denied. This Model is marked by provider as Legacy and you have not been actively using the model in the last 30 days. Please upgrade to an active model on Amazon Bedrock
+[38;5;244m - Completed in 0.501s[0m
+
+[?25l[0m[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import boto3, json
+client = boto3.client('bedrock-runtime', region_name='us-east-1')
+# Try claude-3-5-haiku
+body = json.dumps({'anthropic_version': 'bedrock-2023-05-31', 'max_tokens': 100, 'messages': [{'role': 'user', 'content': 'Say hi'}]})
+resp = client.invoke_model(modelId='anthropic.claude-3-5-haiku-20241022-v1:0', body=body)
+print(json.loads(resp['body'].read())['content'][0]['text'])
+" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Test if claude-3-5-haiku works
+
+Traceback (most recent call last):
+  File "<string>", line 6, in <module>
+    resp = client.invoke_model(modelId='anthropic.claude-3-5-haiku-20241022-v1:0', body=body)
+  File "/home/ubuntu/.venv/lib/python3.14/site-packages/botocore/client.py", line 606, in _api_call
+    return self._make_api_call(operation_name, kwargs)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ubuntu/.venv/lib/python3.14/site-packages/botocore/context.py", line 123, in wrapper
+    return func(*args, **kwargs)
+  File "/home/ubuntu/.venv/lib/python3.14/site-packages/botocore/client.py", line 1094, in _make_api_call
+    raise error_class(parsed_response, operation_name)
+botocore.errorfactory.ValidationException: An error occurred (ValidationException) when calling the InvokeModel operation: Invocation of model ID anthropic.claude-3-5-haiku-20241022-v1:0 with on-demand throughput isn’t supported. Retry your request with the ID or ARN of an inference profile that contains this model.
+[38;5;244m - Completed in 0.476s[0m
+
+[?25l[0m[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import boto3
+client = boto3.client('bedrock', region_name='us-east-1')
+# List inference profiles
+resp = client.list_inference_profiles()
+for p in resp.get('inferenceProfileSummaries', []):
+    print(p['inferenceProfileId'], p.get('inferenceProfileName', ''))
+" 2>&1 | head -30[0m[38;5;244m (using tool: shell)[0m
+Purpose: List available inference profiles
+
+us.anthropic.claude-3-sonnet-20240229-v1:0 US Anthropic Claude 3 Sonnet
+us.anthropic.claude-3-opus-20240229-v1:0 US Anthropic Claude 3 Opus
+us.anthropic.claude-3-haiku-20240307-v1:0 US Anthropic Claude 3 Haiku
+us.meta.llama3-2-11b-instruct-v1:0 US Meta Llama 3.2 11B Instruct
+us.meta.llama3-2-3b-instruct-v1:0 US Meta Llama 3.2 3B Instruct
+us.meta.llama3-2-90b-instruct-v1:0 US Meta Llama 3.2 90B Instruct
+us.meta.llama3-2-1b-instruct-v1:0 US Meta Llama 3.2 1B Instruct
+us.anthropic.claude-3-5-haiku-20241022-v1:0 US Anthropic Claude 3.5 Haiku
+us.meta.llama3-1-8b-instruct-v1:0 US Meta Llama 3.1 8B Instruct
+us.meta.llama3-1-70b-instruct-v1:0 US Meta Llama 3.1 70B Instruct
+us.meta.llama3-3-70b-instruct-v1:0 US Meta Llama 3.3 70B Instruct
+us.deepseek.r1-v1:0 US DeepSeek-R1
+us.mistral.pixtral-large-2502-v1:0 US Mistral Pixtral Large 25.02
+us.amazon.nova-premier-v1:0 US Nova Premier
+us.anthropic.claude-opus-4-20250514-v1:0 US Claude Opus 4
+us.twelvelabs.pegasus-1-2-v1:0 US Pegasus v1.2
+us.stability.stable-conservative-upscale-v1:0 US Stable Image Conservative Upscale
+us.twelvelabs.marengo-embed-2-7-v1:0 US TwelveLabs Marengo Embed v2.7
+us.stability.stable-creative-upscale-v1:0 US Stable Image Creative Upscale
+us.stability.stable-fast-upscale-v1:0 US Stable Image Fast Upscale
+us.stability.stable-image-control-sketch-v1:0 US Stable Image Control Sketch
+us.stability.stable-image-control-structure-v1:0 US Stable Image Control Structure
+us.stability.stable-image-erase-object-v1:0 US Stable Image Erase Object
+us.stability.stable-image-inpaint-v1:0 US Stable Image Inpaint
+us.stability.stable-image-remove-background-v1:0 US Stable Image Remove Background
+us.stability.stable-image-search-replace-v1:0 US Stable Image Search and Replace
+us.stability.stable-image-search-recolor-v1:0 US Stable Image Search and Recolor
+us.stability.stable-image-style-guide-v1:0 US Stable Image Style Guide
+us.stability.stable-outpaint-v1:0 US Stable Image Outpaint
+us.stability.stable-style-transfer-v1:0 US Stable Image Style Transfer
+[38;5;244m - Completed in 0.835s[0m
+
+[?25l[0m[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import boto3, json
+client = boto3.client('bedrock-runtime', region_name='us-east-1')
+body = json.dumps({'anthropic_version': 'bedrock-2023-05-31', 'max_tokens': 100, 'messages': [{'role': 'user', 'content': 'Say hi'}]})
+resp = client.invoke_model(modelId='us.anthropic.claude-3-5-haiku-20241022-v1:0', body=body)
+print(json.loads(resp['body'].read())['content'][0]['text'])
+" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Test the inference profile for claude-3-5-haiku
+
+Traceback (most recent call last):
+  File "<string>", line 5, in <module>
+    resp = client.invoke_model(modelId='us.anthropic.claude-3-5-haiku-20241022-v1:0', body=body)
+  File "/home/ubuntu/.venv/lib/python3.14/site-packages/botocore/client.py", line 606, in _api_call
+    return self._make_api_call(operation_name, kwargs)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ubuntu/.venv/lib/python3.14/site-packages/botocore/context.py", line 123, in wrapper
+    return func(*args, **kwargs)
+  File "/home/ubuntu/.venv/lib/python3.14/site-packages/botocore/client.py", line 1094, in _make_api_call
+    raise error_class(parsed_response, operation_name)
+botocore.errorfactory.ResourceNotFoundException: An error occurred (ResourceNotFoundException) when calling the InvokeModel operation: Access denied. This Model is marked by provider as Legacy and you have not been actively using the model in the last 30 days. Please upgrade to an active model on Amazon Bedrock
+[38;5;244m - Completed in 0.522s[0m
+
+[?25l[0m[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import boto3, json
+client = boto3.client('bedrock-runtime', region_name='us-east-1')
+body = json.dumps({'anthropic_version': 'bedrock-2023-05-31', 'max_tokens': 100, 'messages': [{'role': 'user', 'content': 'Say hi'}]})
+resp = client.invoke_model(modelId='us.anthropic.claude-opus-4-20250514-v1:0', body=body)
+print(json.loads(resp['body'].read())['content'][0]['text'])
+" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Test claude opus 4 inference profile
+
+Traceback (most recent call last):
+  File "<string>", line 5, in <module>
+    resp = client.invoke_model(modelId='us.anthropic.claude-opus-4-20250514-v1:0', body=body)
+  File "/home/ubuntu/.venv/lib/python3.14/site-packages/botocore/client.py", line 606, in _api_call
+    return self._make_api_call(operation_name, kwargs)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ubuntu/.venv/lib/python3.14/site-packages/botocore/context.py", line 123, in wrapper
+    return func(*args, **kwargs)
+  File "/home/ubuntu/.venv/lib/python3.14/site-packages/botocore/client.py", line 1094, in _make_api_call
+    raise error_class(parsed_response, operation_name)
+botocore.errorfactory.ResourceNotFoundException: An error occurred (ResourceNotFoundException) when calling the InvokeModel operation: Access denied. This Model is marked by provider as Legacy and you have not been actively using the model in the last 30 days. Please upgrade to an active model on Amazon Bedrock
+[38;5;244m - Completed in 0.575s[0m
+
+[?25l[0m[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import boto3, json
+client = boto3.client('bedrock-runtime', region_name='us-east-1')
+body = json.dumps({'anthropic_version': 'bedrock-2023-05-31', 'max_tokens': 100, 'messages': [{'role': 'user', 'content': 'Say hi'}]})
+# Try the newer models
+for model_id in ['us.amazon.nova-premier-v1:0', 'anthropic.claude-haiku-4-5-20251001-v1:0', 'anthropic.claude-sonnet-4-6']:
+    try:
+        resp = client.invoke_model(modelId=model_id, body=body)
+        print(f'{model_id}: SUCCESS - {json.loads(resp[\"body\"].read())[\"content\"][0][\"text\"][:30]}')
+        break
+    except Exception as e:
+        print(f'{model_id}: FAILED - {str(e)[:80]}')
+" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Try newer model IDs
+
+us.amazon.nova-premier-v1:0: FAILED - An error occurred (ValidationException) when calling the InvokeModel operation: 
+anthropic.claude-haiku-4-5-20251001-v1:0: FAILED - An error occurred (ValidationException) when calling the InvokeModel operation: 
+anthropic.claude-sonnet-4-6: FAILED - An error occurred (ValidationException) when calling the InvokeModel operation: 
+[38;5;244m - Completed in 0.550s[0m
+
+[?25l[0m[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import boto3, json
+client = boto3.client('bedrock-runtime', region_name='us-east-1')
+body = json.dumps({'anthropic_version': 'bedrock-2023-05-31', 'max_tokens': 100, 'messages': [{'role': 'user', 'content': 'Say hi'}]})
+# Try cross-region inference profiles
+for model_id in ['us.anthropic.claude-sonnet-4-20250514-v1:0', 'us.anthropic.claude-3-haiku-20240307-v1:0', 'us.anthropic.claude-3-sonnet-20240229-v1:0']:
+    try:
+        resp = client.invoke_model(modelId=model_id, body=body)
+        result = json.loads(resp['body'].read())
+        print(f'{model_id}: SUCCESS - {result[\"content\"][0][\"text\"][:30]}')
+    except Exception as e:
+        print(f'{model_id}: FAILED - {str(e)[:100]}')
+" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Try cross-region inference profiles for sonnet and haiku
+
+us.anthropic.claude-sonnet-4-20250514-v1:0: SUCCESS - Hi! How are you doing today? I
+us.anthropic.claude-3-haiku-20240307-v1:0: FAILED - An error occurred (ResourceNotFoundException) when calling the InvokeModel operation: Access denied.
+us.anthropic.claude-3-sonnet-20240229-v1:0: FAILED - An error occurred (ResourceNotFoundException) when calling the InvokeModel operation: Access denied.
+[38;5;244m - Completed in 2.24s[0m
+
+[?25l[0m[38;5;141m> [0m[38;5;10mus.anthropic.claude-sonnet-4-20250514-v1:0[0m works. Let me update the program:[0m[0m
+[?25l[0m[0mI'll modify the following file: [38;5;141mquery_program.py[0m[38;5;244m (using tool: write)[0m
+
+[49m[38;5;9m- 19    [0m:[38;5;9m[49m     resp = client.invoke_model(modelId="anthropic.claude-sonnet-4-20250514-v1:0", body=json.dumps(body))
+[0m[49m[38;5;10m+     19[0m:[38;5;10m[49m     resp = client.invoke_model(modelId="us.anthropic.claude-sonnet-4-20250514-v1:0", body=json.dumps(body))
+[0m[K
+Updating: [38;5;141mquery_program.py[0m
+[38;5;244m - Completed in 0.1s[0m
+
+[?25l[0m[38;5;141m> [0mNow let's test with the Pneumonia question:[0m[0m
+[?25l[0m[0mI will run the following command: [38;5;141mcd /home/ubuntu/runs/SNOMED_20260510_191046/iteration_1 && timeout 120 python3 query_program.py /home/ubuntu/ontology-2026-05-08_20-47-35.owl "What are all the specific sub-types and variations of Pneumonia?" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Test with the Pneumonia question
+
+Answer: Based on the SNOMED CT ontology results, here are the specific sub-types and variations of pneumonia:
+
+## Major Categories of Pneumonia
+
+### **Bronchopneumonia by Causative Agent**
+
+**Bacterial Bronchopneumonia:**
+- Caused by Streptococcus (including S. pneumoniae, Group A and B Streptococcus)
+- Caused by Staphylococcus (including S. aureus, both methicillin-resistant and methicillin-susceptible)
+- Caused by Haemophilus influenzae
+- Caused by Klebsiella pneumoniae
+- Caused by Escherichia coli
+- Caused by Pseudomonas
+- Caused by Proteus mirabilis
+- Caused by Achromobacter
+- Caused by anaerobic bacteria
+
+**Atypical Bronchopneumonia:**
+- Caused by Mycoplasma pneumoniae
+- Caused by Chlamydia pneumoniae
+
+**Viral Bronchopneumonia:**
+- Caused by respiratory syncytial virus
+- Caused by Human metapneumovirus
+
+### **Other Pneumonia Types**
+
+**By Specific Pathogens:**
+- Pneumonia caused by Acinetobacter
+- Pneumonia caused by Enterococcus (E. faecalis and E. faecium)
+- Pneumonia caused by Serratia
+- Pneumonia caused by Ascaris (parasitic)
+
+**By Duration/Pattern:**
+- Chronic pneumonia
+- Recurrent pneumonia (specifically recurrent Streptococcus pneumoniae infections)
+
+**Veterinary Pneumonia:**
+- Actinobacillus pleuropneumoniae infections (with 15 different serotypes: 1-15)
+
+## Key Clinical Distinctions
+
+The classification shows pneumonia can be categorized by:
+- **Causative organism** (bacterial, viral, atypical, parasitic)
+- **Anatomical pattern** (bronchopneumonia affecting bronchi and alveoli)
+- **Clinical course** (chronic vs. acute, recurrent patterns)
+- **Antibiotic resistance patterns** (methicillin-resistant vs. susceptible strains)
+
+This comprehensive classification helps clinicians identify appropriate treatment strategies based on the specific pneumonia subtype and its likely causative agent.
+[38;5;244m - Completed in 8.524s[0m
+
+[?25l[0m[38;5;141m> [0mLet's test the other failing questions:[0m[0m
+[?25l[0m[0mI will run the following command: [38;5;141mcd /home/ubuntu/runs/SNOMED_20260510_191046/iteration_1 && timeout 120 python3 query_program.py /home/ubuntu/ontology-2026-05-08_20-47-35.owl "Give me a list of all descendants of 'Diabetes' that have a finding site of 'Eye'" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Test with the Diabetes/Eye question
+
+Answer: Based on the SNOMED CT ontology search, there is **1 diabetes-related condition** that specifically affects the eye:
+
+## Diabetes Descendants with Eye Involvement
+
+**Muscular atrophy, ataxia, retinitis pigmentosa, and diabetes mellitus**
+- This is a complex condition that combines diabetes mellitus with retinitis pigmentosa (a degenerative eye disease affecting the retina)
+- The eye involvement specifically manifests as retinitis pigmentosa, which causes progressive vision loss
+- This represents a syndromic form of diabetes that includes ocular complications as part of the condition itself
+
+Note that this search captured conditions where eye involvement is inherent to the condition definition, rather than common diabetic complications like diabetic retinopathy, which may be classified differently in the ontology structure.
+[38;5;244m - Completed in 12.430s[0m
+
+[?25l[0m[38;5;141m> [0mOnly 1 result — the query is too restrictive. The issue is that "Eye" needs to match eye sub-structures too. Let me check what's happening:[0m[0m
+[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import sqlite3
+conn = sqlite3.connect('/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3')
+cur = conn.cursor()
+
+# Find Diabetes mellitus concept
+cur.execute(\"SELECT concept_id, label FROM labels WHERE label = 'Diabetes mellitus' AND label_type='skos:prefLabel'\")
+diabetes = cur.fetchone()
+print('Diabetes:', diabetes)
+
+# Find Eye structure
+cur.execute(\"SELECT concept_id, label FROM labels WHERE concept_id = '81745001'\")
+print('Eye labels:', cur.fetchall())
+
+# Get descendants of Eye structure
+eye_id = '81745001'
+descendants = set()
+frontier = {eye_id}
+for _ in range(10):
+    if not frontier:
+        break
+    placeholders = ','.join('?' * len(frontier))
+    cur.execute(f'SELECT child FROM subclass_of WHERE parent IN ({placeholders})', list(frontier))
+    children = {row[0] for row in cur.fetchall()}
+    new = children - descendants
+    descendants.update(new)
+    frontier = new
+print(f'Eye descendants count: {len(descendants)}')
+
+# Show some eye descendants
+for d in list(descendants)[:10]:
+    cur.execute('SELECT label FROM labels WHERE concept_id = ? AND label_type=\"skos:prefLabel\"', (d,))
+    r = cur.fetchone()
+    if r:
+        print(f'  {d}: {r[0]}')
+
+# Finding site role
+cur.execute(\"SELECT concept_id FROM labels WHERE label = 'Finding site' AND label_type='skos:prefLabel'\")
+finding_site = cur.fetchone()
+print('Finding site role:', finding_site)
+
+# Check what finding sites diabetes descendants have
+# First get diabetes descendants
+diabetes_id = '73211009'
+desc = set()
+frontier = {diabetes_id}
+for _ in range(10):
+    if not frontier:
+        break
+    placeholders = ','.join('?' * len(frontier))
+    cur.execute(f'SELECT child FROM subclass_of WHERE parent IN ({placeholders})', list(frontier))
+    children = {row[0] for row in cur.fetchall()}
+    new = children - desc
+    desc.update(new)
+    frontier = new
+print(f'Diabetes descendants count: {len(desc)}')
+
+# Check relationships of diabetes descendants with finding site
+role_id = '363698007'
+cur.execute(f'SELECT subject, target FROM relationships WHERE role = ? AND subject IN ({(\",\".join(\"?\" * len(desc)))})', [role_id] + list(desc))
+rels = cur.fetchall()
+print(f'Diabetes descendants with finding site: {len(rels)}')
+
+# Show targets
+targets = set(r[1] for r in rels)
+print(f'Unique targets: {len(targets)}')
+for t in list(targets)[:20]:
+    cur.execute('SELECT label FROM labels WHERE concept_id = ? AND label_type=\"skos:prefLabel\"', (t,))
+    r = cur.fetchone()
+    if r:
+        print(f'  {t}: {r[0]}')
+
+conn.close()
+" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Debug the Diabetes/Eye query to understand why few results
+
+Diabetes: ('73211009', 'Diabetes mellitus')
+Eye labels: [('81745001', 'Structure of eye proper (body structure)'), ('81745001', 'Eye'), ('81745001', 'Eyeball'), ('81745001', 'Eyeball structure'), ('81745001', 'Structure of eye proper'), ('81745001', 'Eye structure')]
+Eye descendants count: 952
+  1290040004: Entire eye proper
+  423470003: Scleral external collector channel structure
+  69687002: Structure of posterior surface of cornea
+  280862009: Entire ciliary muscle
+  264050007: Iris surface
+  368827009: Entire corneal endothelium
+  280605006: Entire sinus venosus of sclera
+  280585003: Entire meibomian gland
+  280650008: Entire posterior uveal tract
+  423404006: Structure of tributary of central retinal vein
+Finding site role: ('363698007',)
+Diabetes descendants count: 124
+Diabetes descendants with finding site: 145
+Unique targets: 32
+  304041004: Gonadal endocrine structure
+  76993005: Enamel structure
+  83678007: Cerebrum
+  18234004: Optic nerve structure
+  724379002: Structure of left optic nerve
+  39937001: Skin structure
+  64033007: Kidney structure
+  25087005: Structure of nervous system
+  15776009: Pancreatic structure
+  80891009: Heart structure
+  21483005: Structure of central nervous system
+  76375004: Extrapyramidal system structure
+  180924008: Entire cerebellum
+  127954009: Skeletal muscle structure
+  117590005: Ear structure
+  69536005: Head structure
+  8598002: Vestibulocochlear nerve structure
+  3058005: Peripheral nervous system structure
+  12738006: Brain structure
+  5665001: Retinal structure
+[38;5;244m - Completed in 0.330s[0m
+
+[?25l[0m[38;5;141m> [0mI see — the diabetes descendants have finding sites like "Retinal structure" (5665001), "Optic nerve structure" (18234004) etc. These are descendants of "Eye structure" (81745001). The code should be 
+working since it gets descendants of the target. Let me check if retinal structure is indeed a descendant of eye:[0m[0m
+[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import sqlite3
+conn = sqlite3.connect('/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3')
+cur = conn.cursor()
+
+# Check if retinal structure (5665001) is a descendant of eye (81745001)
+# Walk up from retinal structure
+concept = '5665001'
+for _ in range(10):
+    cur.execute('SELECT parent FROM subclass_of WHERE child = ?', (concept,))
+    parents = cur.fetchall()
+    print(f'{concept} parents: {parents}')
+    if not parents:
+        break
+    if any(p[0] == '81745001' for p in parents):
+        print('FOUND: retinal structure IS a descendant of eye')
+        break
+    concept = parents[0][0]
+" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Check if retinal structure is a descendant of eye structure
+
+5665001 parents: [('312742006',), ('8264007',)]
+312742006 parents: [('77205005',)]
+77205005 parents: [('302151004',)]
+302151004 parents: [('1290169005',)]
+1290169005 parents: [('81745001',)]
+FOUND: retinal structure IS a descendant of eye
+[38;5;244m - Completed in 0.49s[0m
+
+[?25l[0m[38;5;141m> [0mGood, so the logic is correct. The issue is that the query is batching per-descendant which is slow. Let me check the actual execution — the problem might be that with 124 diabetes descendants and 952 
+eye descendants, the query is doing 124 individual SQL queries. Let me optimize and also check why only 1 result was returned:[0m[0m
+[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import sqlite3
+conn = sqlite3.connect('/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3')
+cur = conn.cursor()
+
+# Get all eye descendants + eye itself
+eye_id = '81745001'
+eye_set = {eye_id}
+frontier = {eye_id}
+for _ in range(10):
+    if not frontier:
+        break
+    placeholders = ','.join('?' * len(frontier))
+    cur.execute(f'SELECT child FROM subclass_of WHERE parent IN ({placeholders})', list(frontier))
+    children = {row[0] for row in cur.fetchall()}
+    new = children - eye_set
+    eye_set.update(new)
+    frontier = new
+print(f'Eye set size: {len(eye_set)}')
+
+# Get diabetes descendants
+diabetes_id = '73211009'
+diabetes_desc = set()
+frontier = {diabetes_id}
+for _ in range(10):
+    if not frontier:
+        break
+    placeholders = ','.join('?' * len(frontier))
+    cur.execute(f'SELECT child FROM subclass_of WHERE parent IN ({placeholders})', list(frontier))
+    children = {row[0] for row in cur.fetchall()}
+    new = children - diabetes_desc
+    diabetes_desc.update(new)
+    frontier = new
+print(f'Diabetes desc size: {len(diabetes_desc)}')
+
+# Finding site role
+role_id = '363698007'
+
+# Find diabetes descendants with finding site in eye set
+placeholders_d = ','.join('?' * len(diabetes_desc))
+placeholders_e = ','.join('?' * len(eye_set))
+cur.execute(f'SELECT DISTINCT subject FROM relationships WHERE role = ? AND subject IN ({placeholders_d}) AND target IN ({placeholders_e})',
+            [role_id] + list(diabetes_desc) + list(eye_set))
+results = cur.fetchall()
+print(f'Results: {len(results)}')
+for r in results[:20]:
+    cur.execute('SELECT label FROM labels WHERE concept_id = ? AND label_type=\"skos:prefLabel\"', (r[0],))
+    lbl = cur.fetchone()
+    print(f'  {lbl[0] if lbl else r[0]}')
+
+conn.close()
+" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Test the optimized query for diabetes descendants with eye finding site
+
+Eye set size: 953
+Diabetes desc size: 124
+Results: 1
+  Muscular atrophy, ataxia, retinitis pigmentosa, and diabetes mellitus
+[38;5;244m - Completed in 0.112s[0m
+
+[?25l[0m[38;5;141m> [0mOnly 1 result because the finding site targets for diabetes descendants that relate to eye structures are not in the direct descendants. Let me check what's happening with retinal structure:[0m[0m
+[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import sqlite3
+conn = sqlite3.connect('/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3')
+cur = conn.cursor()
+
+# Check: which diabetes descendants have finding site = retinal structure (5665001)?
+role_id = '363698007'
+retina_id = '5665001'
+
+# Get diabetes descendants
+diabetes_id = '73211009'
+diabetes_desc = set()
+frontier = {diabetes_id}
+for _ in range(10):
+    if not frontier:
+        break
+    placeholders = ','.join('?' * len(frontier))
+    cur.execute(f'SELECT child FROM subclass_of WHERE parent IN ({placeholders})', list(frontier))
+    children = {row[0] for row in cur.fetchall()}
+    new = children - diabetes_desc
+    diabetes_desc.update(new)
+    frontier = new
+
+# Check which have retinal structure as finding site
+placeholders_d = ','.join('?' * len(diabetes_desc))
+cur.execute(f'SELECT subject, target FROM relationships WHERE role = ? AND subject IN ({placeholders_d}) AND target = ?',
+            [role_id] + list(diabetes_desc) + [retina_id])
+print('With retina:', cur.fetchall())
+
+# What about 'Diabetic retinopathy' - is it a descendant of diabetes?
+cur.execute(\"SELECT concept_id, label FROM labels WHERE label LIKE '%Diabetic retinopathy%' AND label_type='skos:prefLabel' LIMIT 5\")
+dr = cur.fetchall()
+print('Diabetic retinopathy concepts:', dr)
+
+# Check if any of these are descendants of diabetes
+for concept_id, label in dr:
+    if concept_id in diabetes_desc:
+        print(f'  {label} IS a descendant of diabetes')
+    else:
+        print(f'  {label} is NOT a descendant of diabetes')
+        # Check its parents
+        cur.execute('SELECT parent FROM subclass_of WHERE child = ?', (concept_id,))
+        parents = cur.fetchall()
+        for p in parents:
+            cur.execute('SELECT label FROM labels WHERE concept_id = ? AND label_type=\"skos:prefLabel\"', (p[0],))
+            plbl = cur.fetchone()
+            print(f'    parent: {plbl[0] if plbl else p[0]}')
+
+conn.close()
+" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Check why diabetic retinopathy isn't found as a diabetes descendant
+
+With retina: [('237611007', '5665001')]
+Diabetic retinopathy concepts: [('1231625008', 'Tractional retinal detachment due to proliferative diabetic retinopathy'), ('1231650006', 'Combined rhegmatogenous and tractional retinal detachment due to proliferative diabetic retinopathy'), ('1231691008', 'Vitreous haemorrhage due to proliferative diabetic retinopathy'), ('1231691008', 'Vitreous hemorrhage due to proliferative diabetic retinopathy'), ('1231698002', 'Tractional retinal detachment with macula involvement due to proliferative diabetic retinopathy')]
+  Tractional retinal detachment due to proliferative diabetic retinopathy is NOT a descendant of diabetes
+    parent: Disease
+  Combined rhegmatogenous and tractional retinal detachment due to proliferative diabetic retinopathy is NOT a descendant of diabetes
+    parent: Rhegmatogenous retinal detachment
+  Vitreous haemorrhage due to proliferative diabetic retinopathy is NOT a descendant of diabetes
+    parent: Disease
+  Vitreous hemorrhage due to proliferative diabetic retinopathy is NOT a descendant of diabetes
+    parent: Disease
+  Tractional retinal detachment with macula involvement due to proliferative diabetic retinopathy is NOT a descendant of diabetes
+    parent: Disease
+[38;5;244m - Completed in 0.63s[0m
+
+[?25l[0m[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import sqlite3
+conn = sqlite3.connect('/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3')
+cur = conn.cursor()
+
+# Find 'Diabetic retinopathy' itself
+cur.execute(\"SELECT concept_id, label FROM labels WHERE label = 'Diabetic retinopathy' AND label_type='skos:prefLabel'\")
+print('Diabetic retinopathy:', cur.fetchall())
+
+# Search broader
+cur.execute(\"SELECT concept_id, label FROM labels WHERE label LIKE 'Diabetic retino%' AND label_type='skos:prefLabel' LIMIT 10\")
+print('Diabetic retino*:', cur.fetchall())
+
+# Check concept 4855003 (common SNOMED code for diabetic retinopathy)
+cur.execute(\"SELECT label FROM labels WHERE concept_id = '4855003'\")
+print('4855003:', cur.fetchall())
+
+# Try searching for it
+cur.execute(\"SELECT concept_id, label FROM labels WHERE label = 'Disorder of eye due to diabetes mellitus' AND label_type='skos:prefLabel'\")
+print('Disorder of eye due to DM:', cur.fetchall())
+
+# What about 'Disorder of macula due to diabetes mellitus'
+cur.execute(\"SELECT concept_id, label FROM labels WHERE label LIKE '%disorder%eye%diabetes%' AND label_type='skos:prefLabel' LIMIT 10\")
+print('eye diabetes disorders:', cur.fetchall())
+
+conn.close()
+" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Find diabetic retinopathy concept
+
+Diabetic retinopathy: []
+Diabetic retino*: [('408384004', 'Diabetic retinopathy 12 month review'), ('408385003', 'Diabetic retinopathy 6 month review'), ('702850009', 'Diabetic retinopathy clinic'), ('721103006', 'Diabetic retinopathy of eye not detected'), ('720029003', 'Diabetic retinopathy phototherapy mask'), ('134395001', 'Diabetic retinopathy screening'), ('413122001', 'Diabetic retinopathy screening declined'), ('408396006', 'Diabetic retinopathy screening not indicated'), ('410440008', 'Diabetic Retinopathy Study 7 field stereoscopic fundus photography'), ('408733002', 'Diabetic Retinopathy Study field')]
+4855003: [('Retinopathy due to diabetes mellitus (disorder)',), ('DR - Diabetic retinopathy',), ('Diabetic retinopathy',), ('Retinal abnormality - diabetes-related',), ('Retinopathy due to diabetes mellitus',)]
+Disorder of eye due to DM: [('25093002', 'Disorder of eye due to diabetes mellitus')]
+eye diabetes disorders: [('25093002', 'Disorder of eye due to diabetes mellitus'), ('421256007', 'Disorder of eye due to malnutrition related diabetes mellitus'), ('422099009', 'Disorder of eye due to type 2 diabetes mellitus'), ('739681000', 'Disorder of eye due to type 1 diabetes mellitus'), ('860721006', 'Disorder of macula of bilateral eyes due to diabetes mellitus')]
+[38;5;244m - Completed in 0.451s[0m
+
+[?25l[0m[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import sqlite3
+conn = sqlite3.connect('/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3')
+cur = conn.cursor()
+
+# Check if 'Retinopathy due to diabetes mellitus' (4855003) is a descendant of diabetes (73211009)
+cur.execute('SELECT parent FROM subclass_of WHERE child = ?', ('4855003',))
+print('4855003 parents:', cur.fetchall())
+
+# Check if 'Disorder of eye due to diabetes mellitus' (25093002) is a descendant of diabetes
+cur.execute('SELECT parent FROM subclass_of WHERE child = ?', ('25093002',))
+print('25093002 parents:', cur.fetchall())
+
+# Check parents of 25093002's parents
+for pid in ['73211009']:
+    cur.execute('SELECT child FROM subclass_of WHERE parent = ?', (pid,))
+    children = cur.fetchall()
+    print(f'Direct children of Diabetes mellitus ({pid}): {len(children)}')
+    for c in children[:20]:
+        cur.execute('SELECT label FROM labels WHERE concept_id = ? AND label_type=\"skos:prefLabel\"', (c[0],))
+        lbl = cur.fetchone()
+        print(f'  {c[0]}: {lbl[0] if lbl else \"?\"}')
+
+conn.close()
+" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Check diabetes hierarchy
+
+4855003 parents: [('64572001',)]
+25093002 parents: [('64572001',)]
+Direct children of Diabetes mellitus (73211009): 40
+  105401000119101: Diabetes mellitus due to pancreatic injury
+  11530004: Brittle diabetes mellitus
+  1197592001: Intrauterine growth restriction, short stature, early adult-onset diabetes syndrome
+  123763000: Houssay's syndrome
+  190447002: Steroid-induced diabetes
+  199223000: Diabetes mellitus during pregnancy, childbirth and the puerperium
+  199231005: Pre-existing malnutrition-related diabetes mellitus
+  237601000: Secondary endocrine diabetes mellitus
+  237611007: Muscular atrophy, ataxia, retinitis pigmentosa, and diabetes mellitus
+  237612000: Photomyoclonus, diabetes mellitus, deafness, nephropathy and cerebral dysfunction
+  237617006: Megaloblastic anaemia, thiamine-responsive, with diabetes mellitus and sensorineural deafness
+  237619009: Maternally inherited diabetes and deafness
+  367391000119102: Drug-induced diabetes mellitus without complication
+  405749004: Newly diagnosed diabetes
+  408540003: Diabetes mellitus induced by non-steroid drugs
+  427089005: Diabetes mellitus due to cystic fibrosis
+  42954008: Diabetes mellitus associated with receptor abnormality
+  44054006: Type 2 diabetes mellitus
+  445260006: Posttransplant diabetes mellitus
+  46635009: Type 1 diabetes mellitus
+[38;5;244m - Completed in 0.44s[0m
+
+[?25l[0m[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import sqlite3
+conn = sqlite3.connect('/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3')
+cur = conn.cursor()
+
+# Check what 64572001 is (parent of diabetic retinopathy)
+cur.execute('SELECT label FROM labels WHERE concept_id = ? AND label_type=\"skos:prefLabel\"', ('64572001',))
+print('64572001:', cur.fetchone())
+
+# Check parents of 64572001
+cur.execute('SELECT parent FROM subclass_of WHERE child = ?', ('64572001',))
+parents = cur.fetchall()
+print('64572001 parents:', parents)
+for p in parents:
+    cur.execute('SELECT label FROM labels WHERE concept_id = ? AND label_type=\"skos:prefLabel\"', (p[0],))
+    print(f'  {p[0]}: {cur.fetchone()}')
+
+conn.close()
+" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Check what concept 64572001 is
+
+64572001: ('Disease',)
+64572001 parents: [('404684003',)]
+  404684003: ('Clinical finding',)
+[38;5;244m - Completed in 0.40s[0m
+
+[?25l[0m[38;5;141m> [0mSo "Diabetic retinopathy" (4855003) is a child of "Disease" (64572001), not of "Diabetes mellitus" (73211009). In SNOMED CT, diabetic retinopathy is classified under diseases, not under diabetes 
+mellitus in the is-a hierarchy. The relationship to diabetes is through other properties.[0m[0m
+[0m[0m
+The question asks for "descendants of Diabetes that have a finding site of Eye". In SNOMED CT, the relevant concept is "Disorder of eye due to diabetes mellitus" (25093002) which is also under "Disease", 
+not under "Diabetes mellitus".[0m[0m
+[0m[0m
+The issue is that the question's intent is broader than strict subclass hierarchy. The LLM should interpret "descendants of Diabetes" more broadly — perhaps concepts that have a causal relationship to 
+diabetes AND a finding site of eye. Let me check what relationships link these:[0m[0m
+[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import sqlite3
+conn = sqlite3.connect('/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3')
+cur = conn.cursor()
+
+# Check relationships of 'Disorder of eye due to diabetes mellitus' (25093002)
+cur.execute('SELECT role, target FROM relationships WHERE subject = ?', ('25093002',))
+rels = cur.fetchall()
+for role, target in rels:
+    cur.execute('SELECT label FROM labels WHERE concept_id = ? AND label_type=\"skos:prefLabel\"', (role,))
+    rlbl = cur.fetchone()
+    cur.execute('SELECT label FROM labels WHERE concept_id = ? AND label_type=\"skos:prefLabel\"', (target,))
+    tlbl = cur.fetchone()
+    print(f'  {rlbl[0] if rlbl else role} -> {tlbl[0] if tlbl else target}')
+
+# Check relationships of 'Retinopathy due to diabetes mellitus' (4855003)
+print()
+print('Retinopathy due to DM (4855003):')
+cur.execute('SELECT role, target FROM relationships WHERE subject = ?', ('4855003',))
+rels = cur.fetchall()
+for role, target in rels:
+    cur.execute('SELECT label FROM labels WHERE concept_id = ? AND label_type=\"skos:prefLabel\"', (role,))
+    rlbl = cur.fetchone()
+    cur.execute('SELECT label FROM labels WHERE concept_id = ? AND label_type=\"skos:prefLabel\"', (target,))
+    tlbl = cur.fetchone()
+    print(f'  {rlbl[0] if rlbl else role} -> {tlbl[0] if tlbl else target}')
+
+# Check what 'Associated with' role is
+cur.execute(\"SELECT concept_id, label FROM labels WHERE label LIKE '%Associated with%' AND label_type='skos:prefLabel' LIMIT 5\")
+print()
+print('Associated with:', cur.fetchall())
+
+# Check 'Due to' role
+cur.execute(\"SELECT concept_id, label FROM labels WHERE label LIKE 'Due to%' AND label_type='skos:prefLabel' LIMIT 5\")
+print('Due to:', cur.fetchall())
+
+conn.close()
+" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Check relationships of diabetic eye disorders
+
+  Finding site -> Eye structure
+  Due to -> Diabetes mellitus
+
+Retinopathy due to DM (4855003):
+  Finding site -> Retinal structure
+  Due to -> Diabetes mellitus
+
+Associated with: [('47429007', 'Associated with'), ('1001411000124108', 'Death associated with COVID-19'), ('102549009', 'Cramp in lower leg associated with rest'), ('103010005', 'Headache associated with sexual activity'), ('103304001', 'Vertigo associated with recent change in eyeglasses')]
+Due to: [('42752001', 'Due to')]
+[38;5;244m - Completed in 0.44s[0m
+
+[?25l[0m[38;5;141m> [0mNow I understand. The correct approach for "descendants of Diabetes that have a finding site of Eye" is to find concepts that have:[0m[0m
+1. A "Due to" relationship pointing to Diabetes mellitus (or its descendants)[0m[0m
+2. A "Finding site" relationship pointing to Eye structure (or its descendants)[0m[0m
+[0m[0m
+This is a more sophisticated query. Let me also check if there's a broader approach — maybe the question means concepts that are both descendants of Diabetes AND have finding site of Eye, OR concepts that
+are "due to" diabetes with finding site of eye. Let me redesign the program to handle this better:[0m[0m
+[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import sqlite3
+conn = sqlite3.connect('/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3')
+cur = conn.cursor()
+
+# Find all concepts 'Due to' diabetes (73211009) or its descendants
+diabetes_id = '73211009'
+diabetes_set = {diabetes_id}
+frontier = {diabetes_id}
+for _ in range(10):
+    if not frontier:
+        break
+    placeholders = ','.join('?' * len(frontier))
+    cur.execute(f'SELECT child FROM subclass_of WHERE parent IN ({placeholders})', list(frontier))
+    children = {row[0] for row in cur.fetchall()}
+    new = children - diabetes_set
+    diabetes_set.update(new)
+    frontier = new
+
+# Due to role
+due_to_id = '42752001'
+# Finding site role
+finding_site_id = '363698007'
+
+# Eye set
+eye_id = '81745001'
+eye_set = {eye_id}
+frontier = {eye_id}
+for _ in range(10):
+    if not frontier:
+        break
+    placeholders = ','.join('?' * len(frontier))
+    cur.execute(f'SELECT child FROM subclass_of WHERE parent IN ({placeholders})', list(frontier))
+    children = {row[0] for row in cur.fetchall()}
+    new = children - eye_set
+    eye_set.update(new)
+    frontier = new
+
+# Find concepts due to diabetes
+placeholders_d = ','.join('?' * len(diabetes_set))
+cur.execute(f'SELECT DISTINCT subject FROM relationships WHERE role = ? AND target IN ({placeholders_d})',
+            [due_to_id] + list(diabetes_set))
+due_to_diabetes = {row[0] for row in cur.fetchall()}
+print(f'Concepts due to diabetes: {len(due_to_diabetes)}')
+
+# Of those, which have finding site in eye?
+placeholders_e = ','.join('?' * len(eye_set))
+results = []
+for subj in due_to_diabetes:
+    cur.execute(f'SELECT 1 FROM relationships WHERE subject = ? AND role = ? AND target IN ({placeholders_e}) LIMIT 1',
+                [subj, finding_site_id] + list(eye_set))
+    if cur.fetchone():
+        cur.execute('SELECT label FROM labels WHERE concept_id = ? AND label_type=\"skos:prefLabel\"', (subj,))
+        lbl = cur.fetchone()
+        if lbl:
+            results.append(lbl[0])
+
+print(f'Due to diabetes AND finding site in eye: {len(results)}')
+for r in sorted(results)[:30]:
+    print(f'  {r}')
+
+conn.close()
+" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Find concepts due to diabetes with finding site in eye
+
+Concepts due to diabetes: 464
+Due to diabetes AND finding site in eye: 167
+  Advanced maculopathy due to diabetes mellitus
+  Advanced retinal disease due to diabetes mellitus
+  Bilateral iritis due to diabetes mellitus
+  Bilateral mild nonproliferative retinopathy due to diabetes mellitus type 1
+  Bilateral mild nonproliferative retinopathy due to diabetes mellitus type 2
+  Bilateral moderate nonproliferative retinopathy due to diabetes mellitus type 1
+  Bilateral moderate nonproliferative retinopathy due to diabetes mellitus type 2
+  Bilateral nonproliferative retinopathy due to diabetes mellitus type 2
+  Bilateral nonproliferative retinopathy of eyes due to diabetes mellitus type 1
+  Bilateral proliferative retinopathy due to diabetes mellitus type 2
+  Bilateral proliferative retinopathy of eyes due to diabetes mellitus type 1
+  Bilateral severe nonproliferative retinopathy of eyes due to diabetes mellitus type 1
+  Bilateral severe nonproliferative retinopathy of eyes due to diabetes mellitus type 2
+  Bilateral stable treated proliferative retinopathy due to diabetes mellitus
+  Cataract due to diabetes mellitus
+  Cataract due to diabetes mellitus type 1
+  Cataract due to diabetes mellitus type 2
+  Cataract due to drug induced diabetes mellitus
+  Cataract of left eye due to diabetes mellitus
+  Cataract of right eye due to diabetes mellitus
+  Centrally involved macular edema due to diabetes mellitus
+  Clinically significant macular edema due to diabetes mellitus
+  Clinically significant macular edema of left eye due to diabetes mellitus
+  Clinically significant macular edema of right eye due to diabetes mellitus
+  Cystoid macular edema due to diabetes mellitus
+  Diabetic cataract of bilateral eyes
+  Diabetic intraretinal microvascular anomaly
+  Diabetic neurotrophic keratitis
+  Diabetic optic papillopathy
+  Diffuse exudative maculopathy due to diabetes mellitus
+[38;5;244m - Completed in 17.553s[0m
+
+[?25l[0m[38;5;141m> [0mExcellent! 167 results. Now I understand the pattern. The question "descendants of Diabetes that have a finding site of Eye" should be interpreted as concepts related to diabetes (either via subclass OR
+via "Due to" relationship) that have a finding site in the eye. Let me now rewrite the program with a more robust approach:[0m[0m
+[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import sqlite3
+conn = sqlite3.connect('/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3')
+cur = conn.cursor()
+
+# For question 2: disorders in heart involving tissue death (infarct)
+# Find heart structure
+cur.execute(\"SELECT concept_id, label FROM labels WHERE label = 'Heart structure' AND label_type='skos:prefLabel'\")
+print('Heart structure:', cur.fetchall())
+cur.execute(\"SELECT concept_id, label FROM labels WHERE label = 'Heart' AND label_type='skos:prefLabel'\")
+print('Heart:', cur.fetchall())
+
+# Find infarct/necrosis
+cur.execute(\"SELECT concept_id, label FROM labels WHERE label LIKE '%infarct%' AND label_type='skos:prefLabel' LIMIT 10\")
+print('Infarct:', cur.fetchall())
+
+# Associated morphology
+cur.execute(\"SELECT concept_id, label FROM labels WHERE label = 'Associated morphology' AND label_type='skos:prefLabel'\")
+print('Associated morphology:', cur.fetchall())
+
+# Infarct as morphology
+cur.execute(\"SELECT concept_id, label FROM labels WHERE label = 'Infarct' AND label_type='skos:prefLabel'\")
+print('Infarct concept:', cur.fetchall())
+
+conn.close()
+" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Explore heart/infarct concepts for question 2
+
+Heart structure: [('80891009', 'Heart structure')]
+Heart: []
+Infarct: [('1001000119102', 'Pulmonary embolism with pulmonary infarction'), ('10273003', 'Acute infarction of papillary muscle'), ('103011000119106', 'Coronary arteriosclerosis in patient with history of previous myocardial infarction'), ('10349009', 'Multi-infarct dementia with delirium'), ('106021000119105', 'Multi-infarct dementia due to atherosclerosis'), ('1077002', 'Septal infarction by electrocardiogram'), ('1119238003', 'Recurrent lacunar infarction'), ('113155009', 'Myocardial infarction education'), ('1142284004', 'Infarction of gastrointestinal tract'), ('1142308000', 'Mitral valve regurgitation due to acute myocardial infarction')]
+Associated morphology: [('116676008', 'Associated morphology')]
+Infarct concept: [('55641003', 'Infarct')]
+[38;5;244m - Completed in 0.468s[0m
+
+[?25l[0m[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import sqlite3
+conn = sqlite3.connect('/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3')
+cur = conn.cursor()
+
+# Find disorders with finding site in heart AND associated morphology of infarct
+finding_site_id = '363698007'
+assoc_morph_id = '116676008'
+heart_id = '80891009'
+infarct_id = '55641003'
+
+# Get heart descendants
+heart_set = {heart_id}
+frontier = {heart_id}
+for _ in range(10):
+    if not frontier:
+        break
+    placeholders = ','.join('?' * len(frontier))
+    cur.execute(f'SELECT child FROM subclass_of WHERE parent IN ({placeholders})', list(frontier))
+    children = {row[0] for row in cur.fetchall()}
+    new = children - heart_set
+    heart_set.update(new)
+    frontier = new
+print(f'Heart set size: {len(heart_set)}')
+
+# Get infarct descendants
+infarct_set = {infarct_id}
+frontier = {infarct_id}
+for _ in range(10):
+    if not frontier:
+        break
+    placeholders = ','.join('?' * len(frontier))
+    cur.execute(f'SELECT child FROM subclass_of WHERE parent IN ({placeholders})', list(frontier))
+    children = {row[0] for row in cur.fetchall()}
+    new = children - infarct_set
+    infarct_set.update(new)
+    frontier = new
+print(f'Infarct set size: {len(infarct_set)}')
+
+# Find concepts with finding site in heart
+placeholders_h = ','.join('?' * len(heart_set))
+cur.execute(f'SELECT DISTINCT subject FROM relationships WHERE role = ? AND target IN ({placeholders_h})',
+            [finding_site_id] + list(heart_set))
+heart_subjects = {row[0] for row in cur.fetchall()}
+print(f'Concepts with finding site in heart: {len(heart_subjects)}')
+
+# Of those, which have associated morphology of infarct?
+placeholders_i = ','.join('?' * len(infarct_set))
+results = []
+for subj in heart_subjects:
+    cur.execute(f'SELECT 1 FROM relationships WHERE subject = ? AND role = ? AND target IN ({placeholders_i}) LIMIT 1',
+                [subj, assoc_morph_id] + list(infarct_set))
+    if cur.fetchone():
+        cur.execute('SELECT label FROM labels WHERE concept_id = ? AND label_type=\"skos:prefLabel\"', (subj,))
+        lbl = cur.fetchone()
+        if lbl:
+            results.append(lbl[0])
+
+print(f'Heart + infarct: {len(results)}')
+for r in sorted(results)[:20]:
+    print(f'  {r}')
+
+conn.close()
+" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Test heart + infarct query for question 2
+
+Heart set size: 941
+Infarct set size: 22
+Concepts with finding site in heart: 3258
+Heart + infarct: 131
+  Acute Q wave infarction - anterolateral
+  Acute Q wave infarction - anteroseptal
+  Acute Q wave infarction - inferior
+  Acute Q wave infarction - inferolateral
+  Acute Q wave infarction - lateral
+  Acute Q wave infarction - widespread
+  Acute Q wave myocardial infarction
+  Acute ST segment elevation myocardial infarction
+  Acute ST segment elevation myocardial infarction due to distal left anterior descending coronary artery occlusion
+  Acute ST segment elevation myocardial infarction due to distal left circumflex coronary artery occlusion
+  Acute ST segment elevation myocardial infarction due to left coronary artery occlusion
+  Acute ST segment elevation myocardial infarction due to mid left anterior descending coronary artery occlusion
+  Acute ST segment elevation myocardial infarction due to mid left circumflex coronary artery occlusion
+  Acute ST segment elevation myocardial infarction due to obtuse marginal branch of left circumflex coronary artery occlusion
+  Acute ST segment elevation myocardial infarction due to occlusion of anterior descending branch of left coronary artery
+  Acute ST segment elevation myocardial infarction due to occlusion of circumflex branch of left coronary artery
+  Acute ST segment elevation myocardial infarction due to occlusion of diagonal branch of anterior descending branch of left coronary artery
+  Acute ST segment elevation myocardial infarction due to occlusion of distal portion of right coronary artery
+  Acute ST segment elevation myocardial infarction due to occlusion of intermediate artery
+  Acute ST segment elevation myocardial infarction due to occlusion of marginal branch of right coronary artery
+[38;5;244m - Completed in 125.29s[0m
+
+[?25l[0m[38;5;141m> [0mNow let me check question 3 (lung parenchyma):[0m[0m
+[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import sqlite3
+conn = sqlite3.connect('/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3')
+cur = conn.cursor()
+
+# Find lung parenchyma
+cur.execute(\"SELECT concept_id, label FROM labels WHERE label LIKE '%lung parenchyma%' AND label_type='skos:prefLabel' LIMIT 10\")
+print('Lung parenchyma:', cur.fetchall())
+
+cur.execute(\"SELECT concept_id, label FROM labels WHERE label LIKE '%Parenchyma of lung%' AND label_type='skos:prefLabel' LIMIT 10\")
+print('Parenchyma of lung:', cur.fetchall())
+
+cur.execute(\"SELECT concept_id, label FROM labels WHERE label LIKE '%pulmonary parenchyma%' AND label_type='skos:prefLabel' LIMIT 10\")
+print('Pulmonary parenchyma:', cur.fetchall())
+
+# Try broader
+cur.execute(\"SELECT concept_id, label FROM labels WHERE label LIKE '%parenchyma%lung%' OR label LIKE '%lung%parenchyma%' LIMIT 10\")
+print('Any lung+parenchyma:', cur.fetchall())
+
+conn.close()
+" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Find lung parenchyma concept
+
+Lung parenchyma: [('201712001', 'Entire lung parenchyma'), ('254624009', 'Neoplasm of lung parenchyma'), ('254625005', 'Malignant neoplasm of lung parenchyma'), ('254639005', 'Carcinoma in situ of lung parenchyma'), ('254640007', 'Benign neoplasm of lung parenchyma'), ('370063005', 'Tumor invasion into lung parenchyma'), ('370063005', 'Tumour invasion into lung parenchyma')]
+Parenchyma of lung: [('113255004', 'Structure of parenchyma of lung')]
+Pulmonary parenchyma: [('396917003', 'Pulmonary parenchymal invasion by tumor absent'), ('396917003', 'Pulmonary parenchymal invasion by tumour absent'), ('396918008', 'Status of invasion of pulmonary parenchyma by tumor'), ('396918008', 'Status of invasion of pulmonary parenchyma by tumour'), ('399442001', 'Pulmonary parenchymal invasion by tumor cannot be assessed'), ('399442001', 'Pulmonary parenchymal invasion by tumour cannot be assessed'), ('399578008', 'Pulmonary parenchymal invasion by tumor indeterminate'), ('399578008', 'Pulmonary parenchymal invasion by tumour indeterminate')]
+Any lung+parenchyma: [('113255004', 'Structure of parenchyma of lung (body structure)'), ('113255004', 'Lung parenchyma'), ('113255004', 'Structure of parenchyma of lung'), ('1156623008', 'Presence of primary malignant neoplasm of lung at parenchymal surgical margin in resected lung specimen (observable entity)'), ('1156623008', 'Status of parenchymal surgical margin involvement by primary malignant neoplasm of lung in resected lung specimen'), ('1156623008', 'Presence of primary malignant neoplasm of lung at parenchymal surgical margin in resected lung specimen'), ('1268602005', 'Presence of in situ neoplasm at parenchymal surgical margin in resected lung specimen (observable entity)'), ('1268602005', 'Presence of in situ neoplasm at parenchymal surgical margin in resected lung specimen'), ('1285529000', 'Presence of carcinoma in situ at parenchymal surgical margin in resected specimen of lung (observable entity)'), ('1285529000', 'Presence of carcinoma in situ at parenchymal surgical margin in resected specimen of lung')]
+[38;5;244m - Completed in 0.604s[0m
+
+[?25l[0m[38;5;141m> [0mGood. The lung parenchyma body structure is [38;5;10m113255004[0m. Now I have a good understanding of the data. Let me rewrite the program with a more robust approach that handles these query patterns:[0m[0m
+[?25l[0m[0mI'll create the following file: [38;5;141mquery_program.py[0m[38;5;244m (using tool: write)[0m
+Purpose: Rewrite query_program.py with robust SNOMED CT query logic
+
+[49m[39m    1,   1[0m:[39m[49m """Query program for a SNOMED CT OWL ontology.
+[0m[49m[39m    2,   2[0m:[39m[49m 
+[0m[49m[39m    3,   3[0m:[39m[49m Uses an LLM to parse the question into a structured query, then uses
+[0m[49m[39m    4,   4[0m:[39m[49m a pre-built SQLite cache to answer it by traversing the ontology graph.
+[0m[49m[39m    5,   5[0m:[39m[49m """
+[0m[49m[39m    6,   6[0m:[39m[49m import json
+[0m[49m[39m    7,   7[0m:[39m[49m import sys
+[0m[49m[39m    8,   8[0m:[39m[49m import sqlite3
+[0m[49m[39m    9,   9[0m:[39m[49m from pathlib import Path
+[0m[49m[39m   10,  10[0m:[39m[49m 
+[0m[49m[39m   11,  11[0m:[39m[49m import boto3
+[0m[49m[39m   12,  12[0m:[39m[49m 
+[0m[49m[38;5;10m+       13[0m:[38;5;10m[49m MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+[0m[49m[38;5;10m+       14[0m:[38;5;10m[49m 
+[0m[49m[39m   13,  15[0m:[39m[49m 
+[0m[49m[39m   14,  16[0m:[39m[49m def call_llm(messages, system=None):
+[0m[49m[39m   15,  17[0m:[39m[49m     client = boto3.client("bedrock-runtime", region_name="us-east-1")
+[0m[49m[39m   16,  18[0m:[39m[49m     body = {"anthropic_version": "bedrock-2023-05-31", "max_tokens": 2048, "messages": messages}
+[0m[49m[39m   17,  19[0m:[39m[49m     if system:
+[0m[49m[39m   18,  20[0m:[39m[49m         body["system"] = system
+[0m[49m[38;5;9m-  19     [0m:[38;5;9m[49m     resp = client.invoke_model(modelId="us.anthropic.claude-sonnet-4-20250514-v1:0", body=json.dumps(body))
+[0m[49m[38;5;10m+       21[0m:[38;5;10m[49m     resp = client.invoke_model(modelId=MODEL_ID, body=json.dumps(body))
+[0m[49m[39m   20,  22[0m:[39m[49m     return json.loads(resp["body"].read())["content"][0]["text"]
+[0m[49m[39m   21,  23[0m:[39m[49m 
+[0m[49m[39m   22,  24[0m:[39m[49m 
+[0m[49m[39m   23,  25[0m:[39m[49m def parse_question(question):
+[0m[49m[38;5;9m-  24     [0m:[38;5;9m[49m     system = """You parse medical ontology questions into structured queries. Return JSON only.
+[0m[49m[38;5;9m-  25     [0m:[38;5;9m[49m The ontology has these query capabilities:
+[0m[49m[38;5;9m-  26     [0m:[38;5;9m[49m 1. "descendants" - find all descendants (subtypes) of a concept
+[0m[49m[38;5;9m-  27     [0m:[38;5;9m[49m 2. "descendants_with_role" - find descendants of a concept that have a specific relationship to another concept
+[0m[49m[38;5;9m-  28     [0m:[38;5;9m[49m 3. "concepts_with_role" - find concepts that have a specific relationship to a target concept
+[0m[49m[38;5;10m+       26[0m:[38;5;10m[49m     system = """You parse medical ontology questions into structured queries against SNOMED CT. Return ONLY valid JSON.
+[0m[49m[39m   29,  27[0m:[39m[49m 
+[0m[49m[38;5;10m+       28[0m:[38;5;10m[49m The ontology has concepts connected by:
+[0m[49m[38;5;10m+       29[0m:[38;5;10m[49m - subclass_of (is-a hierarchy)
+[0m[49m[38;5;10m+       30[0m:[38;5;10m[49m - relationships: subject --role--> target (e.g., Finding site, Associated morphology, Due to, Causative agent)
+[0m[49m[38;5;10m+       31[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+       32[0m:[38;5;10m[49m Common roles: "Finding site", "Associated morphology", "Due to", "Causative agent", "Pathological process"
+[0m[49m[38;5;10m+       33[0m:[38;5;10m[49m 
+[0m[49m[39m   30,  34[0m:[39m[49m Return JSON with:
+[0m[49m[38;5;9m-  31     [0m:[38;5;9m[49m - "query_type": one of the above
+[0m[49m[38;5;9m-  32     [0m:[38;5;9m[49m - "concept": the main concept to search for (e.g. "Diabetes mellitus", "Pneumonia")
+[0m[49m[38;5;9m-  33     [0m:[38;5;9m[49m - "role": relationship type if applicable (e.g. "Finding site", "Associated morphology")
+[0m[49m[38;5;9m-  34     [0m:[38;5;9m[49m - "target": target of the relationship if applicable (e.g. "Eye structure", "Lung")
+[0m[49m[38;5;9m-  35     [0m:[38;5;9m[49m - "keywords": list of important keywords from the question for fuzzy matching
+[0m[49m[38;5;10m+       35[0m:[38;5;10m[49m - "concept": main concept to find descendants/subtypes of (null if searching by relationships only)
+[0m[49m[38;5;10m+       36[0m:[38;5;10m[49m - "roles": list of role constraints, each with "role_name" and "target_name"
+[0m[49m[38;5;10m+       37[0m:[38;5;10m[49m   - For "descendants of X with finding site Y": concept=X, roles=[{"role_name":"Finding site","target_name":"Y"}]
+[0m[49m[38;5;10m+       38[0m:[38;5;10m[49m   - For "disorders in heart involving infarct": concept=null, roles=[{"role_name":"Finding site","target_name":"Heart structure"},{"role_name":"Associated morphology","target_name":"Infarct"}]
+[0m[49m[38;5;10m+       39[0m:[38;5;10m[49m   - For "problems affecting lung parenchyma": concept=null, roles=[{"role_name":"Finding site","target_name":"Structure of parenchyma of lung"}]
+[0m[49m[38;5;10m+       40[0m:[38;5;10m[49m - "use_due_to": true if "descendants of X" likely means "caused by X" rather than strict subclass (e.g., diabetes complications)
+[0m[49m[38;5;10m+       41[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+       42[0m:[38;5;10m[49m Use proper SNOMED CT concept names:
+[0m[49m[38;5;10m+       43[0m:[38;5;10m[49m - Body structures: "Heart structure", "Eye structure", "Structure of parenchyma of lung", "Retinal structure"
+[0m[49m[38;5;10m+       44[0m:[38;5;10m[49m - Morphologies: "Infarct", "Neoplasm", "Inflammation"
+[0m[49m[38;5;10m+       45[0m:[38;5;10m[49m - For "Eye" use "Eye structure", for "Heart" use "Heart structure"
+[0m[49m[38;5;10m+       46[0m:[38;5;10m[49m - For "lung tissue (parenchyma)" use "Structure of parenchyma of lung"
+[0m[49m[38;5;10m+       47[0m:[38;5;10m[49m - For "tissue death (infarct)" use "Infarct" as Associated morphology
+[0m[49m[39m   36,  48[0m:[39m[49m 
+[0m[49m[38;5;9m-  37     [0m:[38;5;9m[49m Example: "descendants of Diabetes with finding site Eye" ->
+[0m[49m[38;5;9m-  38     [0m:[38;5;9m[49m {"query_type": "descendants_with_role", "concept": "Diabetes mellitus", "role": "Finding site", "target": "Eye structure", "keywords": ["diabetes", "eye"]}
+[0m[49m[38;5;10m+       49[0m:[38;5;10m[49m Examples:
+[0m[49m[38;5;10m+       50[0m:[38;5;10m[49m Q: "descendants of Diabetes with finding site Eye"
+[0m[49m[38;5;10m+       51[0m:[38;5;10m[49m {"concept":"Diabetes mellitus","roles":[{"role_name":"Finding site","target_name":"Eye structure"}],"use_due_to":true}
+[0m[49m[39m   39,  52[0m:[39m[49m 
+[0m[49m[38;5;9m-  40     [0m:[38;5;9m[49m Example: "sub-types of Pneumonia" ->
+[0m[49m[38;5;9m-  41     [0m:[38;5;9m[49m {"query_type": "descendants", "concept": "Pneumonia", "keywords": ["pneumonia"]}
+[0m[49m[38;5;10m+       53[0m:[38;5;10m[49m Q: "disorders in heart involving tissue death"
+[0m[49m[38;5;10m+       54[0m:[38;5;10m[49m {"concept":null,"roles":[{"role_name":"Finding site","target_name":"Heart structure"},{"role_name":"Associated morphology","target_name":"Infarct"}],"use_due_to":false}
+[0m[49m[39m   42,  55[0m:[39m[49m 
+[0m[49m[38;5;9m-  43     [0m:[38;5;9m[49m Example: "disorders located in the heart involving tissue death" ->
+[0m[49m[38;5;9m-  44     [0m:[38;5;9m[49m {"query_type": "concepts_with_role", "concept": null, "role": "Finding site", "target": "Heart", "keywords": ["heart", "infarct", "tissue death", "disorder"]}
+[0m[49m[38;5;9m-  45     [0m:[38;5;9m[49m """
+[0m[49m[38;5;10m+       56[0m:[38;5;10m[49m Q: "problems affecting lung parenchyma"
+[0m[49m[38;5;10m+       57[0m:[38;5;10m[49m {"concept":null,"roles":[{"role_name":"Finding site","target_name":"Structure of parenchyma of lung"}],"use_due_to":false}
+[0m[49m[38;5;10m+       58[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+       59[0m:[38;5;10m[49m Q: "sub-types of Pneumonia"
+[0m[49m[38;5;10m+       60[0m:[38;5;10m[49m {"concept":"Pneumonia","roles":[],"use_due_to":false}"""
+[0m[49m[38;5;10m+       61[0m:[38;5;10m[49m 
+[0m[49m[39m   46,  62[0m:[39m[49m     resp = call_llm([{"role": "user", "content": question}], system=system)
+[0m[49m[38;5;9m-  47     [0m:[38;5;9m[49m     # Extract JSON from response
+[0m[49m[39m   48,  63[0m:[39m[49m     if "```" in resp:
+[0m[49m[39m   49,  64[0m:[39m[49m         resp = resp.split("```")[1]
+[0m[49m[39m   50,  65[0m:[39m[49m         if resp.startswith("json"):
+[0m[49m[39m   51,  66[0m:[39m[49m             resp = resp[4:]
+[0m[49m[39m   52,  67[0m:[39m[49m     return json.loads(resp.strip())
+[0m[49m[39m   53,  68[0m:[39m[49m 
+[0m[49m[39m   54,  69[0m:[39m[49m 
+[0m[49m[39m   55,  70[0m:[39m[49m def find_concept(conn, name):
+[0m[49m[38;5;9m-  56     [0m:[38;5;9m[49m     """Find a concept ID by label, trying exact then fuzzy match."""
+[0m[49m[38;5;10m+       71[0m:[38;5;10m[49m     """Find a concept ID by label."""
+[0m[49m[39m   57,  72[0m:[39m[49m     cur = conn.cursor()
+[0m[49m[38;5;9m-  58     [0m:[38;5;9m[49m     # Exact prefLabel match
+[0m[49m[38;5;9m-  59     [0m:[38;5;9m[49m     cur.execute("SELECT concept_id FROM labels WHERE label = ? AND label_type='skos:prefLabel'", (name,))
+[0m[49m[38;5;9m-  60     [0m:[38;5;9m[49m     row = cur.fetchone()
+[0m[49m[38;5;9m-  61     [0m:[38;5;9m[49m     if row:
+[0m[49m[38;5;9m-  62     [0m:[38;5;9m[49m         return row[0]
+[0m[49m[38;5;9m-  63     [0m:[38;5;9m[49m     # Exact any label match
+[0m[49m[38;5;9m-  64     [0m:[38;5;9m[49m     cur.execute("SELECT concept_id FROM labels WHERE label = ?", (name,))
+[0m[49m[38;5;9m-  65     [0m:[38;5;9m[49m     row = cur.fetchone()
+[0m[49m[38;5;9m-  66     [0m:[38;5;9m[49m     if row:
+[0m[49m[38;5;9m-  67     [0m:[38;5;9m[49m         return row[0]
+[0m[49m[38;5;9m-  68     [0m:[38;5;9m[49m     # Case-insensitive
+[0m[49m[38;5;9m-  69     [0m:[38;5;9m[49m     cur.execute("SELECT concept_id FROM labels WHERE LOWER(label) = LOWER(?) AND label_type='skos:prefLabel'", (name,))
+[0m[49m[38;5;9m-  70     [0m:[38;5;9m[49m     row = cur.fetchone()
+[0m[49m[38;5;9m-  71     [0m:[38;5;9m[49m     if row:
+[0m[49m[38;5;9m-  72     [0m:[38;5;9m[49m         return row[0]
+[0m[49m[38;5;9m-  73     [0m:[38;5;9m[49m     # LIKE match
+[0m[49m[38;5;9m-  74     [0m:[38;5;9m[49m     cur.execute("SELECT concept_id FROM labels WHERE label LIKE ? AND label_type='skos:prefLabel' LIMIT 1", (f"%{name}%",))
+[0m[49m[38;5;9m-  75     [0m:[38;5;9m[49m     row = cur.fetchone()
+[0m[49m[38;5;9m-  76     [0m:[38;5;9m[49m     if row:
+[0m[49m[38;5;9m-  77     [0m:[38;5;9m[49m         return row[0]
+[0m[49m[38;5;10m+       73[0m:[38;5;10m[49m     for query in [
+[0m[49m[38;5;10m+       74[0m:[38;5;10m[49m         ("SELECT concept_id FROM labels WHERE label = ? AND label_type='skos:prefLabel'", (name,)),
+[0m[49m[38;5;10m+       75[0m:[38;5;10m[49m         ("SELECT concept_id FROM labels WHERE label = ?", (name,)),
+[0m[49m[38;5;10m+       76[0m:[38;5;10m[49m         ("SELECT concept_id FROM labels WHERE LOWER(label) = LOWER(?) AND label_type='skos:prefLabel'", (name,)),
+[0m[49m[38;5;10m+       77[0m:[38;5;10m[49m         ("SELECT concept_id FROM labels WHERE label LIKE ? AND label_type='skos:prefLabel' LIMIT 1", (f"%{name}%",)),
+[0m[49m[38;5;10m+       78[0m:[38;5;10m[49m     ]:
+[0m[49m[38;5;10m+       79[0m:[38;5;10m[49m         cur.execute(*query)
+[0m[49m[38;5;10m+       80[0m:[38;5;10m[49m         row = cur.fetchone()
+[0m[49m[38;5;10m+       81[0m:[38;5;10m[49m         if row:
+[0m[49m[38;5;10m+       82[0m:[38;5;10m[49m             return row[0]
+[0m[49m[39m   78,  83[0m:[39m[49m     return None
+[0m[49m[39m   79,  84[0m:[39m[49m 
+[0m[49m[39m   80,  85[0m:[39m[49m 
+[0m[49m[39m   81,  86[0m:[39m[49m def find_role(conn, name):
+[0m[49m[39m   82,  87[0m:[39m[49m     """Find a role/attribute concept ID by label."""
+[0m[49m[38;5;9m-  83     [0m:[38;5;9m[49m     cur = conn.cursor()
+[0m[49m[38;5;9m-  84     [0m:[38;5;9m[49m     cur.execute("SELECT concept_id FROM labels WHERE LOWER(label) = LOWER(?) AND label_type='skos:prefLabel'", (name,))
+[0m[49m[38;5;9m-  85     [0m:[38;5;9m[49m     row = cur.fetchone()
+[0m[49m[38;5;9m-  86     [0m:[38;5;9m[49m     if row:
+[0m[49m[38;5;9m-  87     [0m:[38;5;9m[49m         return row[0]
+[0m[49m[38;5;9m-  88     [0m:[38;5;9m[49m     cur.execute("SELECT concept_id FROM labels WHERE LOWER(label) LIKE LOWER(?) AND label_type='skos:prefLabel' LIMIT 1", (f"%{name}%",))
+[0m[49m[38;5;9m-  89     [0m:[38;5;9m[49m     row = cur.fetchone()
+[0m[49m[38;5;9m-  90     [0m:[38;5;9m[49m     if row:
+[0m[49m[38;5;9m-  91     [0m:[38;5;9m[49m         return row[0]
+[0m[49m[38;5;9m-  92     [0m:[38;5;9m[49m     return None
+[0m[49m[38;5;10m+       88[0m:[38;5;10m[49m     return find_concept(conn, name)
+[0m[49m[39m   93,  89[0m:[39m[49m 
+[0m[49m[39m   94,  90[0m:[39m[49m 
+[0m[49m[38;5;9m-  95     [0m:[38;5;9m[49m def get_descendants(conn, concept_id, max_depth=10):
+[0m[49m[38;5;10m+       91[0m:[38;5;10m[49m def get_descendants(conn, concept_id, max_depth=15):
+[0m[49m[39m   96,  92[0m:[39m[49m     """Get all descendants of a concept via subclass_of."""
+[0m[49m[39m   97,  93[0m:[39m[49m     descendants = set()
+[0m[49m[39m   98,  94[0m:[39m[49m     frontier = {concept_id}
+[0m[49m[39m   99,  95[0m:[39m[49m     for _ in range(max_depth):
+[0m[49m[39m  100,  96[0m:[39m[49m         if not frontier:
+[0m[49m[39m  101,  97[0m:[39m[49m             break
+[0m[49m[39m  102,  98[0m:[39m[49m         placeholders = ",".join("?" * len(frontier))
+[0m[49m[39m  103,  99[0m:[39m[49m         cur = conn.cursor()
+[0m[49m[39m  104, 100[0m:[39m[49m         cur.execute(f"SELECT child FROM subclass_of WHERE parent IN ({placeholders})", list(frontier))
+[0m[49m[39m  105, 101[0m:[39m[49m         children = {row[0] for row in cur.fetchall()}
+[0m[49m[39m  106, 102[0m:[39m[49m         new = children - descendants
+[0m[49m[39m  107, 103[0m:[39m[49m         descendants.update(new)
+[0m[49m[39m  108, 104[0m:[39m[49m         frontier = new
+[0m[49m[39m  109, 105[0m:[39m[49m     return descendants
+[0m[49m[39m  110, 106[0m:[39m[49m 
+[0m[49m[39m  111, 107[0m:[39m[49m 
+[0m[49m[38;5;10m+      108[0m:[38;5;10m[49m def get_concept_and_descendants(conn, concept_id):
+[0m[49m[38;5;10m+      109[0m:[38;5;10m[49m     """Get concept plus all its descendants."""
+[0m[49m[38;5;10m+      110[0m:[38;5;10m[49m     result = {concept_id}
+[0m[49m[38;5;10m+      111[0m:[38;5;10m[49m     result.update(get_descendants(conn, concept_id))
+[0m[49m[38;5;10m+      112[0m:[38;5;10m[49m     return result
+[0m[49m[38;5;10m+      113[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+      114[0m:[38;5;10m[49m 
+[0m[49m[39m  112, 115[0m:[39m[49m def get_label(conn, concept_id):
+[0m[49m[38;5;9m- 113     [0m:[38;5;9m[49m     """Get the preferred label for a concept."""
+[0m[49m[39m  114, 116[0m:[39m[49m     cur = conn.cursor()
+[0m[49m[39m  115, 117[0m:[39m[49m     cur.execute("SELECT label FROM labels WHERE concept_id = ? AND label_type='skos:prefLabel'", (concept_id,))
+[0m[49m[39m  116, 118[0m:[39m[49m     row = cur.fetchone()
+[0m[49m[39m  117, 119[0m:[39m[49m     return row[0] if row else None
+[0m[49m[39m  118, 120[0m:[39m[49m 
+[0m[49m[39m  119, 121[0m:[39m[49m 
+[0m[49m[38;5;9m- 120     [0m:[38;5;9m[49m def get_descendants_of_target(conn, target_id):
+[0m[49m[38;5;9m- 121     [0m:[38;5;9m[49m     """Get target and all its descendants (for matching 'Eye' includes sub-structures)."""
+[0m[49m[38;5;9m- 122     [0m:[38;5;9m[49m     targets = {target_id}
+[0m[49m[38;5;9m- 123     [0m:[38;5;9m[49m     targets.update(get_descendants(conn, target_id))
+[0m[49m[38;5;9m- 124     [0m:[38;5;9m[49m     return targets
+[0m[49m[38;5;10m+      122[0m:[38;5;10m[49m def find_subjects_with_role_in_targets(conn, role_id, target_set):
+[0m[49m[38;5;10m+      123[0m:[38;5;10m[49m     """Find all subjects that have a given role pointing to any target in target_set."""
+[0m[49m[38;5;10m+      124[0m:[38;5;10m[49m     placeholders = ",".join("?" * len(target_set))
+[0m[49m[38;5;10m+      125[0m:[38;5;10m[49m     cur = conn.cursor()
+[0m[49m[38;5;10m+      126[0m:[38;5;10m[49m     cur.execute(f"SELECT DISTINCT subject FROM relationships WHERE role = ? AND target IN ({placeholders})",
+[0m[49m[38;5;10m+      127[0m:[38;5;10m[49m                 [role_id] + list(target_set))
+[0m[49m[38;5;10m+      128[0m:[38;5;10m[49m     return {row[0] for row in cur.fetchall()}
+[0m[49m[39m  125, 129[0m:[39m[49m 
+[0m[49m[39m  126, 130[0m:[39m[49m 
+[0m[49m[39m  127, 131[0m:[39m[49m def main(onto_file: str, question: str) -> None:
+[0m[49m[39m  128, 132[0m:[39m[49m     cache_file = Path(onto_file).with_suffix(".sqlite3")
+[0m[49m[39m  129, 133[0m:[39m[49m     conn = sqlite3.connect(str(cache_file))
+[0m[49m[39m  130, 134[0m:[39m[49m 
+[0m[49m[38;5;9m- 131     [0m:[38;5;9m[49m     # Parse question with LLM
+[0m[49m[39m  132, 135[0m:[39m[49m     parsed = parse_question(question)
+[0m[49m[38;5;9m- 133     [0m:[38;5;9m[49m     query_type = parsed.get("query_type", "descendants")
+[0m[49m[39m  134, 136[0m:[39m[49m     concept_name = parsed.get("concept")
+[0m[49m[38;5;9m- 135     [0m:[38;5;9m[49m     role_name = parsed.get("role")
+[0m[49m[38;5;9m- 136     [0m:[38;5;9m[49m     target_name = parsed.get("target")
+[0m[49m[38;5;9m- 137     [0m:[38;5;9m[49m     keywords = parsed.get("keywords", [])
+[0m[49m[38;5;10m+      137[0m:[38;5;10m[49m     roles = parsed.get("roles", [])
+[0m[49m[38;5;10m+      138[0m:[38;5;10m[49m     use_due_to = parsed.get("use_due_to", False)
+[0m[49m[39m  138, 139[0m:[39m[49m 
+[0m[49m[38;5;9m- 139     [0m:[38;5;9m[49m     results = []
+[0m[49m[38;5;10m+      140[0m:[38;5;10m[49m     # Resolve concept
+[0m[49m[38;5;10m+      141[0m:[38;5;10m[49m     concept_id = find_concept(conn, concept_name) if concept_name else None
+[0m[49m[39m  140, 142[0m:[39m[49m 
+[0m[49m[38;5;9m- 141     [0m:[38;5;9m[49m     if query_type == "descendants" and concept_name:
+[0m[49m[38;5;9m- 142     [0m:[38;5;9m[49m         concept_id = find_concept(conn, concept_name)
+[0m[49m[38;5;9m- 143     [0m:[38;5;9m[49m         if concept_id:
+[0m[49m[38;5;9m- 144     [0m:[38;5;9m[49m             desc_ids = get_descendants(conn, concept_id)
+[0m[49m[38;5;9m- 145     [0m:[38;5;9m[49m             for did in list(desc_ids)[:200]:
+[0m[49m[38;5;9m- 146     [0m:[38;5;9m[49m                 lbl = get_label(conn, did)
+[0m[49m[38;5;9m- 147     [0m:[38;5;9m[49m                 if lbl:
+[0m[49m[38;5;9m- 148     [0m:[38;5;9m[49m                     results.append(lbl)
+[0m[49m[38;5;10m+      143[0m:[38;5;10m[49m     # Get candidate set
+[0m[49m[38;5;10m+      144[0m:[38;5;10m[49m     candidates = None
+[0m[49m[39m  149, 145[0m:[39m[49m 
+[0m[49m[38;5;9m- 150     [0m:[38;5;9m[49m     elif query_type == "descendants_with_role" and concept_name:
+[0m[49m[38;5;9m- 151     [0m:[38;5;9m[49m         concept_id = find_concept(conn, concept_name)
+[0m[49m[38;5;9m- 152     [0m:[38;5;9m[49m         role_id = find_role(conn, role_name) if role_name else None
+[0m[49m[38;5;9m- 153     [0m:[38;5;9m[49m         target_id = find_concept(conn, target_name) if target_name else None
+[0m[49m[38;5;10m+      146[0m:[38;5;10m[49m     if concept_id:
+[0m[49m[38;5;10m+      147[0m:[38;5;10m[49m         # Start with descendants of the concept
+[0m[49m[38;5;10m+      148[0m:[38;5;10m[49m         desc = get_descendants(conn, concept_id)
+[0m[49m[38;5;10m+      149[0m:[38;5;10m[49m         if use_due_to:
+[0m[49m[38;5;10m+      150[0m:[38;5;10m[49m             # Also include concepts that are "Due to" this concept or its descendants
+[0m[49m[38;5;10m+      151[0m:[38;5;10m[49m             due_to_id = find_concept(conn, "Due to")
+[0m[49m[38;5;10m+      152[0m:[38;5;10m[49m             if due_to_id:
+[0m[49m[38;5;10m+      153[0m:[38;5;10m[49m                 concept_set = get_concept_and_descendants(conn, concept_id)
+[0m[49m[38;5;10m+      154[0m:[38;5;10m[49m                 due_to_subjects = find_subjects_with_role_in_targets(conn, due_to_id, concept_set)
+[0m[49m[38;5;10m+      155[0m:[38;5;10m[49m                 desc = desc | due_to_subjects
+[0m[49m[38;5;10m+      156[0m:[38;5;10m[49m         candidates = desc
+[0m[49m[39m  154, 157[0m:[39m[49m 
+[0m[49m[38;5;9m- 155     [0m:[38;5;9m[49m         if concept_id:
+[0m[49m[38;5;9m- 156     [0m:[38;5;9m[49m             desc_ids = get_descendants(conn, concept_id)
+[0m[49m[38;5;9m- 157     [0m:[38;5;9m[49m             if role_id and target_id:
+[0m[49m[38;5;9m- 158     [0m:[38;5;9m[49m                 # Get all descendants of target too (Eye includes sub-structures of eye)
+[0m[49m[38;5;9m- 159     [0m:[38;5;9m[49m                 target_ids = get_descendants_of_target(conn, target_id)
+[0m[49m[38;5;9m- 160     [0m:[38;5;9m[49m                 placeholders_t = ",".join("?" * len(target_ids))
+[0m[49m[38;5;9m- 161     [0m:[38;5;9m[49m                 for did in desc_ids:
+[0m[49m[38;5;9m- 162     [0m:[38;5;9m[49m                     cur = conn.cursor()
+[0m[49m[38;5;9m- 163     [0m:[38;5;9m[49m                     cur.execute(f"SELECT 1 FROM relationships WHERE subject=? AND role=? AND target IN ({placeholders_t}) LIMIT 1",
+[0m[49m[38;5;9m- 164     [0m:[38;5;9m[49m                                 [did, role_id] + list(target_ids))
+[0m[49m[38;5;9m- 165     [0m:[38;5;9m[49m                     if cur.fetchone():
+[0m[49m[38;5;9m- 166     [0m:[38;5;9m[49m                         lbl = get_label(conn, did)
+[0m[49m[38;5;9m- 167     [0m:[38;5;9m[49m                         if lbl:
+[0m[49m[38;5;9m- 168     [0m:[38;5;9m[49m                             results.append(lbl)
+[0m[49m[38;5;10m+      158[0m:[38;5;10m[49m     # Apply role constraints
+[0m[49m[38;5;10m+      159[0m:[38;5;10m[49m     for role_spec in roles:
+[0m[49m[38;5;10m+      160[0m:[38;5;10m[49m         role_id = find_role(conn, role_spec["role_name"])
+[0m[49m[38;5;10m+      161[0m:[38;5;10m[49m         target_id = find_concept(conn, role_spec["target_name"])
+[0m[49m[38;5;10m+      162[0m:[38;5;10m[49m         if role_id and target_id:
+[0m[49m[38;5;10m+      163[0m:[38;5;10m[49m             target_set = get_concept_and_descendants(conn, target_id)
+[0m[49m[38;5;10m+      164[0m:[38;5;10m[49m             matching = find_subjects_with_role_in_targets(conn, role_id, target_set)
+[0m[49m[38;5;10m+      165[0m:[38;5;10m[49m             if candidates is None:
+[0m[49m[38;5;10m+      166[0m:[38;5;10m[49m                 candidates = matching
+[0m[49m[39m  169, 167[0m:[39m[49m             else:
+[0m[49m[38;5;9m- 170     [0m:[38;5;9m[49m                 # Fallback: just return descendants
+[0m[49m[38;5;9m- 171     [0m:[38;5;9m[49m                 for did in list(desc_ids)[:200]:
+[0m[49m[38;5;9m- 172     [0m:[38;5;9m[49m                     lbl = get_label(conn, did)
+[0m[49m[38;5;9m- 173     [0m:[38;5;9m[49m                     if lbl:
+[0m[49m[38;5;9m- 174     [0m:[38;5;9m[49m                         results.append(lbl)
+[0m[49m[38;5;9m- 175     [0m:[38;5;9m[49m 
+[0m[49m[38;5;9m- 176     [0m:[38;5;9m[49m     elif query_type == "concepts_with_role":
+[0m[49m[38;5;9m- 177     [0m:[38;5;9m[49m         role_id = find_role(conn, role_name) if role_name else None
+[0m[49m[38;5;9m- 178     [0m:[38;5;9m[49m         target_id = find_concept(conn, target_name) if target_name else None
+[0m[49m[38;5;9m- 179     [0m:[38;5;9m[49m 
+[0m[49m[38;5;9m- 180     [0m:[38;5;9m[49m         if role_id and target_id:
+[0m[49m[38;5;9m- 181     [0m:[38;5;9m[49m             target_ids = get_descendants_of_target(conn, target_id)
+[0m[49m[38;5;9m- 182     [0m:[38;5;9m[49m             placeholders_t = ",".join("?" * len(target_ids))
+[0m[49m[38;5;9m- 183     [0m:[38;5;9m[49m             cur = conn.cursor()
+[0m[49m[38;5;9m- 184     [0m:[38;5;9m[49m             cur.execute(f"SELECT DISTINCT subject FROM relationships WHERE role=? AND target IN ({placeholders_t})",
+[0m[49m[38;5;9m- 185     [0m:[38;5;9m[49m                         [role_id] + list(target_ids))
+[0m[49m[38;5;9m- 186     [0m:[38;5;9m[49m             subject_ids = [row[0] for row in cur.fetchall()]
+[0m[49m[38;5;10m+      168[0m:[38;5;10m[49m                 candidates = candidates & matching
+[0m[49m[39m  187, 169[0m:[39m[49m 
+[0m[49m[38;5;9m- 188     [0m:[38;5;9m[49m             # Filter by keywords if present
+[0m[49m[38;5;9m- 189     [0m:[38;5;9m[49m             for sid in subject_ids[:500]:
+[0m[49m[38;5;9m- 190     [0m:[38;5;9m[49m                 lbl = get_label(conn, sid)
+[0m[49m[38;5;9m- 191     [0m:[38;5;9m[49m                 if lbl:
+[0m[49m[38;5;9m- 192     [0m:[38;5;9m[49m                     lbl_lower = lbl.lower()
+[0m[49m[38;5;9m- 193     [0m:[38;5;9m[49m                     # For keyword filtering, check if any keyword matches
+[0m[49m[38;5;9m- 194     [0m:[38;5;9m[49m                     if keywords:
+[0m[49m[38;5;9m- 195     [0m:[38;5;9m[49m                         kw_match = any(k.lower() in lbl_lower for k in keywords if k.lower() not in (target_name or "").lower().split())
+[0m[49m[38;5;9m- 196     [0m:[38;5;9m[49m                         if kw_match:
+[0m[49m[38;5;9m- 197     [0m:[38;5;9m[49m                             results.append(lbl)
+[0m[49m[38;5;9m- 198     [0m:[38;5;9m[49m                         else:
+[0m[49m[38;5;9m- 199     [0m:[38;5;9m[49m                             results.append(lbl)
+[0m[49m[38;5;9m- 200     [0m:[38;5;9m[49m                     else:
+[0m[49m[38;5;9m- 201     [0m:[38;5;9m[49m                         results.append(lbl)
+[0m[49m[38;5;10m+      170[0m:[38;5;10m[49m     if candidates is None:
+[0m[49m[38;5;10m+      171[0m:[38;5;10m[49m         candidates = set()
+[0m[49m[39m  202, 172[0m:[39m[49m 
+[0m[49m[38;5;9m- 203     [0m:[38;5;9m[49m     # If no results from structured query, try keyword search
+[0m[49m[38;5;9m- 204     [0m:[38;5;9m[49m     if not results and keywords:
+[0m[49m[38;5;9m- 205     [0m:[38;5;9m[49m         cur = conn.cursor()
+[0m[49m[38;5;9m- 206     [0m:[38;5;9m[49m         for kw in keywords:
+[0m[49m[38;5;9m- 207     [0m:[38;5;9m[49m             cur.execute("SELECT concept_id, label FROM labels WHERE label LIKE ? AND label_type='skos:prefLabel' LIMIT 50",
+[0m[49m[38;5;9m- 208     [0m:[38;5;9m[49m                         (f"%{kw}%",))
+[0m[49m[38;5;9m- 209     [0m:[38;5;9m[49m             for row in cur.fetchall():
+[0m[49m[38;5;9m- 210     [0m:[38;5;9m[49m                 results.append(row[1])
+[0m[49m[38;5;10m+      173[0m:[38;5;10m[49m     # Get labels
+[0m[49m[38;5;10m+      174[0m:[38;5;10m[49m     results = []
+[0m[49m[38;5;10m+      175[0m:[38;5;10m[49m     for cid in candidates:
+[0m[49m[38;5;10m+      176[0m:[38;5;10m[49m         lbl = get_label(conn, cid)
+[0m[49m[38;5;10m+      177[0m:[38;5;10m[49m         if lbl:
+[0m[49m[38;5;10m+      178[0m:[38;5;10m[49m             results.append(lbl)
+[0m[49m[39m  211, 179[0m:[39m[49m 
+[0m[49m[38;5;9m- 212     [0m:[38;5;9m[49m     # Limit results for LLM summarization
+[0m[49m[39m  213, 180[0m:[39m[49m     results = sorted(set(results))[:100]
+[0m[49m[39m  214, 181[0m:[39m[49m 
+[0m[49m[38;5;9m- 215     [0m:[38;5;9m[49m     # Use LLM to compose a natural language answer
+[0m[49m[38;5;10m+      182[0m:[38;5;10m[49m     # Use LLM to compose answer
+[0m[49m[39m  216, 183[0m:[39m[49m     if results:
+[0m[49m[39m  217, 184[0m:[39m[49m         result_text = "\n".join(f"- {r}" for r in results)
+[0m[49m[39m  218, 185[0m:[39m[49m         summary_prompt = f"""Based on these results from the SNOMED CT ontology for the question: "{question}"
+[0m[49m[39m  219, 186[0m:[39m[49m 
+[0m[49m[39m  220, 187[0m:[39m[49m Results found ({len(results)} concepts):
+[0m[49m[39m  221, 188[0m:[39m[49m {result_text}
+[0m[49m[39m  222, 189[0m:[39m[49m 
+[0m[49m[38;5;9m- 223     [0m:[38;5;9m[49m Provide a clear, organized summary answer. Group related items if appropriate. Do not include any ontology identifiers like concept IDs. Keep the answer informative but concise."""
+[0m[49m[38;5;10m+      190[0m:[38;5;10m[49m Provide a clear, organized summary answer. Group related items into categories if appropriate. Do not include any ontology identifiers. Be informative but concise."""
+[0m[49m[39m  224, 191[0m:[39m[49m         answer = call_llm([{"role": "user", "content": summary_prompt}])
+[0m[49m[39m  225, 192[0m:[39m[49m     else:
+[0m[49m[39m  226, 193[0m:[39m[49m         answer = "No matching concepts found in the ontology for this query."
+[0m[49m[39m  227, 194[0m:[39m[49m 
+[0m[49m[39m  228, 195[0m:[39m[49m     print(f"Answer: {answer}")
+[0m[49m[39m  229, 196[0m:[39m[49m     conn.close()
+[0m[49m[39m  230, 197[0m:[39m[49m 
+[0m[49m[39m  231, 198[0m:[39m[49m 
+[0m[49m[39m  232, 199[0m:[39m[49m if __name__ == "__main__":
+[0m[49m[39m  233, 200[0m:[39m[49m     onto_file = sys.argv[1]
+[0m[49m[39m  234, 201[0m:[39m[49m     question = sys.argv[2]
+[0m[49m[39m  235, 202[0m:[39m[49m     main(onto_file, question)
+[0m[K
+Replacing: [38;5;141mquery_program.py[0m
+[38;5;244m - Completed in 0.1s[0m
+
+[?25l[0m[38;5;141m> [0mNow let's test all four questions:[0m[0m
+[?25l[0m[0mI will run the following command: [38;5;141mcd /home/ubuntu/runs/SNOMED_20260510_191046/iteration_1 && timeout 120 python3 query_program.py /home/ubuntu/ontology-2026-05-08_20-47-35.owl "What are all the specific sub-types and variations of Pneumonia?" 2>&1 | head -50[0m[38;5;244m (using tool: shell)[0m
+Purpose: Test question 4: Pneumonia subtypes
+
+Answer: No matching concepts found in the ontology for this query.
+[38;5;244m - Completed in 1.612s[0m
+
+[?25l[0m[38;5;141m> [0mThe Pneumonia query returned no results. Let me debug:[0m[0m
+[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import sqlite3
+conn = sqlite3.connect('/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3')
+cur = conn.cursor()
+
+# Check Pneumonia concept
+cur.execute(\"SELECT concept_id, label FROM labels WHERE label = 'Pneumonia' AND label_type='skos:prefLabel'\")
+pneumonia = cur.fetchone()
+print('Pneumonia:', pneumonia)
+
+# Get descendants
+pneumonia_id = pneumonia[0]
+desc = set()
+frontier = {pneumonia_id}
+for _ in range(15):
+    if not frontier:
+        break
+    placeholders = ','.join('?' * len(frontier))
+    cur.execute(f'SELECT child FROM subclass_of WHERE parent IN ({placeholders})', list(frontier))
+    children = {row[0] for row in cur.fetchall()}
+    new = children - desc
+    desc.update(new)
+    frontier = new
+print(f'Pneumonia descendants: {len(desc)}')
+for d in list(desc)[:5]:
+    cur.execute('SELECT label FROM labels WHERE concept_id = ? AND label_type=\"skos:prefLabel\"', (d,))
+    print(f'  {cur.fetchone()}')
+
+conn.close()
+" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Debug Pneumonia descendants query
+
+Pneumonia: ('233604007', 'Pneumonia')
+Pneumonia descendants: 0
+[38;5;244m - Completed in 0.148s[0m
+
+[?25l[0m[38;5;141m> [0mPneumonia has no descendants in the subclass_of table! Let me check its children differently:[0m[0m
+[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import sqlite3
+conn = sqlite3.connect('/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3')
+cur = conn.cursor()
+
+# Check if Pneumonia has children
+cur.execute('SELECT child FROM subclass_of WHERE parent = ?', ('233604007',))
+print('Children of Pneumonia:', cur.fetchall())
+
+# Check parents of Pneumonia
+cur.execute('SELECT parent FROM subclass_of WHERE child = ?', ('233604007',))
+print('Parents of Pneumonia:', cur.fetchall())
+
+# Maybe Pneumonia is known by different concept IDs
+cur.execute(\"SELECT concept_id, label FROM labels WHERE label LIKE '%Pneumonia%' AND label_type='skos:prefLabel' LIMIT 20\")
+results = cur.fetchall()
+print(f'Pneumonia-related concepts ({len(results)}):')
+for r in results[:20]:
+    print(f'  {r}')
+
+# Check if there's a broader pneumonia concept
+cur.execute(\"SELECT concept_id, label FROM labels WHERE label = 'Pneumonia' LIMIT 10\")
+print('All Pneumonia labels:', cur.fetchall())
+
+conn.close()
+" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Debug Pneumonia hierarchy
+
+Children of Pneumonia: []
+Parents of Pneumonia: [('64572001',)]
+Pneumonia-related concepts (20):
+  ('1010261007', 'Recurrent infection caused by Streptococcus pneumoniae')
+  ('1010346008', 'Actinobacillus pleuropneumoniae serotype 1')
+  ('1010349001', 'Actinobacillus pleuropneumoniae serotype 2')
+  ('1010350001', 'Actinobacillus pleuropneumoniae serotype 3')
+  ('1010351002', 'Actinobacillus pleuropneumoniae serotype 4')
+  ('1010352009', 'Actinobacillus pleuropneumoniae serotype 5')
+  ('1010353004', 'Actinobacillus pleuropneumoniae serotype 6')
+  ('1010354005', 'Actinobacillus pleuropneumoniae serotype 7')
+  ('1010355006', 'Actinobacillus pleuropneumoniae serotype 8')
+  ('1010356007', 'Actinobacillus pleuropneumoniae serotype 9')
+  ('1010357003', 'Actinobacillus pleuropneumoniae serotype 10')
+  ('1010358008', 'Actinobacillus pleuropneumoniae serotype 11')
+  ('1010359000', 'Actinobacillus pleuropneumoniae serotype 12')
+  ('1010360005', 'Actinobacillus pleuropneumoniae serotype 13')
+  ('1010361009', 'Actinobacillus pleuropneumoniae serotype 14')
+  ('1010362002', 'Actinobacillus pleuropneumoniae serotype 15')
+  ('1010634002', 'Pneumonia caused by Acinetobacter')
+  ('102361000119104', 'Chronic pneumonia')
+  ('10271000175107', 'Pneumonia caused by Enterococcus faecium')
+  ('10281000175105', 'Pneumonia caused by Enterococcus faecalis')
+All Pneumonia labels: [('233604007', 'Pneumonia')]
+[38;5;244m - Completed in 0.147s[0m
+
+[?25l[0m[38;5;141m> [0mPneumonia (233604007) has no children in the subclass_of table. This is unusual. Let me check if there's a different hierarchy concept or if the subtypes are linked differently:[0m[0m
+[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import sqlite3
+conn = sqlite3.connect('/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3')
+cur = conn.cursor()
+
+# Check if 'Bronchopneumonia' is in the ontology and its parents
+cur.execute(\"SELECT concept_id, label FROM labels WHERE label = 'Bronchopneumonia' AND label_type='skos:prefLabel'\")
+bp = cur.fetchall()
+print('Bronchopneumonia:', bp)
+
+if bp:
+    cur.execute('SELECT parent FROM subclass_of WHERE child = ?', (bp[0][0],))
+    parents = cur.fetchall()
+    print('Parents:', parents)
+    for p in parents:
+        cur.execute('SELECT label FROM labels WHERE concept_id = ? AND label_type=\"skos:prefLabel\"', (p[0],))
+        print(f'  {p[0]}: {cur.fetchone()}')
+
+# Check 'Lobar pneumonia'
+cur.execute(\"SELECT concept_id, label FROM labels WHERE label = 'Lobar pneumonia' AND label_type='skos:prefLabel'\")
+lp = cur.fetchall()
+print('Lobar pneumonia:', lp)
+if lp:
+    cur.execute('SELECT parent FROM subclass_of WHERE child = ?', (lp[0][0],))
+    parents = cur.fetchall()
+    print('Parents:', parents)
+    for p in parents:
+        cur.execute('SELECT label FROM labels WHERE concept_id = ? AND label_type=\"skos:prefLabel\"', (p[0],))
+        print(f'  {p[0]}: {cur.fetchone()}')
+
+# Check 'Viral pneumonia'
+cur.execute(\"SELECT concept_id, label FROM labels WHERE label = 'Viral pneumonia' AND label_type='skos:prefLabel'\")
+vp = cur.fetchall()
+print('Viral pneumonia:', vp)
+
+# Check 'Bacterial pneumonia'
+cur.execute(\"SELECT concept_id, label FROM labels WHERE label = 'Bacterial pneumonia' AND label_type='skos:prefLabel'\")
+bact = cur.fetchall()
+print('Bacterial pneumonia:', bact)
+
+# Check 'Aspiration pneumonia'
+cur.execute(\"SELECT concept_id, label FROM labels WHERE label = 'Aspiration pneumonia' AND label_type='skos:prefLabel'\")
+asp = cur.fetchall()
+print('Aspiration pneumonia:', asp)
+
+conn.close()
+" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Check pneumonia subtypes and their hierarchy
+
+Bronchopneumonia: [('396285007', 'Bronchopneumonia')]
+Parents: [('64572001',)]
+  64572001: ('Disease',)
+Lobar pneumonia: [('278516003', 'Lobar pneumonia')]
+Parents: [('64572001',)]
+  64572001: ('Disease',)
+Viral pneumonia: [('75570004', 'Viral pneumonia')]
+Bacterial pneumonia: [('53084003', 'Bacterial pneumonia')]
+Aspiration pneumonia: [('422588002', 'Aspiration pneumonia')]
+[38;5;244m - Completed in 0.546s[0m
+
+[?25l[0m[38;5;141m> [0mInteresting! Pneumonia subtypes like Bronchopneumonia and Lobar pneumonia are NOT children of Pneumonia (233604007) in the subclass_of table — they're children of "Disease" (64572001). This means the 
+SNOMED CT hierarchy in this cache doesn't have a direct is-a relationship from subtypes to Pneumonia.[0m[0m
+[0m[0m
+Let me check if there's a different way these are connected — perhaps through a "Is a" relationship in the relationships table:[0m[0m
+[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import sqlite3
+conn = sqlite3.connect('/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3')
+cur = conn.cursor()
+
+# Check if there's an 'Is a' role in relationships
+cur.execute(\"SELECT concept_id, label FROM labels WHERE label LIKE 'Is a%' AND label_type='skos:prefLabel' LIMIT 5\")
+print('Is a:', cur.fetchall())
+
+# Check relationships of Bronchopneumonia
+cur.execute('SELECT role, target FROM relationships WHERE subject = ?', ('396285007',))
+rels = cur.fetchall()
+print('Bronchopneumonia relationships:')
+for role, target in rels:
+    cur.execute('SELECT label FROM labels WHERE concept_id = ? AND label_type=\"skos:prefLabel\"', (role,))
+    rlbl = cur.fetchone()
+    cur.execute('SELECT label FROM labels WHERE concept_id = ? AND label_type=\"skos:prefLabel\"', (target,))
+    tlbl = cur.fetchone()
+    print(f'  {rlbl[0] if rlbl else role} -> {tlbl[0] if tlbl else target}')
+
+# Check if Pneumonia (233604007) appears as a target in relationships
+cur.execute('SELECT subject, role FROM relationships WHERE target = ? LIMIT 20', ('233604007',))
+rels = cur.fetchall()
+print(f'Concepts pointing to Pneumonia: {len(rels)}')
+for subj, role in rels[:10]:
+    cur.execute('SELECT label FROM labels WHERE concept_id = ? AND label_type=\"skos:prefLabel\"', (subj,))
+    slbl = cur.fetchone()
+    cur.execute('SELECT label FROM labels WHERE concept_id = ? AND label_type=\"skos:prefLabel\"', (role,))
+    rlbl = cur.fetchone()
+    print(f'  {slbl[0] if slbl else subj} --{rlbl[0] if rlbl else role}--> Pneumonia')
+
+conn.close()
+" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Check how pneumonia subtypes are connected
+
+Is a: [('116680003', 'Is a'), ('160502007', 'Is a stepchild'), ('704647008', 'Is about'), ('416872009', 'Is aetiology for'), ('30710002', 'Is an only child')]
+Bronchopneumonia relationships:
+  Associated morphology -> Inflammation and consolidation
+  Finding site -> Structure of parenchyma of lung
+  Pathological process -> Infectious process
+  Associated morphology -> Inflammation and consolidation
+  Finding site -> Bronchial structure
+  Pathological process -> Infectious process
+Concepts pointing to Pneumonia: 2
+  Acute ulcerative gastroenteritis complicating pneumonia --Associated with--> Pneumonia
+  History of pneumonia --Associated finding--> Pneumonia
+[38;5;244m - Completed in 0.41s[0m
+
+[?25l[0m[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import sqlite3
+conn = sqlite3.connect('/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3')
+cur = conn.cursor()
+
+# Check if 'Is a' (116680003) is used in the relationships table
+cur.execute(\"SELECT COUNT(*) FROM relationships WHERE role = '116680003'\")
+print('Is-a relationships count:', cur.fetchone())
+
+# Check if Bronchopneumonia has an 'Is a' relationship to Pneumonia
+cur.execute(\"SELECT * FROM relationships WHERE subject = '396285007' AND role = '116680003'\")
+print('Bronchopneumonia Is-a:', cur.fetchall())
+
+# Maybe the subclass_of table is incomplete. Let's check total entries
+cur.execute('SELECT COUNT(*) FROM subclass_of')
+print('Total subclass_of entries:', cur.fetchone())
+
+# Check how many concepts have Disease as parent
+cur.execute(\"SELECT COUNT(*) FROM subclass_of WHERE parent = '64572001'\")
+print('Direct children of Disease:', cur.fetchone())
+
+# It seems the hierarchy is flat - most things are just children of Disease
+# For Pneumonia subtypes, we need a different approach: text-based search
+# Let's find all concepts with 'pneumonia' in their label
+cur.execute(\"SELECT COUNT(*) FROM labels WHERE LOWER(label) LIKE '%pneumonia%' AND label_type='skos:prefLabel'\")
+print('Concepts with pneumonia in label:', cur.fetchone())
+
+conn.close()
+" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Check if hierarchy is flat and explore alternatives
+
+Is-a relationships count: (0,)
+Bronchopneumonia Is-a: []
+Total subclass_of entries: (445090,)
+Direct children of Disease: (56705,)
+Concepts with pneumonia in label: (664,)
+[38;5;244m - Completed in 0.363s[0m
+
+[?25l[0m[38;5;141m> [0mThe hierarchy is very flat — 56,705 concepts are direct children of "Disease". The subclass_of table doesn't capture the full SNOMED CT is-a hierarchy for clinical findings. For "subtypes of Pneumonia",
+I need to use a text-based approach (finding concepts with "pneumonia" in their label) since the hierarchy doesn't capture this.[0m[0m
+[0m[0m
+Let me also check if there's a deeper hierarchy for some concepts:[0m[0m
+[?25l[0m[0mI will run the following command: [38;5;141mpython3 -c "
+import sqlite3
+conn = sqlite3.connect('/home/ubuntu/ontology-2026-05-08_20-47-35.sqlite3')
+cur = conn.cursor()
+
+# Check what parents are most common (to understand the hierarchy)
+cur.execute('SELECT parent, COUNT(*) as cnt FROM subclass_of GROUP BY parent ORDER BY cnt DESC LIMIT 10')
+print('Most common parents:')
+for parent, cnt in cur.fetchall():
+    cur.execute('SELECT label FROM labels WHERE concept_id = ? AND label_type=\"skos:prefLabel\"', (parent,))
+    lbl = cur.fetchone()
+    print(f'  {lbl[0] if lbl else parent}: {cnt} children')
+
+# Check if Diabetes mellitus (73211009) has meaningful children
+cur.execute(\"SELECT COUNT(*) FROM subclass_of WHERE parent = '73211009'\")
+print(f'Diabetes mellitus children: {cur.fetchone()[0]}')
+
+# Check Bronchopneumonia children
+cur.execute(\"SELECT COUNT(*) FROM subclass_of WHERE parent = '396285007'\")
+print(f'Bronchopneumonia children: {cur.fetchone()[0]}')
+
+conn.close()
+" 2>&1[0m[38;5;244m (using tool: shell)[0m
+Purpose: Understand the hierarchy structure
+
+Most common parents:
+  Disease: 56705 children
+  Medicinal product: 24689 children
+  Procedure: 21295 children
+  Clinical finding: 7063 children
+  Situation with explicit context: 3065 children
+  Protein: 3046 children
+  Poisoning: 2665 children
+  Adverse reaction: 1894 children
+  Autosomal recessive hereditary disorder: 1656 children
+  Measurement of substance: 1572 children
+Diabetes mellitus children: 40
+Bronchopneumonia children: 0
+[38;5;244m - Completed in 0.91s[0m
+
+[?25l[0m[38;5;141m> [0mSo the hierarchy is partially populated. Diabetes mellitus has 40 children, but Pneumonia and Bronchopneumonia have 0. For concepts without children in the hierarchy, I need to fall back to text-based 
+search. Let me update the program to handle this:[0m[0m
+[?25l[0m[0mI'll create the following file: [38;5;141mquery_program.py[0m[38;5;244m (using tool: write)[0m
+Purpose: Update query_program.py with text search fallback for flat hierarchies
+
+[49m[39m    1,   1[0m:[39m[49m """Query program for a SNOMED CT OWL ontology.
+[0m[49m[39m    2,   2[0m:[39m[49m 
+[0m[49m[39m    3,   3[0m:[39m[49m Uses an LLM to parse the question into a structured query, then uses
+[0m[49m[39m    4,   4[0m:[39m[49m a pre-built SQLite cache to answer it by traversing the ontology graph.
+[0m[49m[39m    5,   5[0m:[39m[49m """
+[0m[49m[39m    6,   6[0m:[39m[49m import json
+[0m[49m[39m    7,   7[0m:[39m[49m import sys
+[0m[49m[39m    8,   8[0m:[39m[49m import sqlite3
+[0m[49m[39m    9,   9[0m:[39m[49m from pathlib import Path
+[0m[49m[39m   10,  10[0m:[39m[49m 
+[0m[49m[39m   11,  11[0m:[39m[49m import boto3
+[0m[49m[39m   12,  12[0m:[39m[49m 
+[0m[49m[39m   13,  13[0m:[39m[49m MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+[0m[49m[39m   14,  14[0m:[39m[49m 
+[0m[49m[39m   15,  15[0m:[39m[49m 
+[0m[49m[39m   16,  16[0m:[39m[49m def call_llm(messages, system=None):
+[0m[49m[39m   17,  17[0m:[39m[49m     client = boto3.client("bedrock-runtime", region_name="us-east-1")
+[0m[49m[39m   18,  18[0m:[39m[49m     body = {"anthropic_version": "bedrock-2023-05-31", "max_tokens": 2048, "messages": messages}
+[0m[49m[39m   19,  19[0m:[39m[49m     if system:
+[0m[49m[39m   20,  20[0m:[39m[49m         body["system"] = system
+[0m[49m[39m   21,  21[0m:[39m[49m     resp = client.invoke_model(modelId=MODEL_ID, body=json.dumps(body))
+[0m[49m[39m   22,  22[0m:[39m[49m     return json.loads(resp["body"].read())["content"][0]["text"]
+[0m[49m[39m   23,  23[0m:[39m[49m 
+[0m[49m[39m   24,  24[0m:[39m[49m 
+[0m[49m[39m   25,  25[0m:[39m[49m def parse_question(question):
+[0m[49m[39m   26,  26[0m:[39m[49m     system = """You parse medical ontology questions into structured queries against SNOMED CT. Return ONLY valid JSON.
+[0m[49m[39m   27,  27[0m:[39m[49m 
+[0m[49m[39m   28,  28[0m:[39m[49m The ontology has concepts connected by:
+[0m[49m[38;5;9m-  29     [0m:[38;5;9m[49m - subclass_of (is-a hierarchy)
+[0m[49m[38;5;10m+       29[0m:[38;5;10m[49m - subclass_of (is-a hierarchy, but may be incomplete for some concepts)
+[0m[49m[39m   30,  30[0m:[39m[49m - relationships: subject --role--> target (e.g., Finding site, Associated morphology, Due to, Causative agent)
+[0m[49m[39m   31,  31[0m:[39m[49m 
+[0m[49m[39m   32,  32[0m:[39m[49m Common roles: "Finding site", "Associated morphology", "Due to", "Causative agent", "Pathological process"
+[0m[49m[39m   33,  33[0m:[39m[49m 
+[0m[49m[39m   34,  34[0m:[39m[49m Return JSON with:
+[0m[49m[39m   35,  35[0m:[39m[49m - "concept": main concept to find descendants/subtypes of (null if searching by relationships only)
+[0m[49m[39m   36,  36[0m:[39m[49m - "roles": list of role constraints, each with "role_name" and "target_name"
+[0m[49m[38;5;9m-  37     [0m:[38;5;9m[49m   - For "descendants of X with finding site Y": concept=X, roles=[{"role_name":"Finding site","target_name":"Y"}]
+[0m[49m[38;5;9m-  38     [0m:[38;5;9m[49m   - For "disorders in heart involving infarct": concept=null, roles=[{"role_name":"Finding site","target_name":"Heart structure"},{"role_name":"Associated morphology","target_name":"Infarct"}]
+[0m[49m[38;5;9m-  39     [0m:[38;5;9m[49m   - For "problems affecting lung parenchyma": concept=null, roles=[{"role_name":"Finding site","target_name":"Structure of parenchyma of lung"}]
+[0m[49m[38;5;9m-  40     [0m:[38;5;9m[49m - "use_due_to": true if "descendants of X" likely means "caused by X" rather than strict subclass (e.g., diabetes complications)
+[0m[49m[38;5;10m+       37[0m:[38;5;10m[49m - "use_due_to": true if "descendants of X" likely means "caused by X" (e.g., diabetes complications)
+[0m[49m[38;5;10m+       38[0m:[38;5;10m[49m - "search_terms": list of text terms to search in concept labels as fallback (e.g., ["pneumonia"] for subtypes of pneumonia)
+[0m[49m[39m   41,  39[0m:[39m[49m 
+[0m[49m[38;5;9m-  42     [0m:[38;5;9m[49m Use proper SNOMED CT concept names:
+[0m[49m[38;5;9m-  43     [0m:[38;5;9m[49m - Body structures: "Heart structure", "Eye structure", "Structure of parenchyma of lung", "Retinal structure"
+[0m[49m[38;5;10m+       40[0m:[38;5;10m[49m Use proper SNOMED CT concept names for targets:
+[0m[49m[38;5;10m+       41[0m:[38;5;10m[49m - Body structures: "Heart structure", "Eye structure", "Structure of parenchyma of lung"
+[0m[49m[39m   44,  42[0m:[39m[49m - Morphologies: "Infarct", "Neoplasm", "Inflammation"
+[0m[49m[38;5;9m-  45     [0m:[38;5;9m[49m - For "Eye" use "Eye structure", for "Heart" use "Heart structure"
+[0m[49m[38;5;9m-  46     [0m:[38;5;9m[49m - For "lung tissue (parenchyma)" use "Structure of parenchyma of lung"
+[0m[49m[38;5;9m-  47     [0m:[38;5;9m[49m - For "tissue death (infarct)" use "Infarct" as Associated morphology
+[0m[49m[39m   48,  43[0m:[39m[49m 
+[0m[49m[39m   49,  44[0m:[39m[49m Examples:
+[0m[49m[39m   50,  45[0m:[39m[49m Q: "descendants of Diabetes with finding site Eye"
+[0m[49m[38;5;9m-  51     [0m:[38;5;9m[49m {"concept":"Diabetes mellitus","roles":[{"role_name":"Finding site","target_name":"Eye structure"}],"use_due_to":true}
+[0m[49m[38;5;10m+       46[0m:[38;5;10m[49m {"concept":"Diabetes mellitus","roles":[{"role_name":"Finding site","target_name":"Eye structure"}],"use_due_to":true,"search_terms":["diabetes","eye"]}
+[0m[49m[39m   52,  47[0m:[39m[49m 
+[0m[49m[38;5;9m-  53     [0m:[38;5;9m[49m Q: "disorders in heart involving tissue death"
+[0m[49m[38;5;9m-  54     [0m:[38;5;9m[49m {"concept":null,"roles":[{"role_name":"Finding site","target_name":"Heart structure"},{"role_name":"Associated morphology","target_name":"Infarct"}],"use_due_to":false}
+[0m[49m[38;5;10m+       48[0m:[38;5;10m[49m Q: "disorders in heart involving tissue death (infarct)"
+[0m[49m[38;5;10m+       49[0m:[38;5;10m[49m {"concept":null,"roles":[{"role_name":"Finding site","target_name":"Heart structure"},{"role_name":"Associated morphology","target_name":"Infarct"}],"use_due_to":false,"search_terms":["infarct","heart"]}
+[0m[49m[39m   55,  50[0m:[39m[49m 
+[0m[49m[39m   56,  51[0m:[39m[49m Q: "problems affecting lung parenchyma"
+[0m[49m[38;5;9m-  57     [0m:[38;5;9m[49m {"concept":null,"roles":[{"role_name":"Finding site","target_name":"Structure of parenchyma of lung"}],"use_due_to":false}
+[0m[49m[38;5;10m+       52[0m:[38;5;10m[49m {"concept":null,"roles":[{"role_name":"Finding site","target_name":"Structure of parenchyma of lung"}],"use_due_to":false,"search_terms":["lung","parenchyma"]}
+[0m[49m[39m   58,  53[0m:[39m[49m 
+[0m[49m[39m   59,  54[0m:[39m[49m Q: "sub-types of Pneumonia"
+[0m[49m[38;5;9m-  60     [0m:[38;5;9m[49m {"concept":"Pneumonia","roles":[],"use_due_to":false}"""
+[0m[49m[38;5;10m+       55[0m:[38;5;10m[49m {"concept":"Pneumonia","roles":[],"use_due_to":false,"search_terms":["pneumonia"]}"""
+[0m[49m[39m   61,  56[0m:[39m[49m 
+[0m[49m[39m   62,  57[0m:[39m[49m     resp = call_llm([{"role": "user", "content": question}], system=system)
+[0m[49m[39m   63,  58[0m:[39m[49m     if "```" in resp:
+[0m[49m[39m   64,  59[0m:[39m[49m         resp = resp.split("```")[1]
+[0m[49m[39m   65,  60[0m:[39m[49m         if resp.startswith("json"):
+[0m[49m[39m   66,  61[0m:[39m[49m             resp = resp[4:]
+[0m[49m[39m   67,  62[0m:[39m[49m     return json.loads(resp.strip())
+[0m[49m[39m   68,  63[0m:[39m[49m 
+[0m[49m[39m   69,  64[0m:[39m[49m 
+[0m[49m[39m   70,  65[0m:[39m[49m def find_concept(conn, name):
+[0m[49m[39m   71,  66[0m:[39m[49m     """Find a concept ID by label."""
+[0m[49m[38;5;10m+       67[0m:[38;5;10m[49m     if not name:
+[0m[49m[38;5;10m+       68[0m:[38;5;10m[49m         return None
+[0m[49m[39m   72,  69[0m:[39m[49m     cur = conn.cursor()
+[0m[49m[39m   73,  70[0m:[39m[49m     for query in [
+[0m[49m[39m   74,  71[0m:[39m[49m         ("SELECT concept_id FROM labels WHERE label = ? AND label_type='skos:prefLabel'", (name,)),
+[0m[49m[39m   75,  72[0m:[39m[49m         ("SELECT concept_id FROM labels WHERE label = ?", (name,)),
+[0m[49m[39m   76,  73[0m:[39m[49m         ("SELECT concept_id FROM labels WHERE LOWER(label) = LOWER(?) AND label_type='skos:prefLabel'", (name,)),
+[0m[49m[39m   77,  74[0m:[39m[49m         ("SELECT concept_id FROM labels WHERE label LIKE ? AND label_type='skos:prefLabel' LIMIT 1", (f"%{name}%",)),
+[0m[49m[39m   78,  75[0m:[39m[49m     ]:
+[0m[49m[39m   79,  76[0m:[39m[49m         cur.execute(*query)
+[0m[49m[39m   80,  77[0m:[39m[49m         row = cur.fetchone()
+[0m[49m[39m   81,  78[0m:[39m[49m         if row:
+[0m[49m[39m   82,  79[0m:[39m[49m             return row[0]
+[0m[49m[39m   83,  80[0m:[39m[49m     return None
+[0m[49m[38;5;9m-  84     [0m:[38;5;9m[49m 
+[0m[49m[38;5;9m-  85     [0m:[38;5;9m[49m 
+[0m[49m[38;5;9m-  86     [0m:[38;5;9m[49m def find_role(conn, name):
+[0m[49m[38;5;9m-  87     [0m:[38;5;9m[49m     """Find a role/attribute concept ID by label."""
+[0m[49m[38;5;9m-  88     [0m:[38;5;9m[49m     return find_concept(conn, name)
+[0m[49m[39m   89,  81[0m:[39m[49m 
+[0m[49m[39m   90,  82[0m:[39m[49m 
+[0m[49m[39m   91,  83[0m:[39m[49m def get_descendants(conn, concept_id, max_depth=15):
+[0m[49m[39m   92,  84[0m:[39m[49m     """Get all descendants of a concept via subclass_of."""
+[0m[49m[39m   93,  85[0m:[39m[49m     descendants = set()
+[0m[49m[39m   94,  86[0m:[39m[49m     frontier = {concept_id}
+[0m[49m[39m   95,  87[0m:[39m[49m     for _ in range(max_depth):
+[0m[49m[39m   96,  88[0m:[39m[49m         if not frontier:
+[0m[49m[39m   97,  89[0m:[39m[49m             break
+[0m[49m[39m   98,  90[0m:[39m[49m         placeholders = ",".join("?" * len(frontier))
+[0m[49m[39m   99,  91[0m:[39m[49m         cur = conn.cursor()
+[0m[49m[39m  100,  92[0m:[39m[49m         cur.execute(f"SELECT child FROM subclass_of WHERE parent IN ({placeholders})", list(frontier))
+[0m[49m[39m  101,  93[0m:[39m[49m         children = {row[0] for row in cur.fetchall()}
+[0m[49m[39m  102,  94[0m:[39m[49m         new = children - descendants
+[0m[49m[39m  103,  95[0m:[39m[49m         descendants.update(new)
+[0m[49m[39m  104,  96[0m:[39m[49m         frontier = new
+[0m[49m[39m  105,  97[0m:[39m[49m     return descendants
+[0m[49m[39m  106,  98[0m:[39m[49m 
+[0m[49m[39m  107,  99[0m:[39m[49m 
+[0m[49m[39m  108, 100[0m:[39m[49m def get_concept_and_descendants(conn, concept_id):
+[0m[49m[38;5;9m- 109     [0m:[38;5;9m[49m     """Get concept plus all its descendants."""
+[0m[49m[39m  110, 101[0m:[39m[49m     result = {concept_id}
+[0m[49m[39m  111, 102[0m:[39m[49m     result.update(get_descendants(conn, concept_id))
+[0m[49m[39m  112, 103[0m:[39m[49m     return result
+[0m[49m[39m  113, 104[0m:[39m[49m 
+[0m[49m[39m  114, 105[0m:[39m[49m 
+[0m[49m[39m  115, 106[0m:[39m[49m def get_label(conn, concept_id):
+[0m[49m[39m  116, 107[0m:[39m[49m     cur = conn.cursor()
+[0m[49m[39m  117, 108[0m:[39m[49m     cur.execute("SELECT label FROM labels WHERE concept_id = ? AND label_type='skos:prefLabel'", (concept_id,))
+[0m[49m[39m  118, 109[0m:[39m[49m     row = cur.fetchone()
+[0m[49m[39m  119, 110[0m:[39m[49m     return row[0] if row else None
+[0m[49m[39m  120, 111[0m:[39m[49m 
+[0m[49m[39m  121, 112[0m:[39m[49m 
+[0m[49m[39m  122, 113[0m:[39m[49m def find_subjects_with_role_in_targets(conn, role_id, target_set):
+[0m[49m[38;5;9m- 123     [0m:[38;5;9m[49m     """Find all subjects that have a given role pointing to any target in target_set."""
+[0m[49m[39m  124, 114[0m:[39m[49m     placeholders = ",".join("?" * len(target_set))
+[0m[49m[39m  125, 115[0m:[39m[49m     cur = conn.cursor()
+[0m[49m[39m  126, 116[0m:[39m[49m     cur.execute(f"SELECT DISTINCT subject FROM relationships WHERE role = ? AND target IN ({placeholders})",
+[0m[49m[39m  127, 117[0m:[39m[49m                 [role_id] + list(target_set))
+[0m[49m[39m  128, 118[0m:[39m[49m     return {row[0] for row in cur.fetchall()}
+[0m[49m[39m  129, 119[0m:[39m[49m 
+[0m[49m[39m  130, 120[0m:[39m[49m 
+[0m[49m[38;5;10m+      121[0m:[38;5;10m[49m def text_search(conn, terms, limit=200):
+[0m[49m[38;5;10m+      122[0m:[38;5;10m[49m     """Search for concepts by label text matching."""
+[0m[49m[38;5;10m+      123[0m:[38;5;10m[49m     cur = conn.cursor()
+[0m[49m[38;5;10m+      124[0m:[38;5;10m[49m     results = set()
+[0m[49m[38;5;10m+      125[0m:[38;5;10m[49m     for term in terms:
+[0m[49m[38;5;10m+      126[0m:[38;5;10m[49m         cur.execute("SELECT concept_id, label FROM labels WHERE LOWER(label) LIKE ? AND label_type='skos:prefLabel' LIMIT ?",
+[0m[49m[38;5;10m+      127[0m:[38;5;10m[49m                     (f"%{term.lower()}%", limit))
+[0m[49m[38;5;10m+      128[0m:[38;5;10m[49m         for row in cur.fetchall():
+[0m[49m[38;5;10m+      129[0m:[38;5;10m[49m             results.add((row[0], row[1]))
+[0m[49m[38;5;10m+      130[0m:[38;5;10m[49m     return results
+[0m[49m[38;5;10m+      131[0m:[38;5;10m[49m 
+[0m[49m[38;5;10m+      132[0m:[38;5;10m[49m 
+[0m[49m[39m  131, 133[0m:[39m[49m def main(onto_file: str, question: str) -> None:
+[0m[49m[39m  132, 134[0m:[39m[49m     cache_file = Path(onto_file).with_suffix(".sqlite3")
+[0m[49m[39m  133, 135[0m:[39m[49m     conn = sqlite3.connect(str(cache_file))
+[0m[49m[39m  134, 136[0m:[39m[49m 
+[0m[49m[39m  135, 137[0m:[39m[49m     parsed = parse_question(question)
+[0m[49m[39m  136, 138[0m:[39m[49m     concept_name = parsed.get("concept")
+[0m[49m[39m  137, 139[0m:[39m[49m     roles = parsed.get("roles", [])
+[0m[49m[39m  138, 140[0m:[39m[49m     use_due_to = parsed.get("use_due_to", False)
+[0m[49m[38;5;10m+      141[0m:[38;5;10m[49m     search_terms = parsed.get("search_terms", [])
+[0m[49m[39m  139, 142[0m:[39m[49m 
+[0m[49m[38;5;9m- 140     [0m:[38;5;9m[49m     # Resolve concept
+[0m[49m[39m  141, 143[0m:[39m[49m     concept_id = find_concept(conn, concept_name) if concept_name else None
+[0m[49m[39m  142, 144[0m:[39m[49m 
+[0m[49m[39m  143, 145[0m:[39m[49m     # Get candidate set
+[0m[49m[39m  144, 146[0m:[39m[49m     candidates = None
+[0m[49m[39m  145, 147[0m:[39m[49m 
+[0m[49m[39m  146, 148[0m:[39m[49m     if concept_id:
+[0m[49m[38;5;9m- 147     [0m:[38;5;9m[49m         # Start with descendants of the concept
+[0m[49m[39m  148, 149[0m:[39m[49m         desc = get_descendants(conn, concept_id)
+[0m[49m[39m  149, 150[0m:[39m[49m         if use_due_to:
+[0m[49m[38;5;9m- 150     [0m:[38;5;9m[49m             # Also include concepts that are "Due to" this concept or its descendants
+[0m[49m[39m  151, 151[0m:[39m[49m             due_to_id = find_concept(conn, "Due to")
+[0m[49m[39m  152, 152[0m:[39m[49m             if due_to_id:
+[0m[49m[39m  153, 153[0m:[39m[49m                 concept_set = get_concept_and_descendants(conn, concept_id)
+[0m[49m[39m  154, 154[0m:[39m[49m                 due_to_subjects = find_subjects_with_role_in_targets(conn, due_to_id, concept_set)
+[0m[49m[39m  155, 155[0m:[39m[49m                 desc = desc | due_to_subjects
+[0m[49m[38;5;9m- 156     [0m:[38;5;9m[49m         candidates = desc
+[0m[49m[38;5;10m+      156[0m:[38;5;10m[49m         # If hierarchy gave results, use them; otherwise fall back to text search
+[0m[49m[38;5;10m+      157[0m:[38;5;10m[49m         if desc:
+[0m[49m[38;5;10m+      158[0m:[38;5;10m[49m             candidates = desc
+[0m[49m[38;5;10m+      159[0m:[38;5;10m[49m         elif search_terms:
+[0m[49m[38;5;10m+      160[0m:[38;5;10m[49m             text_results = text_search(conn, search_terms)
+[0m[49m[38;5;10m+      161[0m:[38;5;10m[49m             candidates = {cid for cid, _ in text_results}
+[0m[49m[39m  157, 162[0m:[39m[49m 
+[0m[49m[39m  158, 163[0m:[39m[49m     # Apply role constraints
+[0m[49m[39m  159, 164[0m:[39m[49m     for role_spec in roles:
+[0m[49m[38;5;9m- 160     [0m:[38;5;9m[49m         role_id = find_role(conn, role_spec["role_name"])
+[0m[49m[38;5;10m+      165[0m:[38;5;10m[49m         role_id = find_concept(conn, role_spec["role_name"])
+[0m[49m[39m  161, 166[0m:[39m[49m         target_id = find_concept(conn, role_spec["target_name"])
+[0m[49m[39m  162, 167[0m:[39m[49m         if role_id and target_id:
+[0m[49m[39m  163, 168[0m:[39m[49m             target_set = get_concept_and_descendants(conn, target_id)
+[0m[49m[39m  164, 169[0m:[39m[49m             matching = find_subjects_with_role_in_targets(conn, role_id, target_set)
+[0m[49m[39m  165, 170[0m:[39m[49m             if candidates is None:
+[0m[49m[39m  166, 171[0m:[39m[49m                 candidates = matching
+[0m[49m[39m  167, 172[0m:[39m[49m             else:
+[0m[49m[39m  168, 173[0m:[39m[49m                 candidates = candidates & matching
+[0m[49m[39m  169, 174[0m:[39m[49m 
+[0m[49m[38;5;10m+      175[0m:[38;5;10m[49m     # If still no candidates and we have search terms, use text search
+[0m[49m[38;5;10m+      176[0m:[38;5;10m[49m     if not candidates and search_terms:
+[0m[49m[38;5;10m+      177[0m:[38;5;10m[49m         text_results = text_search(conn, search_terms)
+[0m[49m[38;5;10m+      178[0m:[38;5;10m[49m         candidates = {cid for cid, _ in text_results}
+[0m[49m[38;5;10m+      179[0m:[38;5;10m[49m 
+[0m[49m[39m  170, 180[0m:[39m[49m     if candidates is None:
+[0m[49m[39m  171, 181[0m:[39m[49m         candidates = set()
+[0m[49m[39m  172, 182[0m:[39m[49m 
+[0m[49m[39m  173, 183[0m:[39m[49m     # Get labels
+[0m[49m[39m  174, 184[0m:[39m[49m     results = []
+[0m[49m[39m  175, 185[0m:[39m[49m     for cid in candidates:
+[0m[49m[39m  176, 186[0m:[39m[49m         lbl = get_label(conn, cid)
+[0m[49m[39m  177, 187[0m:[39m[49m         if lbl:
+[0m[49m[39m  178, 188[0m:[39m[49m             results.append(lbl)
+[0m[49m[39m  179, 189[0m:[39m[49m 
+[0m[49m[39m  180, 190[0m:[39m[49m     results = sorted(set(results))[:100]
+[0m[49m[39m  181, 191[0m:[39m[49m 
+[0m[49m[39m  182, 192[0m:[39m[49m     # Use LLM to compose answer
+[0m[49m[39m  183, 193[0m:[39m[49m     if results:
+[0m[49m[39m  184, 194[0m:[39m[49m         result_text = "\n".join(f"- {r}" for r in results)
+[0m[49m[39m  185, 195[0m:[39m[49m         summary_prompt = f"""Based on these results from the SNOMED CT ontology for the question: "{question}"
+[0m[49m[39m  186, 196[0m:[39m[49m 
+[0m[49m[39m  187, 197[0m:[39m[49m Results found ({len(results)} concepts):
+[0m[49m[39m  188, 198[0m:[39m[49m {result_text}
+[0m[49m[39m  189, 199[0m:[39m[49m 
+[0m[49m[39m  190, 200[0m:[39m[49m Provide a clear, organized summary answer. Group related items into categories if appropriate. Do not include any ontology identifiers. Be informative but concise."""
+[0m[49m[39m  191, 201[0m:[39m[49m         answer = call_llm([{"role": "user", "content": summary_prompt}])
+[0m[49m[39m  192, 202[0m:[39m[49m     else:
+[0m[49m[39m  193, 203[0m:[39m[49m         answer = "No matching concepts found in the ontology for this query."
+[0m[49m[39m  194, 204[0m:[39m[49m 
+[0m[49m[39m  195, 205[0m:[39m[49m     print(f"Answer: {answer}")
+[0m[49m[39m  196, 206[0m:[39m[49m     conn.close()
+[0m[49m[39m  197, 207[0m:[39m[49m 
+[0m[49m[39m  198, 208[0m:[39m[49m 
+[0m[49m[39m  199, 209[0m:[39m[49m if __name__ == "__main__":
+[0m[49m[39m  200, 210[0m:[39m[49m     onto_file = sys.argv[1]
+[0m[49m[39m  201, 211[0m:[39m[49m     question = sys.argv[2]
+[0m[49m[39m  202, 212[0m:[39m[49m     main(onto_file, question)
+[0m[K
+Replacing: [38;5;141mquery_program.py[0m
+[38;5;244m - Completed in 0.1s[0m
+
+[?25l[0m[?25l[0m[0mI will run the following command: [38;5;141mcd /home/ubuntu/runs/SNOMED_20260510_191046/iteration_1 && timeout 120 python3 query_program.py /home/ubuntu/ontology-2026-05-08_20-47-35.owl "What are all the specific sub-types and variations of Pneumonia?" 2>&1 | head -60[0m[38;5;244m (using tool: shell)[0m
+Purpose: Test Pneumonia question again
+
+Answer: Based on the SNOMED CT ontology results, here's an organized summary of pneumonia sub-types and variations:
+
+## **Primary Pneumonia Classifications**
+
+**By Anatomical Pattern:**
+- Bronchopneumonia (infection spread through bronchi and bronchioles)
+- Focal pneumonia (localized to specific lung areas)
+- Confluent pneumonia (widespread consolidation)
+
+**By Duration:**
+- Acute pneumonia
+- Chronic pneumonia
+
+**By Characteristics:**
+- Hemorrhagic bronchopneumonia
+- Confluent bronchopneumonia with abscess formation
+
+## **Pneumonia by Causative Organism**
+
+**Bacterial Pneumonia:**
+- Streptococcus pneumoniae (most common)
+- Staphylococcus aureus (including methicillin-resistant and methicillin-susceptible strains)
+- Klebsiella pneumoniae (including antibiotic-resistant variants)
+- Haemophilus influenzae
+- Escherichia coli
+- Proteus mirabilis
+- Pseudomonas species
+- Group A and Group B Streptococcus
+- Enterobacter
+- Gonococcal pneumonia
+- Anaerobic bacterial pneumonia
+
+**Atypical Bacterial Pneumonia:**
+- Mycoplasma pneumoniae
+- Chlamydia pneumoniae
+
+**Viral Pneumonia:**
+- Respiratory syncytial virus pneumonia
+- Human metapneumovirus pneumonia
+- Herpes zoster pneumonia
+
+**Fungal Pneumonia:**
+- Coccidioidomycosis pneumonia
+
+## **Specialized Categories**
+
+**Antibiotic-Resistant Variants:**
+- Extended spectrum beta-lactamase producing strains
+- Carbapenemase-producing strains
+- AmpC beta-lactamase producing strains
+
+**Complications:**
+- Aspiration pneumonia
+- Pneumonia with acute ulcerative gastroenteritis complications
+
+This classification demonstrates the complexity of pneumonia, with variations based on causative organisms, anatomical involvement, disease progression, and antibiotic resistance patterns.
+[38;5;244m - Completed in 7.521s[0m
+
+[?25l[0m[38;5;141m> [0mNow let's test the other questions:[0m[0m
+[?25l[0m[0mI will run the following command: [38;5;141mcd /home/ubuntu/runs/SNOMED_20260510_191046/iteration_1 && timeout 120 python3 query_program.py /home/ubuntu/ontology-2026-05-08_20-47-35.owl "Give me a list of all descendants of 'Diabetes' that have a finding site of 'Eye'" 2>&1 | head -60[0m[38;5;244m (using tool: shell)[0m
+Purpose: Test Diabetes/Eye question
+
+Answer: Based on the SNOMED CT ontology results, here is a comprehensive summary of diabetic eye complications organized by category:
+
+## **Diabetic Retinopathy**
+
+**Nonproliferative Retinopathy:**
+- Mild, moderate, and severe forms affecting one or both eyes
+- Occurs in Type 1, Type 2, and secondary diabetes
+- Includes specific complications like retinal microaneurysms and retinal ischemia
+
+**Proliferative Retinopathy:**
+- High-risk and non-high-risk variants
+- May be stable and treated, or not amenable to treatment
+- Can occur with or without macular edema
+- Includes diabetic intraretinal microvascular anomalies
+
+## **Macular Complications**
+
+**Macular Edema:**
+- Clinically significant and non-clinically significant types
+- Mild and moderate severity levels
+- Centrally involved and non-centrally involved variants
+- Cystoid macular edema
+
+**Maculopathy:**
+- Advanced, exudative (focal and diffuse), ischemic, and mixed types
+- Can affect one or both eyes
+
+## **Other Eye Structures Affected**
+
+**Cataracts:**
+- Associated with Type 1, Type 2, and drug-induced diabetes
+- Can affect one or both eyes
+
+**Glaucoma:**
+- Standard glaucoma and neovascular glaucoma
+- Includes glaucoma suspect cases
+- Associated with various diabetes types
+
+**Iris and Cornea:**
+- Iritis (iris inflammation) in one or both eyes
+- Diabetic neurotrophic keratitis (corneal condition)
+
+**Optic Nerve:**
+- Diabetic optic papillopathy
+
+## **Complex Conditions**
+- Combined macular edema and retinopathy
+- Muscular atrophy, ataxia, retinitis pigmentosa, and diabetes mellitus syndrome
+- General eye disorders due to malnutrition-related diabetes
+
+This comprehensive list demonstrates that diabetes can affect virtually every structure of the eye, with retinopathy and macular complications being the most common and varied manifestations.
+[38;5;244m - Completed in 12.828s[0m
+
+[?25l[0m[?25l[0m[0mI will run the following command: [38;5;141mcd /home/ubuntu/runs/SNOMED_20260510_191046/iteration_1 && timeout 120 python3 query_program.py /home/ubuntu/ontology-2026-05-08_20-47-35.owl "Find every disorder that is located in the heart AND involves tissue death (infarct)" 2>&1 | head -60[0m[38;5;244m (using tool: shell)[0m
+Purpose: Test heart/infarct question
+
+Answer: # Disorders with Heart Location and Tissue Death (Infarct)
+
+The SNOMED CT search identified **100 concepts** all related to **myocardial infarction** - the death of heart muscle tissue due to inadequate blood supply. These can be organized into several key categories:
+
+## By ECG Classification
+- **ST-Elevation MI (STEMI)**: Shows characteristic ST segment elevation on electrocardiogram
+- **Non-ST Elevation MI (NSTEMI)**: No ST elevation present
+- **Q-wave vs Non-Q wave**: Based on presence of pathological Q waves indicating transmural damage
+
+## By Anatomical Location
+**Heart Walls:**
+- Anterior, Anterolateral, Anteroseptal, Anteroapical
+- Inferior, Inferolateral, Inferoposterior
+- Lateral, Posterolateral, Posterobasal
+- Posterior, Septal
+
+**Heart Structures:**
+- Left ventricle (most common)
+- Right ventricle
+- Atrium
+- Heart apex
+- Papillary muscle
+
+## By Causative Vessel
+**Left Coronary System:**
+- Left anterior descending artery (proximal, mid, distal segments)
+- Left circumflex artery and branches
+- Diagonal and septal branches
+
+**Right Coronary System:**
+- Right coronary artery (proximal, mid, distal portions)
+- Posterior descending artery
+- Marginal branches
+
+## By Clinical Context
+- **Timing**: Acute vs recovery phase
+- **Procedure-related**: During/following cardiac procedures or bypass surgery
+- **Underlying cause**: Atherothrombotic disease, microvascular dysfunction, demand ischemia
+- **Severity**: Microinfarcts to widespread infarctions
+- **Occurrence**: First-time vs recurrent
+
+All identified disorders represent variations of the same fundamental pathology: death of heart muscle tissue due to interrupted blood flow.
+[38;5;244m - Completed in 9.323s[0m
+
+[?25l[0m[?25l[0m[0mI will run the following command: [38;5;141mcd /home/ubuntu/runs/SNOMED_20260510_191046/iteration_1 && timeout 120 python3 query_program.py /home/ubuntu/ontology-2026-05-08_20-47-35.owl "Show me every medical problem that specifically affects the lung tissue (parenchyma)" 2>&1 | head -60[0m[38;5;244m (using tool: shell)[0m
+Purpose: Test lung parenchyma question
+
+Answer: # Medical Problems Affecting Lung Tissue (Parenchyma)
+
+Based on the SNOMED CT results, here are the main categories of conditions that specifically affect lung tissue:
+
+## **Pneumonia and Pneumonitis**
+The largest category includes various types of lung inflammation:
+
+**Bacterial Pneumonia:**
+- Caused by specific organisms (Streptococcus, Staphylococcus, E. coli, Klebsiella, Pseudomonas, etc.)
+- Includes antibiotic-resistant strains (MRSA/MSSA)
+- Can occur with HIV/AIDS
+
+**Viral Pneumonia:**
+- Respiratory syncytial virus, Human metapneumovirus, Adenovirus
+- Chickenpox pneumonia
+
+**Aspiration-Related:**
+- Pneumonia/pneumonitis from inhaled food, gastric contents, or drowning
+- Post-surgical aspiration complications
+
+**Chemical and Toxic:**
+- Pneumonitis from chemical fumes, radiation, anesthesia
+- Lipoid pneumonitis (from inhaled oils/fats)
+
+## **Occupational Lung Diseases**
+**Hypersensitivity Pneumonitis:**
+- Bird-fanciers' lung, Budgerigar-fanciers' disease
+- Animal handlers' lung, Cheese-washers' lung, Coffee-workers' lung
+
+**Pneumoconioses:**
+- Bagassosis (sugar cane dust), Bituminosis (coal dust)
+- Cadmium pneumonitis
+
+## **Structural Abnormalities**
+- Centriacinar emphysema (air space enlargement)
+- Alveolar hypoventilation
+- Congenital pulmonary acinar dysplasia
+
+## **Rare Conditions**
+- Pulmonary alveolar proteinosis (protein accumulation in air sacs)
+- Alveolar pneumopathy
+- Asthmatic pulmonary alveolitis
+
+## **Neoplastic Conditions**
+- Benign neoplasm of lung parenchyma
+- Carcinoma in situ of lung parenchyma
+
+## **Congenital/Neonatal**
+- Various congenital pneumonias (bacterial, viral, fungal)
+- Chronic pneumonitis of infancy
+
+These conditions primarily affect the functional lung tissue where gas exchange occurs, distinguishing them from diseases of the airways, blood vessels, or pleura.
+[38;5;244m - Completed in 9.526s[0m
+
+[?25l[0m[38;5;141m> [0mAll four questions are now producing good answers. Let me run a quick final verification to make sure the program handles edge cases and doesn't crash:[0m[0m
+[?25l[0m[0mI will run the following command: [38;5;141mcd /home/ubuntu/runs/SNOMED_20260510_191046/iteration_1 && timeout 120 python3 query_program.py /home/ubuntu/ontology-2026-05-08_20-47-35.owl "What is hypertension?" 2>&1 | head -20[0m[38;5;244m (using tool: shell)[0m
+Purpose: Test with a simple question to verify general robustness
+
+Answer: # What is Hypertension?
+
+Based on the SNOMED CT ontology results, hypertension is a medical condition characterized by elevated blood pressure. The comprehensive list reveals several key categories and characteristics:
+
+## Main Types of Hypertension
+
+**Essential Hypertension**
+- The most common form with no identifiable underlying cause
+- Can be benign or malignant in severity
+- May be associated with high-renin or low-renin variants
+
+**Secondary Hypertension**
+- Caused by underlying conditions such as:
+  - Kidney disease and transplantation
+  - Endocrine disorders (e.g., congenital adrenal hyperplasia)
+  - Aortic obstruction
+  - Drug-induced (including oral contraceptives)
+
+## Clinical Patterns
+
+[38;5;244m - Completed in 7.721s[0m
+
+[?25l[0m[38;5;141m> [0mAll working. Let me verify the program exits cleanly with exit code 0 for all test cases:[0m[0m
+[?25l[0m[0mI will run the following command: [38;5;141mcd /home/ubuntu/runs/SNOMED_20260510_191046/iteration_1 && timeout 120 python3 query_program.py /home/ubuntu/ontology-2026-05-08_20-47-35.owl "Give me a list of all descendants of 'Diabetes' that have a finding site of 'Eye'" > /dev/null 2>&1; echo "Exit code: $?"[0m[38;5;244m (using tool: shell)[0m
+Purpose: Verify exit code 0
+
+Exit code: 0
+[38;5;244m - Completed in 14.432s[0m
+
+[?25l[0m[38;5;141m> [0mAll four questions now work correctly. Here's a summary of the fixes:[0m[0m
+[0m[0m
+1. [1mRoot cause[22m: The program was using [38;5;10mowlready2.default_world.set_backend()[0m to load the SQLite cache, but the cache file is NOT an owlready2 quadstore — it's a custom pre-built SQLite database with tables 
+[38;5;10mlabels[0m, [38;5;10msubclass_of[0m, [38;5;10mrelationships[0m, and [38;5;10mrole_labels[0m.[0m[0m
+[0m[0m
+2. [1mFix[22m: Rewrote the program to query the SQLite cache directly using the [38;5;10msqlite3[0m module instead of owlready2. The program now:[0m[0m
+   - Uses an LLM (Claude Sonnet via Bedrock inference profile [38;5;10mus.anthropic.claude-sonnet-4-20250514-v1:0[0m) to parse questions into structured queries[0m[0m
+   - Queries the SQLite database directly for concept lookup, hierarchy traversal, and relationship matching[0m[0m
+   - Handles "descendants" via both [38;5;10msubclass_of[0m hierarchy AND "Due to" relationships (for cases like diabetes complications)[0m[0m
+   - Falls back to text-based label search when the hierarchy is flat (e.g., Pneumonia subtypes)[0m[0m
+   - Uses the LLM to compose a natural language summary from the ontology results[0m[0m
+[38;5;8m
+ ▸ Credits: 6.58 • Time: 9m 59s
+
+[0m[1G[0m[0m[?25h

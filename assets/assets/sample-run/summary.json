@@ -1,0 +1,11 @@
+{
+  "ontology_name": "SNOMED",
+  "start_time": "2026-05-10T19:10:46.424575Z",
+  "end_time": "2026-05-10T19:27:55.661021Z",
+  "total_iterations": 4,
+  "final_accuracy": 1.0,
+  "best_iteration": 4,
+  "best_iteration_path": "runs/SNOMED_20260510_191046/iteration_4",
+  "threshold": 0.95,
+  "terminated_reason": "threshold_met"
+}

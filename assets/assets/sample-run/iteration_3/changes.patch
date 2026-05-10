@@ -1,0 +1,17 @@
+--- query_program.py (iteration 2)
++++ query_program.py (iteration 3)
+@@ -197,11 +197,13 @@
+ Results found ({len(results)} concepts):
+ {result_text}
+ 
+-Provide a clear, organized summary answer. Group related items into categories if appropriate. Do not include any ontology identifiers. Be informative but concise."""
++Provide a clear, informative answer as a single flowing paragraph (no markdown, no headings, no bullet points, no newlines). Mention specific examples from the results. Group related items by describing categories in prose. Do not include any ontology identifiers."""
+         answer = call_llm([{"role": "user", "content": summary_prompt}])
+     else:
+         answer = "No matching concepts found in the ontology for this query."
+ 
++    # Ensure answer is on a single line for proper extraction
++    answer = " ".join(answer.split())
+     print(f"Answer: {answer}")
+     conn.close()
+ 

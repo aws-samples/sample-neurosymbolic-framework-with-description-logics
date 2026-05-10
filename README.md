@@ -1,4 +1,4 @@
-# Ontology QA CLI
+# Building accurate and trustworthy GenAI applications, based on description logic ontologies
 
 ## Introduction
 
@@ -48,15 +48,54 @@ table shows some descriptive statistics for these three ontologies:
 
 | Ontology | File Size | Lines | Classes | Object Properties | Data Properties | Individuals | Axioms (Restrictions) |
 |----------|-----------|-------|---------|-------------------|-----------------|-------------|----------------------|
-| FMA | 254 MB | 3,877,972 | 104,721 | 139 | 29 | 2 | 157,831 |
-| GO | 226 MB | 3,902,991 | 84,523 | 319 | 0 | 48 | 105,495 |
-| SNOMED | 202 MB | 2,977,123 | 796,512 | 0 | — | — | 1,069,097 |
+| [FMA](https://bioportal.bioontology.org/ontologies/FMA) | 254 MB | 3,877,972 | 104,721 | 139 | 29 | 2 | 157,831 |
+| [Gene Ontology](https://geneontology.org) (GO) | 226 MB | 3,902,991 | 84,523 | 319 | 0 | 48 | 105,495 |
+| [SNOMED CT](https://www.snomed.org) | 202 MB | 2,977,123 | 796,512 | 0 | — | — | 1,069,097 |
+
+## Downloading the Ontologies
+
+### FMA (Foundational Model of Anatomy)
+
+Download from BioPortal (requires free account):
+
+```bash
+# Visit https://bioportal.bioontology.org/ontologies/FMA and download the OWL file
+# Or use the BioPortal REST API:
+curl -L -o ~/fma.owl "https://data.bioontology.org/ontologies/FMA/download?apikey=YOUR_API_KEY&download_format=rdf"
+```
+
+### Gene Ontology (GO)
+
+Download directly from the Gene Ontology consortium:
+
+```bash
+curl -L -o ~/go-plus.owl "http://purl.obolibrary.org/obo/go/extensions/go-plus.owl"
+```
+
+### SNOMED CT
+
+SNOMED CT requires a license. Download from the [SNOMED International Member Licensing portal](https://mlds.ihtsdotools.org/) or the [NLM UMLS](https://www.nlm.nih.gov/research/umls/licensedcontent/snomedctarchive.html) (US edition, requires free UMLS account).
+
+Once you have the RF2 release zip, convert it to OWL using the SNOMED OWL Toolkit:
+
+```bash
+# Download the toolkit
+wget https://github.com/IHTSDO/snomed-owl-toolkit/releases/download/5.3.0/snomed-owl-toolkit-5.3.0-executable.jar
+
+# Convert RF2 to OWL (requires Java 17+, needs ~16GB RAM for temp files)
+java -Djava.io.tmpdir=$HOME/tmp_extract -jar snomed-owl-toolkit-5.3.0-executable.jar \
+  -rf2-to-owl -rf2-snapshot-archives SnomedCT_*.zip
+
+# Then build the SQLite index for fast querying
+python build_db.py ~/ontology-*.owl ~/snomed.db
+```
 
 ## Prerequisites
 
 - Python 3.10+
 - AWS credentials configured for Bedrock access (Opus 4.6)
 - kiro-cli (see installation below)
+- Java 17 (if you want to use SNOMED)
 
 ### Installing kiro-cli on Ubuntu
 
@@ -156,3 +195,8 @@ ontologies:
 ```
 
 Paths support `~/` expansion.
+
+## A Sample Run
+We can see here the [output from a run](assets/sample-run) of the Builder CLI.
+For example, you can see the [REPORT.md](assets/sample-run/REPORT.md) that summarizes
+the run.

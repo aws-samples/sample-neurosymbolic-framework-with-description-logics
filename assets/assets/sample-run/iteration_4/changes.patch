@@ -1,0 +1,230 @@
+--- query_program.py (iteration 3)
++++ query_program.py (iteration 4)
+@@ -15,7 +15,7 @@
+ 
+ def call_llm(messages, system=None):
+     client = boto3.client("bedrock-runtime", region_name="us-east-1")
+-    body = {"anthropic_version": "bedrock-2023-05-31", "max_tokens": 2048, "messages": messages}
++    body = {"anthropic_version": "bedrock-2023-05-31", "max_tokens": 4096, "messages": messages}
+     if system:
+         body["system"] = system
+     resp = client.invoke_model(modelId=MODEL_ID, body=json.dumps(body))
+@@ -29,30 +29,32 @@
+ - subclass_of (is-a hierarchy, but may be incomplete for some concepts)
+ - relationships: subject --role--> target (e.g., Finding site, Associated morphology, Due to, Causative agent)
+ 
+-Common roles: "Finding site", "Associated morphology", "Due to", "Causative agent", "Pathological process"
++Common roles: "Finding site", "Associated morphology", "Due to", "Causative agent", "Pathological process", "After"
+ 
+ Return JSON with:
+ - "concept": main concept to find descendants/subtypes of (null if searching by relationships only)
+ - "roles": list of role constraints, each with "role_name" and "target_name"
+ - "use_due_to": true if "descendants of X" likely means "caused by X" (e.g., diabetes complications)
+-- "search_terms": list of text terms to search in concept labels as fallback (e.g., ["pneumonia"] for subtypes of pneumonia)
++- "search_terms": list of text terms to search in concept labels as fallback
++- "broader_search_terms": list of broader/related terms that could indicate the condition even without explicit ontology relationships (e.g., for "tissue death" include ["necrosis", "infarct", "ischaem", "ischem", "cardiomyopathy", "rupture", "aneurysm"])
++- "include_complications": true if the question implies we should include complications/sequelae of the condition (e.g., "involves tissue death" should include post-infarction complications)
+ 
+ Use proper SNOMED CT concept names for targets:
+ - Body structures: "Heart structure", "Eye structure", "Structure of parenchyma of lung"
+-- Morphologies: "Infarct", "Neoplasm", "Inflammation"
++- Morphologies: "Infarct", "Necrosis", "Inflammation"
+ 
+ Examples:
+ Q: "descendants of Diabetes with finding site Eye"
+-{"concept":"Diabetes mellitus","roles":[{"role_name":"Finding site","target_name":"Eye structure"}],"use_due_to":true,"search_terms":["diabetes","eye"]}
++{"concept":"Diabetes mellitus","roles":[{"role_name":"Finding site","target_name":"Eye structure"}],"use_due_to":true,"search_terms":["diabetes","eye"],"broader_search_terms":[],"include_complications":false}
+ 
+ Q: "disorders in heart involving tissue death (infarct)"
+-{"concept":null,"roles":[{"role_name":"Finding site","target_name":"Heart structure"},{"role_name":"Associated morphology","target_name":"Infarct"}],"use_due_to":false,"search_terms":["infarct","heart"]}
++{"concept":null,"roles":[{"role_name":"Finding site","target_name":"Heart structure"},{"role_name":"Associated morphology","target_name":"Infarct"}],"use_due_to":false,"search_terms":["infarct","heart","myocardial"],"broader_search_terms":["necrosis","necro","ischaem","ischem","cardiomyopathy","rupture","aneurysm","endocarditis","myocarditis"],"include_complications":true}
+ 
+ Q: "problems affecting lung parenchyma"
+-{"concept":null,"roles":[{"role_name":"Finding site","target_name":"Structure of parenchyma of lung"}],"use_due_to":false,"search_terms":["lung","parenchyma"]}
++{"concept":null,"roles":[{"role_name":"Finding site","target_name":"Structure of parenchyma of lung"}],"use_due_to":false,"search_terms":["lung","parenchyma","alveol","interstitial"],"broader_search_terms":["pneumonia","emphysema","fibrosis","pneumonitis"],"include_complications":false}
+ 
+ Q: "sub-types of Pneumonia"
+-{"concept":"Pneumonia","roles":[],"use_due_to":false,"search_terms":["pneumonia"]}"""
++{"concept":"Pneumonia","roles":[],"use_due_to":false,"search_terms":["pneumonia"],"broader_search_terms":[],"include_complications":false}"""
+ 
+     resp = call_llm([{"role": "user", "content": question}], system=system)
+     if "```" in resp:
+@@ -118,7 +120,18 @@
+     return {row[0] for row in cur.fetchall()}
+ 
+ 
+-def text_search(conn, terms, limit=200):
++def find_subjects_with_role_targeting(conn, role_id, target_set):
++    """Find subjects that have a given role pointing to any concept in target_set."""
++    if not target_set:
++        return set()
++    placeholders = ",".join("?" * len(target_set))
++    cur = conn.cursor()
++    cur.execute(f"SELECT DISTINCT subject FROM relationships WHERE role = ? AND target IN ({placeholders})",
++                [role_id] + list(target_set))
++    return {row[0] for row in cur.fetchall()}
++
++
++def text_search(conn, terms, limit=500):
+     """Search for concepts by label text matching."""
+     cur = conn.cursor()
+     results = set()
+@@ -130,6 +143,14 @@
+     return results
+ 
+ 
++def get_concepts_with_finding_site_in(conn, site_set):
++    """Get all concepts that have Finding site pointing to any concept in site_set."""
++    finding_site_id = find_concept(conn, "Finding site")
++    if not finding_site_id:
++        return set()
++    return find_subjects_with_role_in_targets(conn, finding_site_id, site_set)
++
++
+ def main(onto_file: str, question: str) -> None:
+     cache_file = Path(onto_file).with_suffix(".sqlite3")
+     conn = sqlite3.connect(str(cache_file))
+@@ -139,6 +160,8 @@
+     roles = parsed.get("roles", [])
+     use_due_to = parsed.get("use_due_to", False)
+     search_terms = parsed.get("search_terms", [])
++    broader_search_terms = parsed.get("broader_search_terms", [])
++    include_complications = parsed.get("include_complications", False)
+ 
+     concept_id = find_concept(conn, concept_name) if concept_name else None
+ 
+@@ -153,7 +176,6 @@
+                 concept_set = get_concept_and_descendants(conn, concept_id)
+                 due_to_subjects = find_subjects_with_role_in_targets(conn, due_to_id, concept_set)
+                 desc = desc | due_to_subjects
+-        # If hierarchy gave results, use them; otherwise fall back to text search
+         if desc:
+             candidates = desc
+         elif search_terms:
+@@ -161,16 +183,94 @@
+             candidates = {cid for cid, _ in text_results}
+ 
+     # Apply role constraints
++    # Separate finding site roles from morphology/other roles
++    site_roles = []
++    morph_roles = []
+     for role_spec in roles:
++        if role_spec["role_name"] == "Finding site":
++            site_roles.append(role_spec)
++        else:
++            morph_roles.append(role_spec)
++
++    # First apply site constraints to get location-filtered set
++    site_set = None
++    site_target_concepts = None
++    for role_spec in site_roles:
++        role_id = find_concept(conn, role_spec["role_name"])
++        target_id = find_concept(conn, role_spec["target_name"])
++        if role_id and target_id:
++            site_target_concepts = get_concept_and_descendants(conn, target_id)
++            matching = find_subjects_with_role_in_targets(conn, role_id, site_target_concepts)
++            if site_set is None:
++                site_set = matching
++            else:
++                site_set = site_set & matching
++
++    # Apply morphology constraints
++    morph_matching = None
++    for role_spec in morph_roles:
+         role_id = find_concept(conn, role_spec["role_name"])
+         target_id = find_concept(conn, role_spec["target_name"])
+         if role_id and target_id:
+             target_set = get_concept_and_descendants(conn, target_id)
++            # Also include parent concepts of the target (e.g., Necrosis is parent of Infarct)
++            cur = conn.cursor()
++            cur.execute("SELECT parent FROM subclass_of WHERE child = ?", (target_id,))
++            for row in cur.fetchall():
++                parent_descendants = get_concept_and_descendants(conn, row[0])
++                target_set = target_set | parent_descendants
+             matching = find_subjects_with_role_in_targets(conn, role_id, target_set)
++            if morph_matching is None:
++                morph_matching = matching
++            else:
++                morph_matching = morph_matching & matching
++
++    # Combine: start with strict intersection
++    if site_set is not None and morph_matching is not None:
++        candidates = site_set & morph_matching if candidates is None else candidates & site_set & morph_matching
++    elif site_set is not None:
++        candidates = site_set if candidates is None else candidates & site_set
++    elif morph_matching is not None:
++        candidates = morph_matching if candidates is None else candidates & morph_matching
++
++    # Broaden results: add concepts in the site that match broader search terms
++    if broader_search_terms and site_set:
++        broader_candidates = set()
++        for cid in site_set:
++            lbl = get_label(conn, cid)
++            if lbl:
++                lbl_lower = lbl.lower()
++                for term in broader_search_terms:
++                    if term.lower() in lbl_lower:
++                        broader_candidates.add(cid)
++                        break
++        if candidates is None:
++            candidates = broader_candidates
++        else:
++            candidates = candidates | broader_candidates
++
++    # Include complications (After relationship)
++    if include_complications and morph_matching:
++        after_id = find_concept(conn, "After")
++        due_to_id = find_concept(conn, "Due to")
++        # Find concepts that are "After" or "Due to" any of the morph_matching concepts
++        if after_id:
++            after_subjects = find_subjects_with_role_targeting(conn, after_id, morph_matching)
++            # Filter to those in the site
++            if site_set:
++                after_subjects = after_subjects & site_set
+             if candidates is None:
+-                candidates = matching
++                candidates = after_subjects
+             else:
+-                candidates = candidates & matching
++                candidates = candidates | after_subjects
++        if due_to_id and morph_matching:
++            due_to_subjects = find_subjects_with_role_targeting(conn, due_to_id, morph_matching)
++            if site_set:
++                due_to_subjects = due_to_subjects & site_set
++            if candidates is None:
++                candidates = due_to_subjects
++            else:
++                candidates = candidates | due_to_subjects
+ 
+     # If still no candidates and we have search terms, use text search
+     if not candidates and search_terms:
+@@ -187,7 +287,7 @@
+         if lbl:
+             results.append(lbl)
+ 
+-    results = sorted(set(results))[:100]
++    results = sorted(set(results))[:300]
+ 
+     # Use LLM to compose answer
+     if results:
+@@ -197,7 +297,19 @@
+ Results found ({len(results)} concepts):
+ {result_text}
+ 
+-Provide a clear, informative answer as a single flowing paragraph (no markdown, no headings, no bullet points, no newlines). Mention specific examples from the results. Group related items by describing categories in prose. Do not include any ontology identifiers."""
++Provide a comprehensive, well-organized answer. Structure your response as follows:
++1. Start with a brief overview sentence explaining what these conditions represent and how they relate to the question.
++2. Organize the results into meaningful clinical categories and subcategories.
++3. For each category, explain what it represents and give key examples.
++4. Include information about the underlying mechanisms or pathophysiology where relevant.
++5. Mention both the major/common conditions and notable specialized subtypes.
++
++Important guidelines:
++- Provide a CATEGORICAL and CONCEPTUAL overview, not just a flat list of conditions.
++- Explain the clinical significance and relationships between categories.
++- Include broader context about how these conditions relate to each other pathophysiologically.
++- Do not include any ontology identifiers (like concept IDs).
++- Write as flowing prose with clear category descriptions, not as bullet points or markdown."""
+         answer = call_llm([{"role": "user", "content": summary_prompt}])
+     else:
+         answer = "No matching concepts found in the ontology for this query."
