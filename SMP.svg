@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 500" font-family="Arial, sans-serif">
+  <!-- Title -->
+  <text x="450" y="30" text-anchor="middle" font-size="20" font-weight="bold" fill="#2c3e50">Self-Modifying Program</text>
+  
+  <!-- Outer dashed container for self-modifying program -->
+  <rect x="240" y="50" width="640" height="340" fill="none" stroke="#7f8c8d" stroke-width="2" stroke-dasharray="8,4" rx="8"/>
+  
+  <!-- General Guidelines box -->
+  <rect x="40" y="90" width="180" height="80" fill="#ecf0f1" stroke="#34495e" stroke-width="2" rx="6"/>
+  <text x="130" y="125" text-anchor="middle" font-size="16" font-weight="600" fill="#2c3e50">General</text>
+  <text x="130" y="148" text-anchor="middle" font-size="16" font-weight="600" fill="#2c3e50">Guidelines</text>
+  
+  <!-- Test Cases (cylinder/database shape) -->
+  <ellipse cx="130" cy="230" rx="90" ry="15" fill="#ecf0f1" stroke="#34495e" stroke-width="2"/>
+  <path d="M 40 230 L 40 290 Q 40 305 130 305 Q 220 305 220 290 L 220 230" fill="#ecf0f1" stroke="#34495e" stroke-width="2"/>
+  <ellipse cx="130" cy="230" rx="90" ry="15" fill="none" stroke="#34495e" stroke-width="2"/>
+  <text x="130" y="275" text-anchor="middle" font-size="16" font-weight="600" fill="#2c3e50">Test Cases</text>
+  
+  <!-- Control Harness box -->
+  <rect x="340" y="170" width="180" height="100" fill="#d6eaf8" stroke="#2874a6" stroke-width="2" rx="6"/>
+  <text x="430" y="215" text-anchor="middle" font-size="16" font-weight="600" fill="#1b4f72">Control</text>
+  <text x="430" y="238" text-anchor="middle" font-size="16" font-weight="600" fill="#1b4f72">Harness</text>
+  
+  <!-- Program Being Evolved box -->
+  <rect x="640" y="170" width="200" height="100" fill="#fadbd8" stroke="#a93226" stroke-width="2" rx="6"/>
+  <text x="740" y="210" text-anchor="middle" font-size="16" font-weight="600" fill="#78281f">Program</text>
+  <text x="740" y="233" text-anchor="middle" font-size="16" font-weight="600" fill="#78281f">Being</text>
+  <text x="740" y="256" text-anchor="middle" font-size="16" font-weight="600" fill="#78281f">Evolved</text>
+  
+  <!-- Best Program box (output) -->
+  <rect x="640" y="430" width="200" height="60" fill="#d5f5e3" stroke="#1e8449" stroke-width="2" rx="6"/>
+  <text x="740" y="468" text-anchor="middle" font-size="16" font-weight="600" fill="#145a32">Best Program</text>
+  
+  <!-- Arrow markers -->
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#34495e"/>
+    </marker>
+    <marker id="arrowRed" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#a93226"/>
+    </marker>
+  </defs>
+  
+  <!-- Arrow: Guidelines to Control Harness -->
+  <line x1="220" y1="130" x2="340" y2="195" stroke="#34495e" stroke-width="2" marker-end="url(#arrow)"/>
+  
+  <!-- Arrow: Test Cases to Control Harness -->
+  <line x1="220" y1="260" x2="340" y2="240" stroke="#34495e" stroke-width="2" marker-end="url(#arrow)"/>
+  
+  <!-- Bidirectional arrows: Control Harness <-> Program Being Evolved -->
+  <line x1="520" y1="205" x2="640" y2="205" stroke="#34495e" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="640" y1="235" x2="520" y2="235" stroke="#34495e" stroke-width="2" marker-end="url(#arrow)"/>
+  
+  <!-- Arrow: Program Being Evolved to Best Program -->
+  <line x1="740" y1="270" x2="740" y2="425" stroke="#1e8449" stroke-width="2" marker-end="url(#arrow)"/>
+  
+</svg>

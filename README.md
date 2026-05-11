@@ -7,8 +7,8 @@ inaccurate responses are costly. We show here how to build agentic systems whose
 responses are _provably correct_.
 
 This work shows how to build an hybrid system that combines a large language model
-(LLM) with a description logic reasoner. It starts by loading a biomedical ontology
-that is available in OWL 2 DL format. It then uses a description logic reasoner to
+(LLM) with a description logic reasoner. It starts by loading an ontology
+that is available in OWL 2 DL format. It then builds a description logic reasoner to
 answer questions about that ontology. It does this by, first, creating a program
 that can interrogate the chosen ontology, and, second, using that program to answer
 questions about the subject matter of the ontology.
@@ -34,10 +34,7 @@ of natural languages, still hallucinate and reason incorrectly. Despite
 the industry’s reliance on the now-discredited scaling laws[^4], and even
 though today’s models are more powerful and capable than models of even 6
 months ago, the latest models still consistently hallucinate (and, on some
-metrics, they hallucinate worse[^5] than older models). We will show later,
-in the section Existing hallucination-mitigation techniques, how various
-techniques have been developed to address these issues, but none completely
-solve the problems of hallucinations and faulty reasoning 
+metrics, they hallucinate worse[^5] than older models).
 
 For us to trust Generative AI chatbots, we must trust that these applications
 are accurate. The industry’s current reliance on scaling laws (i.e., using the
@@ -50,33 +47,87 @@ that “95% of generative AI pilots fail”. According to Cap Gemini[^7], “tru
 fully autonomous AI agents has dropped sharply, from 43% to 27% in [the year
 ending mid-2025]”. 
 
-These concerns are heightened in regulated industries such as HCLS because the
-cost of an error is higher than in many other domains.
+These concerns are heightened in regulated industries such as healthcare and 
+life sciences because the cost of an error is higher than in many other domains.
 
 ## Introduction
 
-This project showcases of the ability of a neurosymbolic AI
-application to accurately answer questions based on biomedical ontologies. Rather
+This project showcases the ability of a neurosymbolic AI
+system to accurately answer questions based on (biomedical) ontologies. Rather
 than relying solely on an LLM to generate answers (which risks hallucinations),
 the system uses a hybrid approach: 1) an LLM decomposes natural language questions
 into an internal representation; 2) a symbolic reasoner (created here) traverses
 the ontology graph to produce a grounde, verifiable answer (in another internal
 representation); and 3) an LLM converts this answer into natural language.
 
-The system uses a self-modifying program guided by a collection of gold-standard
-question-answer pairs. We start with a degenerate seed program (that always says
-"I don't know") and the system iteratively fixes and improves itself — evaluating
-its answers against the gold standard, identifying failures, and rewriting its own
-code to do better next time.
-
-We demonstrate this system with working code and with three different
+We here demonstrate this system with working code and with three different
 real-world ontologies:
 
-- **[FMA](https://bioportal.bioontology.org/ontologies/FMA)** (Foundational Model of Anatomy) — a comprehensive ontology of human anatomy
-- **[Gene Ontology](https://geneontology.org) (GO)** — the world's largest source of information on the functions of genes
-- **[SNOMED CT](https://www.snomed.org)** — a systematically organized clinical terminology covering diseases, findings, procedures, and more
+- **[FMA](https://bioportal.bioontology.org/ontologies/FMA)** (Foundational Model
+of Anatomy) — a comprehensive ontology of human anatomy
+- **[Gene Ontology](https://geneontology.org) (GO)** — the world's largest source
+of information on the functions of genes
+- **[SNOMED CT](https://www.snomed.org)** — a systematically organized clinical
+terminology covering diseases, findings, procedures, and more
 
-The system iteratively improves its query program through an automated feedback loop: it evaluates answers against known Q&A pairs using an LLM-as-a-judge, then uses kiro-cli to fix the code based on the feedback. Each iteration produces a better program that more accurately answers questions using the target ontology.
+This framework has two main components:
+
+1. An offline component (the [builder](ontology_qa_cli/builder.py)) whose input
+is an ontology file and a set of question-answer pairs. The builder's output
+is a Python program that converts a natural language question into a natural
+language answer (via a traversal of the ontology).
+
+2. An online question-answering component (the [query](ontology_qa_cli/query.py))
+that uses the Python program created by the builder to answer a question.
+
+The builder uses a self-modifying program guided by a collection of gold-standard
+question-answer pairs: 
+
+![Self-modifying program architecture](SMP.svg)
+
+We start with a deliberately degenerate
+[seed program](ontology_qa_cli/seed_program.py)
+(that always says "I don't know") and then the system iteratively fixes and improves
+itself — evaluating its answers against the gold standard, identifying 
+failures, and rewriting its own code to improve its performance against the
+gold standard test cases.
+
+The builder has the following major components:
+
+1. The **general guidelines** is a markdown file that gives instructions to the
+system. For example, we can instruct it to only use the LLM to parse the
+question and to convert the answer back into natural language, not to actually
+answer the question.
+
+2. The **test cases** is a set of gold-standard question-answer pairs.
+
+3. The **control harness** controls the evolution of the
+[seed program](ontology_qa_cli/seed_program.py) into a more effective
+program. It follows the following steps:
+
+   3.1. It executes the current program against the test set.
+
+   3.2. It uses the LLM-as-a-judge pattern to evaluate the correctness of each
+   generated answer compared to the expected answer.
+
+   3.3. It generates a file TASK.md that includes the general guidlines along
+   with the LLM-as-a-judge critiques for each answer.
+
+   3.4. It uses [kiro-cli](https://kiro.dev/cli/) to fix the current program,
+   using TASK.md, and creates a new (hopefully better) program.
+
+   3.5. If the new program is not good enough, go back to step 3.1.
+
+4. The **program being evolved** is a Python program. It starts as the 
+[seed program](ontology_qa_cli/seed_program.py) and then
+[kiro-cli](https://kiro.dev/cli/) iteratively evolves it into a program
+that performs increasingly well on the test cases.
+
+The system iteratively improves its query program through an automated feedback
+loop: it evaluates answers against known Q&A pairs using an LLM-as-a-judge,
+then uses [kiro-cli](https://kiro.dev/cli/) to fix the code based on the
+feedback. Each iteration produces a better program that more accurately answers
+questions using the target ontology.
 
 ## Description logics
 
@@ -95,6 +146,9 @@ i.e., expressions that are built from atomic concepts (unary predicates) and ato
 The main reason for using description logics rather than general first-order predicate logic
 when representing knowledge is that most DLs are actually decidable fragments of first-order
 predicate logic, i.e., there are effective procedures for doing inference.
+
+Description logics are commonly used to represent biomedical ontologies, such as
+[SNOMED CT](https://www.snomed.org) or the [Gene Ontology](https://geneontology.org) (GO).
 
 Unlike propositional or predicate logics, description logics do not have a declarative query
 language (like [SQL](https://en.wikipedia.org/wiki/SQL), or [SMT-LIB](https://smt-lib.org)).
@@ -116,7 +170,7 @@ table shows some descriptive statistics for these three ontologies:
 | [Gene Ontology](https://geneontology.org) (GO) | 226 MB | 3,902,991 | 84,523 | 319 | 0 | 48 | 105,495 |
 | [SNOMED CT](https://www.snomed.org) | 202 MB | 2,977,123 | 796,512 | 0 | — | — | 1,069,097 |
 
-## Downloading the Ontologies
+## Downloading the ontologies
 
 ### FMA (Foundational Model of Anatomy)
 
