@@ -1,12 +1,76 @@
 # Building accurate and trustworthy GenAI applications, based on description logic ontologies
 
+One roadblock to the broad adoption of agentic systems (for example, chatbots or
+research agents) is their tendency to hallucinate and to reason incorrectly.
+This is particularly acute in regulated domains like healthcare or finance where
+inaccurate responses are costly. We show here how to build agentic systems whose
+responses are _provably correct_.
+
+This work shows how to build an hybrid system that combines a large language model
+(LLM) with a description logic reasoner. It starts by loading a biomedical ontology
+that is available in OWL 2 DL format. It then uses a description logic reasoner to
+answer questions about that ontology. It does this by, first, creating a program
+that can interrogate the chosen ontology, and, second, using that program to answer
+questions about the subject matter of the ontology.
+
+## Background 
+According to Accenture[^1], companies with AI-led processes achieve 2.5x higher
+revenue growth, 2.4x greater productivity, and 3.3x greater success at scaling
+generative AI use cases. Also, McKinsey research[^2] indicates that generative
+AI has the potential to automate work activities that absorb 60 to 70 percent
+of employees' time today. ChatGPT Enterprise users report 40-60 minutes of saved
+time per day thanks to AI use[^3]. Data science, engineering and communications
+workers save more than average at 60-80 minutes per day. 
+
+## The Problem 
+In domains like healthcare, accuracy is critical. For example, if a clinical
+application says that “Patient X’s most recent blood pressure was 300/80” and
+this is not true, then providers and patients will rightly not trust it and,
+equally rightly, will not use it. Worse, patients could be harmed. 
+
+Unfortunately, state-of-the-art large language models (LLMs) and large
+multimodal models (LMMs), while showing a masterful display of the syntax
+of natural languages, still hallucinate and reason incorrectly. Despite
+the industry’s reliance on the now-discredited scaling laws[^4], and even
+though today’s models are more powerful and capable than models of even 6
+months ago, the latest models still consistently hallucinate (and, on some
+metrics, they hallucinate worse[^5] than older models). We will show later,
+in the section Existing hallucination-mitigation techniques, how various
+techniques have been developed to address these issues, but none completely
+solve the problems of hallucinations and faulty reasoning 
+
+For us to trust Generative AI chatbots, we must trust that these applications
+are accurate. The industry’s current reliance on scaling laws (i.e., using the
+same technology but using more parameters, training for longer, and on more data)
+has not yet provided us a reliable path towards trustworthy systems with fewer
+hallucinations and reasoning errors. 
+
+We can see this problem across industries. An MIT study[^6], for example, found
+that “95% of generative AI pilots fail”. According to Cap Gemini[^7], “trust in
+fully autonomous AI agents has dropped sharply, from 43% to 27% in [the year
+ending mid-2025]”. 
+
+These concerns are heightened in regulated industries such as HCLS because the
+cost of an error is higher than in many other domains.
+
 ## Introduction
 
-This project is a showcase of the ability of a neurosymbolic generative AI system to accurately answer questions based on biomedical ontologies. Rather than relying solely on an LLM to generate answers (which risks hallucination), the system uses a hybrid approach: an LLM decomposes natural language questions into structured queries, and then symbolic reasoning via owlready2 traverses the ontology graph to produce grounded, verifiable answers.
+This project showcases of the ability of a neurosymbolic AI
+application to accurately answer questions based on biomedical ontologies. Rather
+than relying solely on an LLM to generate answers (which risks hallucinations),
+the system uses a hybrid approach: 1) an LLM decomposes natural language questions
+into an internal representation; 2) a symbolic reasoner (created here) traverses
+the ontology graph to produce a grounde, verifiable answer (in another internal
+representation); and 3) an LLM converts this answer into natural language.
 
-The system uses a self-modifying program guided by a collection of gold-standard question-answer pairs. We start with a degenerate seed program (that always says "I don't know") and the system iteratively fixes and improves itself — evaluating its answers against the gold standard, identifying failures, and rewriting its own code to do better next time.
+The system uses a self-modifying program guided by a collection of gold-standard
+question-answer pairs. We start with a degenerate seed program (that always says
+"I don't know") and the system iteratively fixes and improves itself — evaluating
+its answers against the gold standard, identifying failures, and rewriting its own
+code to do better next time.
 
-We demonstrate this system with working code and with three different real-world ontologies:
+We demonstrate this system with working code and with three different
+real-world ontologies:
 
 - **[FMA](https://bioportal.bioontology.org/ontologies/FMA)** (Foundational Model of Anatomy) — a comprehensive ontology of human anatomy
 - **[Gene Ontology](https://geneontology.org) (GO)** — the world's largest source of information on the functions of genes
@@ -197,6 +261,27 @@ ontologies:
 Paths support `~/` expansion.
 
 ## A Sample Run
+
 We can see here the [output from a run](assets/sample-run) of the Builder CLI.
 For example, you can see the [REPORT.md](assets/sample-run/REPORT.md) that summarizes
 the run.
+
+## Future work
+
+1. In the current implementation, the program being evaluated is run in the same
+environment as the evaluator. Using a separate environment (e.g., a container)
+would limit the blast radius of an errant program.
+
+2. The current implementation assumes that the ontologies and the
+question-answer pairs are tightly controlled. If this assumption is relaxed then the attack
+surface will be larger and this should be done with care.
+
+
+[^1]: https://www.accenture.com/us-en/insights/strategic-managed-services/reinvent-operations-with-genai?c=acn_glb_aipoweredoperatmediarelations_14200178&n=mrl_0924
+[^2]: https://www.mckinsey.com/capabilities/tech-and-ai/our-insights/the-economic-potential-of-generative-ai-the-next-productivity-frontier
+[^3]: https://www.exponentialview.co/p/2025-in-25-stats
+[^4]: https://arxiv.org/pdf/2001.08361
+[^5]: https://www.nytimes.com/2025/05/05/technology/ai-hallucinations-chatgpt-google.html
+[^6]: https://www.ciodive.com/news/why-enterprise-ai-pilots-fail/808751/
+[^7]: https://www.capgemini.com/us-en/news/press-releases/trust-and-human-ai-collaboration-set-to-define-the-next-era-of-agentic-ai-unlocking-450-billion-opportunity-by-2028/
+
