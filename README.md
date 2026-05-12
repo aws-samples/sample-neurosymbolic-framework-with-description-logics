@@ -436,3 +436,10 @@ surface will be larger and this should be done with care.
 [^6]: https://www.ciodive.com/news/why-enterprise-ai-pilots-fail/808751/
 [^7]: https://www.capgemini.com/us-en/news/press-releases/trust-and-human-ai-collaboration-set-to-define-the-next-era-of-agentic-ai-unlocking-450-billion-opportunity-by-2028/
 
+## Security
+
+See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
+
+## License
+
+This library is licensed under the MIT-0 License. See the LICENSE file.
