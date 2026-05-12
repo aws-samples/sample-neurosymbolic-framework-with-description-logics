@@ -37,7 +37,7 @@ provide *provably correct* answers to questions like this:
 
 The framework described herein builds agentic systems that answers questions
 like these _accurately_. It does so by switching out the LLM reasoner (which 
-is faulty) with an ontological reasoner (which is provably correct).
+makes mistakes) with an ontological reasoner (which is provably correct).
 
 ## Background 
 According to Accenture[^1], companies with AI-led processes achieve 2.5x higher
@@ -82,11 +82,15 @@ many other domains.
 This project describes a framework for building neurosymbolic AI
 systems that can accurately answer questions based on (biomedical) ontologies.
 Rather than relying solely on an LLM to generate answers (which risks
-hallucinations), the system uses a hybrid approach: 1) an LLM inference
-decomposes a natural language question into an internal representation; 2) 
-a symbolic reasoner (created here) traverses the ontology graph to produce a
-grounded, verifiable answer (in another internal representation); and 3) an 
-LLM inference converts this answer into natural language.
+hallucinations), the system uses a hybrid approach:
+
+1. an LLM inference decomposes a natural language question into an internal
+representation;
+
+2. a symbolic reasoner (created here) traverses the ontology graph to produce a
+grounded, verifiable answer (in another internal representation); and 
+
+3. an LLM inference converts this internal answer back into natural language.
 
 We here demonstrate this system with working code and with five different
 real-world ontologies:
