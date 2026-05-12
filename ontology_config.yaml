@@ -8,7 +8,7 @@ ontologies:
           right/left atria (upper chambers) and right/left ventricles (lower
           chambers). It includes four valves (tricuspid, pulmonary, mitral, 
           aortic) to control flow, the septum dividing the sides, and major
-          vessels like the vena cava and aorta to pump blood
+          vessels like the vena cava and aorta to pump blood.
       - question: "What is the function of the liver?"
         expected_answer: |
           The liver is a vital organ performing over 500 functions, primarily
