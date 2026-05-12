@@ -37,7 +37,7 @@ provide *provably correct* answers to questions like this:
 
 The framework described herein builds agentic systems that answers questions
 like these _accurately_. It does so by switching out the LLM reasoner (which 
-is faulty) with an ontology reasoner (which is provably correct).
+is faulty) with an ontological reasoner (which is provably correct).
 
 ## Background 
 According to Accenture[^1], companies with AI-led processes achieve 2.5x higher
@@ -80,12 +80,13 @@ many other domains.
 ## Introduction
 
 This project describes a framework for building neurosymbolic AI
-systems that can accurately answer questions based on (biomedical) ontologies. Rather
-than relying solely on an LLM to generate answers (which risks hallucinations),
-the system uses a hybrid approach: 1) an LLM decomposes natural language questions
-into an internal representation; 2) a symbolic reasoner (created here) traverses
-the ontology graph to produce a grounded, verifiable answer (in another internal
-representation); and 3) an LLM converts this answer into natural language.
+systems that can accurately answer questions based on (biomedical) ontologies.
+Rather than relying solely on an LLM to generate answers (which risks
+hallucinations), the system uses a hybrid approach: 1) an LLM inference
+decomposes a natural language question into an internal representation; 2) 
+a symbolic reasoner (created here) traverses the ontology graph to produce a
+grounded, verifiable answer (in another internal representation); and 3) an 
+LLM inference converts this answer into natural language.
 
 We here demonstrate this system with working code and with five different
 real-world ontologies:
@@ -415,8 +416,8 @@ the run.
 
 We have shown here that AI coding tools (such as
 [kiro-cli](https://kiro.dev/cli/)) are surprisingly effective at evolving programs
-that statisfy a set of constraints. We use this ability to build *provably correct* agentic
-systems that are based ontologies, especially biomedical ontologies.
+that statisfy a set of constraints. We use this ability to build *provably correct*
+agentic systems that are based ontologies, especially biomedical ontologies.
 
 ## Future work
 
@@ -428,13 +429,6 @@ would limit the blast radius of an errant program.
 question-answer pairs are tightly controlled. If this assumption is relaxed then the attack
 surface will be larger and this should be done with care.
 
-[^1]: https://www.accenture.com/us-en/insights/strategic-managed-services/reinvent-operations-with-genai?c=acn_glb_aipoweredoperatmediarelations_14200178&n=mrl_0924
-[^2]: https://www.mckinsey.com/capabilities/tech-and-ai/our-insights/the-economic-potential-of-generative-ai-the-next-productivity-frontier
-[^3]: https://www.exponentialview.co/p/2025-in-25-stats
-[^4]: https://arxiv.org/pdf/2001.08361
-[^5]: https://www.nytimes.com/2025/05/05/technology/ai-hallucinations-chatgpt-google.html
-[^6]: https://www.ciodive.com/news/why-enterprise-ai-pilots-fail/808751/
-[^7]: https://www.capgemini.com/us-en/news/press-releases/trust-and-human-ai-collaboration-set-to-define-the-next-era-of-agentic-ai-unlocking-450-billion-opportunity-by-2028/
 
 ## Security
 
@@ -442,4 +436,13 @@ See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more inform
 
 ## License
 
-This library is licensed under the MIT-0 License. See the LICENSE file.
+This library is licensed under the MIT-0 License. See the [LICENSE](LICENSE) file.
+
+
+[^1]: https://www.accenture.com/us-en/insights/strategic-managed-services/reinvent-operations-with-genai?c=acn_glb_aipoweredoperatmediarelations_14200178&n=mrl_0924
+[^2]: https://www.mckinsey.com/capabilities/tech-and-ai/our-insights/the-economic-potential-of-generative-ai-the-next-productivity-frontier
+[^3]: https://www.exponentialview.co/p/2025-in-25-stats
+[^4]: https://arxiv.org/pdf/2001.08361
+[^5]: https://www.nytimes.com/2025/05/05/technology/ai-hallucinations-chatgpt-google.html
+[^6]: https://www.ciodive.com/news/why-enterprise-ai-pilots-fail/808751/
+[^7]: https://www.capgemini.com/us-en/news/press-releases/trust-and-human-ai-collaboration-set-to-define-the-next-era-of-agentic-ai-unlocking-450-billion-opportunity-by-2028/
