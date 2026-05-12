@@ -203,3 +203,80 @@ ontologies:
           Pneumonia is classified by its cause, where it was acquired, and which
           part of the lung it affects. The main types are bacterial, viral,
           fungal, and aspiration pneumonia.
+
+  - name: "CL"
+    owl_file: "~/cl.owl"
+    questions:
+      - question: "What are all the subtypes of 'T cell'?"
+        expected_answer: |
+           They include helper T cells, cytotoxic T cells, memory T cells, and
+           specialized subtypes like alpha-beta T cells, gamma-delta T cells,
+           and regulatory T cells.
+      - question: "Is a 'Kupffer cell' a type of macrophage?"
+        expected_answer: |
+          Yes. The Cell Ontology defines a 'Kupffer cell' as a type of
+          stellate macrophage, which is a type of macrophage. They include
+          helper T cells, cytotoxic T cells, memory T cells, and
+          specialized subtypes like alpha-beta T cells, gamma-delta T cells,
+          and regulatory T cells.
+      - question: "What is the most general classification for a 'neuron'?"
+        expected_answer: |
+          A neuron is classified as an 'electrically excitable cell' and
+          an 'animal cell'.
+      - question: "What does a 'hematopoietic stem cell' develop into?"
+        expected_answer: |
+          it develops into precursors such as multipotent progenitors (MPP),
+          common myeloid progenitors (CMP), and common lymphoid progenitors (CLP).
+      - question: "Which precursor cell type does a 'mature B cell' derive from?"
+        expected_answer: |
+          B cell -> Immature B cell -> Pro-B cell -> Pre-B cell, so it develops
+          from a 'pre-B cell'.
+      - question: "Which cell types express the gene 'CD4' and are listed as a subtype of 'lymphocyte'?"
+        expected_answer: |
+          'CD4-positive helper T cell' (CL:0000912), 'CD4-positive alpha-beta T
+          cell', and certain regulatory T cell subtypes.
+      - question: "What is the defining surface marker for a 'pro-B cell'?"
+        expected_answer: |
+          The presence of markers such as CD19, CD45R, and surface expression
+          of MHC class II.
+      - question: "List all cell types associated with the 'liver' in the mouse"
+        expected_answer: |
+          Hepatocytes, hepatic stellate cells, Kupffer cells, and liver
+          sinusoidal endothelial cells.
+
+  - name: "HPO"
+    owl_file: "~/hp-full.owl"
+    questions:
+      - question: "What is the official medical definition and primary term for a patient with webbed fingers or toes?"
+        expected_answer: |
+          Syndactyly. The database defines it as a congenital anomaly
+          characterized by the fusion of adjacent digits of the hand or foot.
+      - question: "How does the ontology internally resolve the clinical free-text description 'drop in blood pressure'?"
+        expected_answer: |
+          It maps it to Hypotension. The ontology stores "drop in blood pressure"
+          and "low blood pressure" explicitly as exact synonyms under this unique
+          alphanumeric identifier.
+      - question: "What specific term does the ontology provide for insomnia that occurs at the very end of the sleep cycle?"
+        expected_answer: |
+          Terminal insomnia.
+      - question: "What are the immediate parent terms for 'Arachnodactyly' (abnormally long and slender fingers)?"
+        expected_answer: |
+          The primary parent is Abnormal finger morphology (HP:0001187), which
+          itself branches upward into Abnormal digit morphology (HP:0001151)
+          and Abnormal hand morphology (HP:0000117).
+      - question: "What broader classifications automatically apply if a patient is diagnosed with 'Terminal insomnia'?"
+        expected_answer: |
+          If a patient has terminal insomnia, they are structurally cataloged as
+          having Insomnia (HP:0100545) and Sleep disturbance (HP:0002360).
+      - question: "Does 'Saccular aortic arch aneurysm' share a parent term with 'Thoracic aortic aneurysm'?"
+        expected_answer: |
+          Yes. Both inherit from Aortic arch aneurysm (HP:0005113).
+      - question: "What primary skeletal and cardiovascular abnormalities characterize Marfan syndrome?"
+        expected_answer: |
+          The database maps Marfan syndrome (OMIM:154700) to over 50 specific
+          phenotypic terms, including Aortic aneurysm (HP:0004942) and
+          Arachnodactyly (HP:0001166).
+      - question: "What is the frequency of the phenotype 'Brachydactyly' (short digits) within Hydrolethalus syndrome?"
+        expected_answer: |
+          Brachydactyly is rare in this specific disease, documented with an
+          explicit baseline ratio of 3/56 cases.

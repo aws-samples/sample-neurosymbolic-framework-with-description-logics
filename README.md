@@ -30,7 +30,7 @@ equally rightly, will not use it. Worse, patients could be harmed.
 
 Unfortunately, state-of-the-art large language models (LLMs) and large
 multimodal models (LMMs), while showing a masterful display of the syntax
-of natural languages, still hallucinate and reason incorrectly. Despite
+of natural (and formal) languages, still hallucinate and reason incorrectly. Despite
 the industry’s reliance on the now-discredited scaling laws[^4], and even
 though today’s models are more powerful and capable than models of even 6
 months ago, the latest models still consistently hallucinate (and, on some
@@ -60,24 +60,32 @@ into an internal representation; 2) a symbolic reasoner (created here) traverses
 the ontology graph to produce a grounde, verifiable answer (in another internal
 representation); and 3) an LLM converts this answer into natural language.
 
-We here demonstrate this system with working code and with three different
+We here demonstrate this system with working code and with five different
 real-world ontologies:
 
 - **[FMA](https://bioportal.bioontology.org/ontologies/FMA)** (Foundational Model
 of Anatomy) — a comprehensive ontology of human anatomy
-- **[Gene Ontology](https://geneontology.org) (GO)** — the world's largest source
+- **[Gene Ontology](https://geneontology.org) (GO)** — is the world's largest source
 of information on the functions of genes
-- **[SNOMED CT](https://www.snomed.org)** — a systematically organized clinical
+- **[SNOMED CT](https://www.snomed.org)** — is a systematically organized clinical
 terminology covering diseases, findings, procedures, and more
+- **[Cell Ontology (CL)](http://obofoundry.org/ontology/cl.html)** - is "an ontology 
+designed to classify and describe cell types across different organisms. It serves
+as a resource for model organism and bioinformatics databases. The ontology covers
+a broad range of cell types in animal cells, with over 2700 cell type classes, and
+provides high-level cell type classes as mapping points for cell type classes in
+ontologies representing other species"
+- **[Human phenotype ontology (HPO)](https://hpo.jax.org)** "provides a standardized
+vocabulary of phenotypic abnormalities encountered in human disease."
 
 This framework has two main components:
 
-1. An offline component (the [builder](ontology_qa_cli/builder.py)) whose input
+1. An offline component (the **[builder](ontology_qa_cli/builder.py))** whose input
 is an ontology file and a set of question-answer pairs. The builder's output
 is a Python program that converts a natural language question into a natural
 language answer (via a traversal of the ontology).
 
-2. An online question-answering component (the [query](ontology_qa_cli/query.py))
+2. An online question-answering component (the **[questioner](ontology_qa_cli/query.py)**)
 that uses the Python program created by the builder to answer a question.
 
 The builder uses a self-modifying program guided by a collection of gold-standard
@@ -94,12 +102,12 @@ gold standard test cases.
 
 The builder has the following major components:
 
-1. The **general guidelines** is a markdown file that gives instructions to the
+1. The **general guidelines** is a markdown file that lists instructions for the
 system. For example, we can instruct it to only use the LLM to parse the
-question and to convert the answer back into natural language, not to actually
-answer the question.
+question and to convert the answer back into natural language, and to **not**
+use the LLM to answer the question.
 
-2. The **test cases** is a set of gold-standard question-answer pairs.
+2. The **test cases** is a set of manually curated gold-standard question-answer pairs.
 
 3. The **control harness** controls the evolution of the
 [seed program](ontology_qa_cli/seed_program.py) into a more effective
@@ -119,9 +127,14 @@ program. It follows the following steps:
    3.5. If the new program is not good enough, go back to step 3.1.
 
 4. The **program being evolved** is a Python program. It starts as the 
-[seed program](ontology_qa_cli/seed_program.py) and then
-[kiro-cli](https://kiro.dev/cli/) iteratively evolves it into a program
+[seed program](ontology_qa_cli/seed_program.py) and then the control harness,
+along with
+[kiro-cli](https://kiro.dev/cli/), iteratively evolves it into a program
 that performs increasingly well on the test cases.
+
+The control harness has no knowledge of the particular ontology being trained
+against: all it has is the question-answer pairs. It is the responsibility of
+kiro-cli to interrogate the given ontology file and so understand how to query it.
 
 The system iteratively improves its query program through an automated feedback
 loop: it evaluates answers against known Q&A pairs using an LLM-as-a-judge,
@@ -129,9 +142,12 @@ then uses [kiro-cli](https://kiro.dev/cli/) to fix the code based on the
 feedback. Each iteration produces a better program that more accurately answers
 questions using the target ontology.
 
+The [architecture diagram](docs/architecture.md) shows how the source code files
+map onto this functional architecture.
+
 ## Description logics
 
-This project leverages ontologies that are available as an OWL description logic.
+This project builds on ontologies that are available as an OWL description logic.
 
 [Description logics](https://en.wikipedia.org/wiki/Description_logic) are a
 family of logic-based knowledge representation languages that can be used to
@@ -169,6 +185,48 @@ table shows some descriptive statistics for these three ontologies:
 | [FMA](https://bioportal.bioontology.org/ontologies/FMA) | 254 MB | 3,877,972 | 104,721 | 139 | 29 | 2 | 157,831 |
 | [Gene Ontology](https://geneontology.org) (GO) | 226 MB | 3,902,991 | 84,523 | 319 | 0 | 48 | 105,495 |
 | [SNOMED CT](https://www.snomed.org) | 202 MB | 2,977,123 | 796,512 | 0 | — | — | 1,069,097 |
+| [Cell Ontology (CL)](http://obofoundry.org/ontology/cl.html) | 63 MB | 1,011,425 | 386,110 | — | — | — | 1,105,244 |
+| HPO | 81 MB | 1,358,876 | 32,085 | 235 | 0 | 0 | 20,599 |
+
+
+## Prerequisites
+
+- Python 3.10+
+- AWS credentials configured for Bedrock access (Opus 4.6)
+- kiro-cli (see installation below)
+- Java 17 (if you want to use SNOMED)
+
+### Installing kiro-cli on Ubuntu
+
+```bash
+wget https://desktop-release.q.us-east-1.amazonaws.com/latest/kiro-cli.deb
+sudo dpkg -i kiro-cli.deb
+sudo apt-get install -f
+```
+
+## Installation
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+## Running the builder or questioner
+
+To run either CLI program you need to activate your environment:
+
+```
+source .venv/bin/activate
+```
+
+and they need to authenticate with AWS, for example:
+
+```
+export AWS_ACCESS_KEY_ID=[...]
+export AWS_SECRET_ACCESS_KEY=[...]
+export AWS_SESSION_TOKEN=[...]
+```
 
 ## Downloading the ontologies
 
@@ -208,28 +266,13 @@ java -Djava.io.tmpdir=$HOME/tmp_extract -jar snomed-owl-toolkit-5.3.0-executable
 python build_db.py ~/ontology-*.owl ~/snomed.db
 ```
 
-## Prerequisites
+### Cell ontology (CL)
 
-- Python 3.10+
-- AWS credentials configured for Bedrock access (Opus 4.6)
-- kiro-cli (see installation below)
-- Java 17 (if you want to use SNOMED)
+Download the file `cl.owl` from `http://obofoundry.org/ontology/cl.html`.
 
-### Installing kiro-cli on Ubuntu
+### Human phenotype ontology
 
-```bash
-wget https://desktop-release.q.us-east-1.amazonaws.com/latest/kiro-cli.deb
-sudo dpkg -i kiro-cli.deb
-sudo apt-get install -f
-```
-
-## Installation
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-```
+Download `hp-full.owl` from `https://github.com/obophenotype/human-phenotype-ontology/releases/download/v2026-02-16/hp-full.owl`.
 
 ## Usage
 
