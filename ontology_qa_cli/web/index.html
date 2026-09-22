@@ -41,6 +41,8 @@
     .msg.system { align-self: center; background: transparent; color: var(--muted); font-size: 13px; text-align: center; max-width: 90%; }
     .msg .rewrite { color: var(--muted); font-size: 12px; margin-bottom: 6px; font-style: italic; }
     .build { align-self: center; max-width: 760px; width: 100%; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+    .build.failed { border-color: var(--danger); }
+    .build.failed h3 { color: var(--danger); }
     .build h3 { margin: 0 0 8px; font-size: 14px; }
     .build pre { margin: 8px 0 0; max-height: 220px; overflow: auto; background: #0b0d11; color: #c9d1d9; padding: 10px; border-radius: 8px; font-size: 12px; }
     .dots::after { content: ""; animation: dots 1.4s steps(4, end) infinite; }
@@ -104,6 +106,7 @@
     phase: "idle",        // idle | building | ready | error
     messages: [],         // {role: user|bot|system, text, rewrite?}
     buildLog: "",
+    buildFailed: false,
     error: null,
   };
 
@@ -130,12 +133,15 @@
       div.appendChild(document.createTextNode(m.text));
       transcript.appendChild(div);
     }
-    if (state.phase === "building") {
+    if (state.phase === "building" || state.buildFailed) {
       const b = document.createElement("div");
-      b.className = "build";
-      b.innerHTML = `<h3>Building a query program for <b>${state.ontology}</b> <span class="dots"></span></h3>
-        <div style="color:var(--muted);font-size:13px">No program exists yet for this ontology. Running the builder — this can take a while.</div>
-        <pre>${escapeHtml(state.buildLog || "starting…")}</pre>`;
+      b.className = "build" + (state.buildFailed ? " failed" : "");
+      const head = state.buildFailed
+        ? `<h3>Build failed for <b>${state.ontology}</b></h3>
+           <div style="color:var(--muted);font-size:13px">The builder exited with an error. The full output is below — a common cause is a missing OWL file for this ontology.</div>`
+        : `<h3>Building a query program for <b>${state.ontology}</b> <span class="dots"></span></h3>
+           <div style="color:var(--muted);font-size:13px">No program exists yet for this ontology. Running the builder — this can take a while.</div>`;
+      b.innerHTML = `${head}<pre>${escapeHtml(state.buildLog || (state.buildFailed ? "(no output captured)" : "starting…"))}</pre>`;
       transcript.appendChild(b);
     }
     transcript.scrollTop = transcript.scrollHeight;
@@ -178,6 +184,7 @@
     state.conversationId = null;
     state.messages = [];
     state.error = null;
+    state.buildFailed = false;
     addMessage("system", `Switching to ${ontology}…`);
 
     try {
@@ -198,24 +205,37 @@
   }
 
   async function pollBuild(jobId) {
-    try {
-      const s = await api.status(jobId);
-      state.buildLog = s.log || "";
+    // Stream the build's stdout/stderr live via Server-Sent Events so the user
+    // sees exactly what the builder is doing — including the failure message.
+    state.buildLog = "";
+    render();
+    const es = new EventSource(`/api/stream/${jobId}`);
+    es.onmessage = (e) => {
+      state.buildLog = state.buildLog ? state.buildLog + "\n" + e.data : e.data;
       render();
-      if (s.status === "running") {
-        setTimeout(() => pollBuild(jobId), 2000);
-      } else if (s.status === "finished") {
+    };
+    es.addEventListener("done", async (e) => {
+      es.close();
+      let done;
+      try { done = JSON.parse(e.data); } catch { done = { status: "failed" }; }
+      if (done.status === "finished") {
         addMessage("system", `Build finished for ${state.ontology}. Starting chat.`);
         await startConversation(state.ontology);
       } else {
+        state.buildFailed = true;
         state.phase = "error";
         pill("build failed", "error");
-        addMessage("system", `Build failed for ${state.ontology}. See server log.`);
+        addMessage("system", `Build failed for ${state.ontology}. See the build output above.`);
+        render();
       }
-    } catch (e) {
-      state.phase = "error"; pill("error", "error");
-      addMessage("system", `Error checking build status: ${e.message}`);
-    }
+    });
+    es.onerror = () => {
+      if (es.readyState === EventSource.CLOSED) {
+        state.phase = "error"; pill("error", "error");
+        addMessage("system", "Lost connection to the build stream.");
+        render();
+      }
+    };
   }
 
   async function startConversation(ontology) {

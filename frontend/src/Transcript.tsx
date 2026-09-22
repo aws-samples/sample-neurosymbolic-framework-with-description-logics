@@ -5,16 +5,17 @@ import { BuildProgress } from "./BuildProgress";
 interface Props {
   messages: ChatMessage[];
   building: boolean;
+  buildFailed: boolean;
   ontology: string;
   buildLog: string;
 }
 
-export function Transcript({ messages, building, ontology, buildLog }: Props) {
+export function Transcript({ messages, building, buildFailed, ontology, buildLog }: Props) {
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, building, buildLog]);
+  }, [messages, building, buildFailed, buildLog]);
 
   return (
     <main className="transcript">
@@ -24,7 +25,9 @@ export function Transcript({ messages, building, ontology, buildLog }: Props) {
           {m.text}
         </div>
       ))}
-      {building && <BuildProgress ontology={ontology} log={buildLog} />}
+      {(building || buildFailed) && (
+        <BuildProgress ontology={ontology} log={buildLog} failed={buildFailed} />
+      )}
       <div ref={endRef} />
     </main>
   );

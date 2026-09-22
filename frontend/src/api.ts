@@ -23,6 +23,12 @@ export interface ChatResult {
   was_rewritten: boolean;
 }
 
+export interface ProgramInfo {
+  ontology: string;
+  path: string;
+  source: string;
+}
+
 async function post<T>(url: string, body: unknown): Promise<T> {
   const res = await fetch(url, {
     method: "POST",
@@ -54,4 +60,42 @@ export const api = {
     post<{ conversation_id: string; ontology: string }>("/api/conversation", { ontology }),
   chat: (conversation_id: string, message: string) =>
     post<ChatResult>("/api/chat", { conversation_id, message }),
+  program: (ontology: string) =>
+    get<ProgramInfo>(`/api/program/${encodeURIComponent(ontology)}`),
 };
+
+export interface BuildDone {
+  status: "finished" | "failed";
+  ready: boolean;
+  ontology: string;
+}
+
+/**
+ * Stream a build's live output via Server-Sent Events.
+ * Calls `onLine` for each output line and `onDone` when the build ends.
+ * Returns a cleanup function that closes the stream.
+ */
+export function streamBuild(
+  jobId: string,
+  onLine: (line: string) => void,
+  onDone: (done: BuildDone) => void,
+  onError: (message: string) => void,
+): () => void {
+  const es = new EventSource(`/api/stream/${jobId}`);
+  es.onmessage = (e) => onLine(e.data);
+  es.addEventListener("done", (e) => {
+    es.close();
+    try {
+      onDone(JSON.parse((e as MessageEvent).data) as BuildDone);
+    } catch {
+      onError("Malformed build-complete event.");
+    }
+  });
+  es.onerror = () => {
+    // EventSource auto-reconnects; only surface an error if it never opened.
+    if (es.readyState === EventSource.CLOSED) {
+      onError("Lost connection to the build stream.");
+    }
+  };
+  return () => es.close();
+}

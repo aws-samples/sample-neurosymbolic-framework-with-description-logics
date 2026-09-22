@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type OntologyInfo } from "./api";
+import { api, streamBuild, type OntologyInfo } from "./api";
 
 export type Phase = "idle" | "building" | "ready" | "error";
 
@@ -17,6 +17,7 @@ export interface ChatState {
   phase: Phase;
   messages: ChatMessage[];
   buildLog: string;
+  buildFailed: boolean; // keep the build log visible after a failure
   error: string | null;
   sending: boolean;
 }
@@ -30,12 +31,13 @@ export function useChat() {
     phase: "idle",
     messages: [],
     buildLog: "",
+    buildFailed: false,
     error: null,
     sending: false,
   });
 
   const conversationId = useRef<string | null>(null);
-  const pollTimer = useRef<number | null>(null);
+  const closeStream = useRef<(() => void) | null>(null);
 
   const patch = useCallback(
     (p: Partial<ChatState>) => setState((s) => ({ ...s, ...p })),
@@ -55,7 +57,7 @@ export function useChat() {
       .then((ontologies) => patch({ ontologies }))
       .catch((e) => patch({ error: `Failed to load ontologies: ${e.message}` }));
     return () => {
-      if (pollTimer.current) window.clearTimeout(pollTimer.current);
+      if (closeStream.current) closeStream.current();
     };
   }, [patch]);
 
@@ -69,23 +71,38 @@ export function useChat() {
     [patch, addMessage],
   );
 
-  const pollBuild = useCallback(
-    async (jobId: string, ontology: string) => {
-      try {
-        const s = await api.status(jobId);
-        patch({ buildLog: s.log });
-        if (s.status === "running") {
-          pollTimer.current = window.setTimeout(() => pollBuild(jobId, ontology), 2000);
-        } else if (s.status === "finished") {
-          addMessage({ role: "system", text: `Build finished for ${ontology}.` });
-          await startConversation(ontology);
-        } else {
-          patch({ phase: "error", error: `Build failed for ${ontology}.` });
-          addMessage({ role: "system", text: `Build failed for ${ontology}. See server log.` });
-        }
-      } catch (e) {
-        patch({ phase: "error", error: (e as Error).message });
-      }
+  const streamBuildOutput = useCallback(
+    (jobId: string, ontology: string) => {
+      // Reset the live log for this build.
+      setState((s) => ({ ...s, buildLog: "", buildFailed: false }));
+      if (closeStream.current) closeStream.current();
+
+      closeStream.current = streamBuild(
+        jobId,
+        // onLine: append each output line live.
+        (line) =>
+          setState((s) => ({ ...s, buildLog: s.buildLog ? `${s.buildLog}\n${line}` : line })),
+        // onDone: switch to chat on success, or surface the failure (log stays visible).
+        async (done) => {
+          closeStream.current = null;
+          if (done.status === "finished") {
+            addMessage({ role: "system", text: `Build finished for ${ontology}.` });
+            try {
+              await startConversation(ontology);
+            } catch (e) {
+              patch({ phase: "error", error: (e as Error).message, buildFailed: true });
+            }
+          } else {
+            patch({ phase: "error", buildFailed: true, error: `Build failed for ${ontology}.` });
+            addMessage({
+              role: "system",
+              text: `Build failed for ${ontology}. See the build output above.`,
+            });
+          }
+        },
+        // onError: connection issue with the stream itself.
+        (message) => patch({ phase: "error", buildFailed: true, error: message }),
+      );
     },
     [patch, addMessage, startConversation],
   );
@@ -94,7 +111,18 @@ export function useChat() {
     async (ontology: string) => {
       if (!ontology) return;
       conversationId.current = null;
-      patch({ ontology, phase: "idle", messages: [], buildLog: "", error: null });
+      if (closeStream.current) {
+        closeStream.current();
+        closeStream.current = null;
+      }
+      patch({
+        ontology,
+        phase: "idle",
+        messages: [],
+        buildLog: "",
+        buildFailed: false,
+        error: null,
+      });
       addMessage({ role: "system", text: `Switching to ${ontology}…` });
       try {
         const res = await api.select(ontology);
@@ -102,14 +130,14 @@ export function useChat() {
           await startConversation(ontology);
         } else {
           patch({ phase: "building" });
-          pollBuild(res.job_id, ontology);
+          streamBuildOutput(res.job_id, ontology);
         }
       } catch (e) {
         patch({ phase: "error", error: (e as Error).message });
         addMessage({ role: "system", text: `Error selecting ontology: ${(e as Error).message}` });
       }
     },
-    [patch, addMessage, startConversation, pollBuild],
+    [patch, addMessage, startConversation, streamBuildOutput],
   );
 
   const send = useCallback(
