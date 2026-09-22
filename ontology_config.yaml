@@ -7,9 +7,7 @@
 #         Requires AWS credentials with s3:GetObject on the object.
 ontologies:
   - name: "FMA"
-    owl_file: "fma.owl"
-    # Example S3 source (leave owl_file above as-is or swap to this):
-    # owl_file: "s3://my-ontologies-bucket/fma.owl"
+    owl_file: "s3://dl-chatbot/data/fma.owl"
     questions:
       - question: "What are the parts of the heart?"
         expected_answer: |
