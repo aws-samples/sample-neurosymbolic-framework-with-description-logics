@@ -1,6 +1,6 @@
 ontologies:
   - name: "FMA"
-    owl_file: "~/fma.owl"
+    owl_file: "fma.owl"
     questions:
       - question: "What are the parts of the heart?"
         expected_answer: |

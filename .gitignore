@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.hypothesis/
+
+# uv / virtualenv
+.venv/
+# Note: uv.lock IS committed (this is an application, not a library).
+
+# Build artifacts
+build/
+dist/
+
+# Run outputs
+runs/
+
+# Downloaded ontologies (large; fetched separately, not committed)
+data/
+
+# OS
+.DS_Store

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from ontology_qa_cli.config import load_config, resolve_ontology
 from ontology_qa_cli.executor import execute_query_program
+from ontology_qa_cli.ui import UI
 
 
 def parse_args() -> argparse.Namespace:
@@ -42,6 +43,11 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("runs/"),
         help="Base directory where builder runs are stored (default: runs/).",
+    )
+    parser.add_argument(
+        "--plain",
+        action="store_true",
+        help="Disable the rich console UI and print the bare answer (useful for piping).",
     )
     return parser.parse_args()
 
@@ -131,29 +137,28 @@ def run_query(args: argparse.Namespace) -> None:
 
     question: str = args.question
 
-    # Execute the query program
-    result = execute_query_program(program_path, onto_file, question)
+    ui = UI(plain=getattr(args, "plain", False))
+
+    # Execute the query program (with a spinner in fancy mode)
+    with ui.thinking(f"Querying: {question}"):
+        result = execute_query_program(program_path, onto_file, question)
 
     # Handle non-zero exit code
     if result.exit_code != 0:
-        print(
-            f"Error: Query program exited with code {result.exit_code}",
-            file=sys.stderr,
-        )
+        ui.error(f"Query program exited with code {result.exit_code}")
         if result.stderr:
             print(result.stderr, file=sys.stderr)
         sys.exit(1)
 
     # Handle missing Answer: format
     if result.answer is None:
-        print(
-            "Error: Query program output did not contain an answer in the expected 'Answer: <text>' format.",
-            file=sys.stderr,
+        ui.error(
+            "Query program output did not contain an answer in the expected 'Answer: <text>' format."
         )
         sys.exit(1)
 
-    # Print the extracted answer to stdout
-    print(result.answer)
+    # Render the extracted answer
+    ui.answer(result.answer)
 
 
 def main() -> None:

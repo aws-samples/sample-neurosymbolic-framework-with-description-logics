@@ -19,6 +19,7 @@ from ontology_qa_cli.judge import judge_answer, compute_accuracy, JudgmentResult
 logger = logging.getLogger(__name__)
 from ontology_qa_cli.fixer import fix_program, generate_task_file
 from ontology_qa_cli.run_manager import create_run_directory, save_iteration, write_summary
+from ontology_qa_cli.ui import UI
 
 
 def _load_llm_costs(costs_path: Path) -> dict:
@@ -105,6 +106,11 @@ def parse_args() -> argparse.Namespace:
         default=Path("llm-costs.yaml"),
         help="Path to LLM cost configuration file (default: llm-costs.yaml).",
     )
+    parser.add_argument(
+        "--plain",
+        action="store_true",
+        help="Disable the rich console UI and emit plain text output (useful for CI/log capture).",
+    )
     return parser.parse_args()
 
 
@@ -113,6 +119,10 @@ def run_build(args: argparse.Namespace) -> None:
     # Expand ~ in all path arguments
     args.ontology_config = args.ontology_config.expanduser()
     args.output_dir = args.output_dir.expanduser()
+
+    # Presentation layer (rich console, or plain fallback)
+    ui = UI(plain=getattr(args, "plain", False))
+    _run_state["ui"] = ui
 
     # Load LLM cost configuration
     llm_costs = _load_llm_costs(args.llm_costs.expanduser())
@@ -149,13 +159,35 @@ def run_build(args: argparse.Namespace) -> None:
     # 4. Validate OWL file can be referenced (owlready2 loading is done by the query program,
     #    but we do a basic existence check here)
     try:
-        import owlready2  # noqa: F401
+        import owlready2
     except ImportError as e:
         print(
             f"Error: owlready2 import failed - {type(e).__name__}: {e}",
             file=sys.stderr,
         )
         sys.exit(1)
+
+    # 4b. Warm the owlready2 SQLite cache ONCE, serially, before any parallel
+    #     evaluation. The query program uses a shared on-disk SQLite backend
+    #     (onto.sqlite3). SQLite allows only one writer, so if the cache does
+    #     not yet exist, N parallel worker processes would all race to create
+    #     and populate it and all but one fail with "database is locked".
+    #     Building it here in a single process means every worker later opens
+    #     an already-populated backend and never contends on the write lock.
+    cache_file = owl_path.with_suffix(".sqlite3")
+    if not cache_file.exists():
+        try:
+            warm_world = owlready2.World(filename=str(cache_file))
+            warm_world.get_ontology(f"file://{owl_path.resolve()}").load()
+            warm_world.save()
+            warm_world.close()
+        except Exception as e:
+            print(
+                f"Error: failed to build ontology cache at '{cache_file}' - "
+                f"{type(e).__name__}: {e}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
     # 5. Create Bedrock client
     try:
@@ -170,11 +202,14 @@ def run_build(args: argparse.Namespace) -> None:
     # 6. Create run directory
     run_ctx = create_run_directory(ontology.name, args.output_dir)
 
+    # Render the run banner now that the ontology and params are validated
+    ui.banner(ontology.name, args.threshold, args.max_iterations)
+
     # 7. Generate seed program
     seed_dir = run_ctx.base_dir / "_seed"
     seed_path = generate_seed(ontology.name, seed_dir)
     current_program_source = seed_path.read_text()
-    print(f"[{_timestamp()}] Generated seed program at {seed_path}")
+    ui.log(f"Generated seed program at {seed_path}")
 
     # Track best iteration
     best_accuracy = -1.0
@@ -193,7 +228,7 @@ def run_build(args: argparse.Namespace) -> None:
     # 8. Main evaluation loop
     interrupted = False
     for iteration in range(1, args.max_iterations + 1):
-        print(f"\n[{_timestamp()}] Starting evaluation round {iteration}")
+        ui.iteration_start(iteration, args.max_iterations)
         iteration_start = time.monotonic()
 
         # Write current program for execution
@@ -271,10 +306,6 @@ def run_build(args: argparse.Namespace) -> None:
         eval_elapsed = time.monotonic() - eval_start
 
         # Print results sequentially (no interleaving) and collect judgments
-        BG_BLACK = "\033[40m\033[97m"
-        BG_RED = "\033[41m\033[97m"
-        RESET = "\033[0m"
-
         judgment_results: list[JudgmentResult] = []
         for qa in questions:
             qa_key = qa.question
@@ -282,23 +313,15 @@ def run_build(args: argparse.Namespace) -> None:
                 continue
             _, exec_result, judgment, duration = results_by_question[qa_key]
 
-            print(f"  Question: {qa.question} ({duration:.1f}s)")
-            if exec_result.stdout.strip():
-                prefixed_stdout = "\n".join(
-                    f"{BG_BLACK}program> {line}{RESET}"
-                    for line in exec_result.stdout.strip().splitlines()
-                )
-                print(prefixed_stdout)
-            if exec_result.stderr.strip():
-                prefixed_stderr = "\n".join(
-                    f"{BG_RED}program> {line}{RESET}"
-                    for line in exec_result.stderr.strip().splitlines()
-                )
-                print(prefixed_stderr)
+            ui.question_result(
+                question=qa.question,
+                duration=duration,
+                is_correct=judgment.is_correct,
+                stdout=exec_result.stdout,
+                stderr=exec_result.stderr,
+            )
 
             judgment_results.append(judgment)
-
-        print(f"  --- All {len(questions)} questions evaluated in {eval_elapsed:.1f}s (wall clock) ---")
 
         # Accumulate token usage
         for j in judgment_results:
@@ -307,7 +330,8 @@ def run_build(args: argparse.Namespace) -> None:
 
         # Compute accuracy
         accuracy = compute_accuracy(judgment_results)
-        print(f"[{_timestamp()}] Evaluation round {iteration} complete - accuracy: {accuracy:.2%}")
+        correct_count = sum(1 for j in judgment_results if j.is_correct)
+        ui.iteration_accuracy(iteration, accuracy, correct_count, len(judgment_results), eval_elapsed)
 
         # Track best iteration
         if accuracy > best_accuracy:
@@ -361,35 +385,32 @@ def run_build(args: argparse.Namespace) -> None:
                 "judge_input_tokens": iter_input_tokens,
                 "judge_output_tokens": iter_output_tokens,
             })
-            print(
+            ui.print(
                 f"Iteration summary: iteration={iteration} accuracy={accuracy:.2%} ({correct_count}/{len(judgment_results)} correct) "
                 f"eval_duration={eval_elapsed:.1f}s iteration_duration={iteration_duration:.1f}s "
                 f"program_loc={program_loc}"
             )
-            print(
-                f"\nSuccess! Accuracy threshold met: {accuracy:.2%} "
-                f"(threshold: {args.threshold:.2%}) after {iteration} iteration(s)."
-            )
+            ui.success(accuracy, args.threshold, iteration)
             break
 
         # Fix program if accuracy is below threshold
         kiro_duration = 0.0
         kiro_credits = 0.0
         if failed_judgments:
-            print(f"[{_timestamp()}] Fixing program based on {len(failed_judgments)} failed question(s)...")
-            fix_result = fix_program(
-                current_program=current_program_source,
-                failed_judgments=failures_to_fix,
-                working_dir=program_path.parent,
-                timeout=args.kiro_timeout,
-                ontology_file=owl_path,
-            )
+            with ui.fixing(len(failed_judgments)):
+                fix_result = fix_program(
+                    current_program=current_program_source,
+                    failed_judgments=failures_to_fix,
+                    working_dir=program_path.parent,
+                    timeout=args.kiro_timeout,
+                    ontology_file=owl_path,
+                )
             kiro_duration = fix_result.duration
             kiro_credits = fix_result.credits
             total_kiro_duration += kiro_duration
             total_kiro_credits += kiro_credits
-            print(
-                f"[{_timestamp()}] kiro-cli invocation complete - "
+            ui.log(
+                f"kiro-cli invocation complete - "
                 f"working dir: {program_path.parent}, exit code: {fix_result.exit_code}"
             )
 
@@ -402,16 +423,17 @@ def run_build(args: argparse.Namespace) -> None:
             if fix_result.success and fix_result.modified_program:
                 previous_program_source = current_program_source
                 current_program_source = fix_result.modified_program
-                print(f"[{_timestamp()}] Program updated successfully.")
+                ui.fix_outcome(success=True, exit_code=fix_result.exit_code)
             else:
-                print(
-                    f"[{_timestamp()}] kiro-cli fix failed (exit code {fix_result.exit_code}): "
-                    f"{fix_result.error_message}. Retaining previous program."
+                ui.fix_outcome(
+                    success=False,
+                    exit_code=fix_result.exit_code,
+                    error_message=fix_result.error_message or "",
                 )
 
         iteration_duration = time.monotonic() - iteration_start
         program_loc = len(current_program_source.splitlines())
-        print(
+        ui.print(
             f"Iteration summary: iteration={iteration} accuracy={accuracy:.2%} ({correct_count}/{len(judgment_results)} correct) "
             f"eval_duration={eval_elapsed:.1f}s kiro_duration={kiro_duration:.1f}s iteration_duration={iteration_duration:.1f}s "
             f"program_loc={program_loc}"
@@ -452,10 +474,7 @@ def run_build(args: argparse.Namespace) -> None:
         })
     else:
         # Max iterations reached without meeting threshold
-        print(
-            f"\nMax iterations ({args.max_iterations}) reached. "
-            f"Best accuracy achieved: {best_accuracy:.2%} (threshold: {args.threshold:.2%})."
-        )
+        ui.exhausted(best_accuracy, args.threshold, args.max_iterations)
 
     # Write summary
     if interrupted:
@@ -474,8 +493,9 @@ def run_build(args: argparse.Namespace) -> None:
         terminated_reason=terminated_reason,
     )
 
-    # Print path to best-performing program
-    print(f"\nBest-performing query program: {best_iteration_path}")
+    # Render the run summary table, then point at the best program
+    ui.summary_table(iteration_stats)
+    ui.best_program(best_iteration_path)
 
     # Store state for report generation (also used by KeyboardInterrupt handler)
     _run_state.update({
@@ -515,6 +535,7 @@ def _generate_report(
     total_kiro_credits: float,
     iteration_stats: list,
     llm_costs: dict,
+    ui=None,
 ) -> None:
     """Generate the REPORT.md file."""
     run_end_time = datetime.now(timezone.utc)
@@ -648,7 +669,10 @@ def _generate_report(
     report_content = "\n".join(report_lines)
     report_path = run_ctx.base_dir / "REPORT.md"
     report_path.write_text(report_content)
-    print(f"Run report saved to: {report_path}")
+    if ui is not None:
+        ui.report_saved(report_path)
+    else:
+        print(f"Run report saved to: {report_path}")
 
 
 def _timestamp() -> str:
@@ -684,9 +708,13 @@ def main() -> None:
     try:
         run_build(args)
     except KeyboardInterrupt:
-        print("\n\nInterrupted by user. Generating partial report...")
+        _ui = _run_state.get("ui")
+        if _ui is not None:
+            _ui.print("\n\nInterrupted by user. Generating partial report...")
+        else:
+            print("\n\nInterrupted by user. Generating partial report...")
         # run_build stores state needed for report in _run_state
-        if _run_state:
+        if _run_state.get("run_ctx") is not None:
             _generate_report(interrupted=True, **_run_state)
 
 
