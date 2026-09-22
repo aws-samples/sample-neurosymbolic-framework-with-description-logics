@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -88,7 +89,7 @@ class BuildJob:
 
     def log_tail(self, max_lines: int = 40) -> str:
         try:
-            text = self.log_path.read_text(errors="replace")
+            text = self.log_path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             return ""
         lines = text.splitlines()
@@ -235,7 +236,11 @@ def create_app(
         job_id = uuid.uuid4().hex[:12]
         log_path = runs_dir / f"_web_build_{ontology}_{job_id}.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_file = open(log_path, "w")  # noqa: SIM115 - handed to Popen, closed on exit
+        log_file = open(log_path, "w", encoding="utf-8")  # noqa: SIM115 - handed to Popen, closed on exit
+        # Force the child to encode stdout/stderr as UTF-8 regardless of the
+        # host locale, so non-ASCII output (em dashes, bullets, Rich glyphs)
+        # is written cleanly instead of producing replacement characters.
+        child_env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
         proc = subprocess.Popen(
             [
                 sys.executable, "-u", "-m", "ontology_qa_cli.builder",
@@ -245,6 +250,7 @@ def create_app(
             ],
             stdout=log_file,
             stderr=subprocess.STDOUT,
+            env=child_env,
         )
         job = BuildJob(job_id=job_id, ontology=ontology, proc=proc, log_path=log_path)
         with state_lock:
@@ -345,7 +351,7 @@ def create_app(
             # Tail the log file until the process exits and the file is drained.
             while True:
                 try:
-                    with open(job.log_path, "r", errors="replace") as fh:
+                    with open(job.log_path, "r", encoding="utf-8", errors="replace") as fh:
                         fh.seek(pos)
                         chunk = fh.read()
                         pos = fh.tell()
@@ -359,7 +365,7 @@ def create_app(
                 if status != "running":
                     # Drain any final bytes written after the last read.
                     try:
-                        with open(job.log_path, "r", errors="replace") as fh:
+                        with open(job.log_path, "r", encoding="utf-8", errors="replace") as fh:
                             fh.seek(pos)
                             tail = fh.read()
                         for line in tail.splitlines():
