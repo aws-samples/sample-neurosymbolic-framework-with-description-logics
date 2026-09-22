@@ -110,16 +110,30 @@ button.ghost:hover { color: var(--text); }
   padding: 14px;
 }
 .build h3 { margin: 0 0 8px; font-size: 14px; }
+.build.failed { border-color: var(--danger); }
+.build.failed h3 { color: var(--danger); }
 .build .build-note { color: var(--muted); font-size: 13px; }
 .build pre {
   margin: 8px 0 0;
-  max-height: 220px;
+  /* Resizable log window: drag the thumb in the bottom-right corner to change
+     height. `height` (not max-height) so `resize: vertical` has something to
+     grow/shrink; min/max keep it usable. */
+  height: 220px;
+  min-height: 80px;
+  max-height: 70vh;
+  resize: vertical;
   overflow: auto;
   background: #0b0d11;
   color: #c9d1d9;
   padding: 10px;
   border-radius: 8px;
   font-size: 12px;
+}
+/* Make the drag thumb clearly visible (WebKit/Blink). */
+.build pre::-webkit-resizer {
+  border-width: 6px;
+  border-style: solid;
+  border-color: transparent var(--accent, #58a6ff) var(--accent, #58a6ff) transparent;
 }
 .dots::after {
   content: "";

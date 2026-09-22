@@ -106,6 +106,24 @@ class UI:
                 file=self.stream,
             )
 
+    def notice(self, message: str) -> None:
+        """Render an informational, reassuring note.
+
+        Used to set expectations before the evolution loop (e.g. that errors
+        and stacktraces are a normal part of the self-correcting process).
+        """
+        if self.fancy:
+            self._console.print(
+                Panel(
+                    Text(message),
+                    box=box.ROUNDED,
+                    border_style="dim",
+                    expand=False,
+                )
+            )
+        else:
+            print(message, file=self.stream)
+
     def iteration_start(self, iteration: int, max_iterations: int) -> None:
         """Render the start-of-iteration separator."""
         if self.fancy:
