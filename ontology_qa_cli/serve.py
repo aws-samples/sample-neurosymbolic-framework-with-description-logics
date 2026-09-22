@@ -41,7 +41,7 @@ import sys
 import threading
 import types
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import owlready2
 
@@ -70,13 +70,24 @@ class OntologyAnswerer:
 
         # Open the shared backend and load the ontology ONCE. Mirrors the seed
         # program's cache logic: reuse a warmed cache, otherwise parse the OWL.
+        #
+        # Load into a PRIVATE World rather than owlready2.default_world. The
+        # default world is process-global: the web app is a single long-lived
+        # process that may construct one answerer per ontology, and once one
+        # answerer has loaded triples into the default world, a second
+        # ``set_backend(<existing cache>)`` call raises "Cannot save existent
+        # quadstore ... File already exists" because the world is no longer
+        # empty. A fresh World per answerer keeps each ontology isolated.
         cache_file = self.onto_file.with_suffix(".sqlite3")
-        cache_exists = cache_file.exists()
-        owlready2.default_world.set_backend(filename=str(cache_file))
-        if not cache_exists or not list(owlready2.default_world.ontologies):
-            self._onto = owlready2.get_ontology(f"file://{self.onto_file}").load()
+        self._world = self._open_reader(cache_file)
+        onts = list(self._world.ontologies.values())
+        if onts:
+            # A reopened quadstore can expose more than one ontology (owlready2
+            # adds an empty ``http://anonymous/`` world); pick the one that
+            # actually carries the parsed classes rather than the first entry.
+            self._onto = max(onts, key=lambda o: len(list(o.classes())))
         else:
-            self._onto = next(iter(owlready2.default_world.ontologies.values()))
+            self._onto = self._world.get_ontology(f"file://{self.onto_file}").load()
 
         # Import the evolved program as a module so we can call main() directly.
         self._module = self._import_program(self.program_path)
@@ -84,6 +95,32 @@ class OntologyAnswerer:
             raise AttributeError(
                 f"Query program '{self.program_path}' has no top-level main(onto_file, question)"
             )
+
+    def _open_reader(self, cache_file: Path) -> "owlready2.World":
+        """Return a World backed by ``cache_file``, opened for read-only sharing.
+
+        Answering only ever READS the ontology, so the backend is opened
+        ``read_only=True, exclusive=False``. owlready2 defaults to an EXCLUSIVE
+        SQLite lock, which makes a second answerer for the same ontology in the
+        same long-lived web-app process fail with "database is locked"; a shared
+        read lock lets answerers (and a concurrent builder) coexist.
+
+        If the cache does not exist yet, it is created in a throwaway writable
+        world (parse the OWL, persist, then close to drop the exclusive lock)
+        before the read-only reader is opened over the freshly written file.
+        """
+        if not cache_file.exists():
+            writer = owlready2.World()
+            writer.set_backend(filename=str(cache_file))
+            writer.get_ontology(f"file://{self.onto_file}").load()
+            writer.save()
+            writer.close()  # release the EXCLUSIVE write lock before reopening
+
+        reader = owlready2.World()
+        reader.set_backend(
+            filename=str(cache_file), exclusive=False, read_only=True
+        )
+        return reader
 
     @classmethod
     def from_ontology(
@@ -140,7 +177,23 @@ class OntologyAnswerer:
         with self._lock:
             return self._run_once(question)
 
-    def _run_once(self, question: str) -> Optional[str]:
+    def answer_streaming(
+        self, question: str, on_line: "Callable[[str], None]"
+    ) -> Optional[str]:
+        """Answer one question, forwarding the program's output live.
+
+        Identical to :meth:`answer`, but every stdout/stderr line the evolved
+        program emits while it runs is passed to ``on_line`` as soon as it is
+        written (newline-delimited, without the trailing newline). Use this to
+        stream "what the program is doing" to a UI. The final extracted answer
+        is still returned.
+        """
+        with self._lock:
+            return self._run_once(question, on_line=on_line)
+
+    def _run_once(
+        self, question: str, on_line: "Optional[Callable[[str], None]]" = None
+    ) -> Optional[str]:
         # Intercept the ontology (re)load so main() reuses the world we already
         # loaded, instead of re-parsing the OWL or reopening the backend.
         real_get_ontology = owlready2.get_ontology
@@ -165,17 +218,57 @@ class OntologyAnswerer:
             # Backend is already open; do nothing so we don't reopen/relock it.
             return None
 
+        # Capture stdout so we can extract the Answer: line. When streaming, tee
+        # both stdout and stderr to the callback line-by-line as they are
+        # written, while still accumulating stdout for answer extraction.
         buf = io.StringIO()
+        sink: "io.TextIOBase" = _LineTee(buf, on_line) if on_line else buf
+
         owlready2.get_ontology = _patched_get_ontology
         owlready2.default_world.set_backend = _patched_set_backend  # type: ignore[method-assign]
         try:
-            with contextlib.redirect_stdout(buf):
-                self._module.main(self.onto_file, question)
+            if on_line is not None:
+                # Stream stderr too (stacktraces, progress) but keep it out of
+                # the answer buffer: a separate tee that only forwards lines.
+                err_tee = _LineTee(io.StringIO(), on_line)
+                with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(err_tee):
+                    self._module.main(self.onto_file, question)
+                err_tee.flush()
+            else:
+                with contextlib.redirect_stdout(sink):
+                    self._module.main(self.onto_file, question)
         finally:
+            if isinstance(sink, _LineTee):
+                sink.flush()
             owlready2.get_ontology = real_get_ontology
             owlready2.default_world.set_backend = real_set_backend  # type: ignore[method-assign]
 
         return extract_answer(buf.getvalue())
+
+
+class _LineTee(io.TextIOBase):
+    """A text sink that mirrors writes into ``buffer`` and calls ``on_line`` for
+    each completed line (split on ``\\n``), buffering any partial trailing line
+    until the next write or :meth:`flush`.
+    """
+
+    def __init__(self, buffer: "io.StringIO", on_line: "Callable[[str], None]") -> None:
+        self._buffer = buffer
+        self._on_line = on_line
+        self._partial = ""
+
+    def write(self, s: str) -> int:  # type: ignore[override]
+        self._buffer.write(s)
+        self._partial += s
+        while "\n" in self._partial:
+            line, self._partial = self._partial.split("\n", 1)
+            self._on_line(line)
+        return len(s)
+
+    def flush(self) -> None:  # type: ignore[override]
+        if self._partial:
+            self._on_line(self._partial)
+            self._partial = ""
 
 
 def _parse_args() -> argparse.Namespace:
