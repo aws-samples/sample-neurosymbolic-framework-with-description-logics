@@ -85,9 +85,11 @@ export function Banner({
       >
         Force rebuild of query program
       </button>
-      <button className="ghost" onClick={onReset} disabled={phase !== "ready"}>
-        Reset chat
-      </button>
+      {view === "chat" && (
+        <button className="ghost" onClick={onReset} disabled={phase !== "ready"}>
+          Reset chat
+        </button>
+      )}
     </header>
   );
 }

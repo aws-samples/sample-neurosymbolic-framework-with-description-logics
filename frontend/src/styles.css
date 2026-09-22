@@ -44,16 +44,38 @@ select {
   font-size: 14px;
   min-width: 220px;
 }
+/* Build/ready status indicator: a colored status dot + text, not a button */
 .pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
   color: var(--muted);
+  border: none;
+  padding: 0;
+  background: transparent;
 }
-.pill.ready { color: var(--ok); border-color: var(--ok); }
-.pill.building { color: var(--accent); border-color: var(--accent); }
-.pill.error { color: var(--danger); border-color: var(--danger); }
+.pill::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
+}
+.pill.ready { color: var(--ok); }
+.pill.ready::before { background: var(--ok); }
+.pill.building { color: var(--accent); }
+.pill.building::before {
+  background: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.pill.error { color: var(--danger); }
+.pill.error::before { background: var(--danger); }
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
 
 /* Chat / Query program square segmented box:
    selected half = white bg + dark text, unselected half = black bg + light text */

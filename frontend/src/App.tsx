@@ -36,7 +36,9 @@ export function App() {
             ontology={state.ontology}
             buildLog={state.buildLog}
           />
-          <Composer disabled={!chatReady} sending={state.sending} onSend={send} />
+          {state.phase !== "building" && (
+            <Composer disabled={!chatReady} sending={state.sending} onSend={send} />
+          )}
         </>
       ) : (
         <ProgramView ontology={state.ontology} />

@@ -45,6 +45,25 @@ Point at a different build with `ontology-qa-web --frontend-dist <path>`.
 - `src/App.tsx` — composes `Banner` (ontology dropdown + status), `Transcript`
   (messages + build progress), and `Composer` (input).
 
+## Header UI
+
+The `Banner` holds the ontology dropdown plus these controls:
+
+- **View toggle** — a square two-half box switching between `Chat` and
+  `Query program`. The selected half is white on black; the other is black on
+  white.
+- **Status indicator** — a colored status dot + label (grey `idle`, blue
+  `building` with a pulsing dot, green `ready`, red `error`). It is a status
+  readout, not a button.
+- **Force rebuild** — a solid accent button that discards the current program
+  and evolves a new one (enabled only when a program is loaded).
+- **Reset chat** — shown only in the chat view; clears the transcript and starts
+  a fresh server-side conversation id (drops prior turns and follow-up context).
+  It does not reload the program or ontology.
+
+While a build is streaming, the composer (input + send) is hidden — it is only
+shown once chat is ready.
+
 ## Behavior
 
 Selecting an ontology that already has a built program starts chatting
