@@ -204,6 +204,43 @@ button.rebuild-btn:hover:not(:disabled) { background: var(--accent-2); }
 }
 .msg .rewrite { color: var(--muted); font-size: 12px; margin-bottom: 6px; font-style: italic; }
 
+/* Collapsible "Working..." disclosure inside a bot bubble. */
+.msg .work-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+}
+.msg .work-toggle .flippy {
+  display: inline-block;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--muted);
+  transition: transform 0.12s ease;
+}
+.msg .work-toggle .flippy.open { transform: rotate(90deg); }
+.msg .work-toggle .work-label { color: var(--muted); }
+.msg .work-log {
+  margin: 8px 0 0;
+  max-height: 320px;
+  overflow: auto;
+  background: #0b0d11;
+  color: #c9d1d9;
+  padding: 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.msg .work-answer { margin-top: 8px; }
+
 /* Build progress */
 .build {
   align-self: center;

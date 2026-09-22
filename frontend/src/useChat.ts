@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, streamBuild, type OntologyInfo } from "./api";
+import { api, streamBuild, streamChat, type OntologyInfo } from "./api";
 
 export type Phase = "idle" | "building" | "ready" | "error";
 
@@ -9,6 +9,8 @@ export interface ChatMessage {
   text: string;
   rewrite?: string; // shown when a follow-up was rewritten
   pending?: boolean; // bot bubble awaiting the answer
+  workLog?: string; // live stdout/stderr of the running program
+  workExpanded?: boolean; // whether the "Working..." disclosure is open
 }
 
 export interface ChatState {
@@ -145,36 +147,70 @@ export function useChat() {
       const trimmed = text.trim();
       if (!trimmed || !conversationId.current) return;
       addMessage({ role: "user", text: trimmed });
-      const botId = addMessage({ role: "bot", text: "…", pending: true });
+      const botId = addMessage({
+        role: "bot",
+        text: "Working...",
+        pending: true,
+        workLog: "",
+        workExpanded: false,
+      });
       patch({ sending: true });
-      try {
-        const res = await api.chat(conversationId.current, trimmed);
-        setState((s) => ({
-          ...s,
-          sending: false,
-          messages: s.messages.map((m) =>
-            m.id === botId
-              ? {
-                  ...m,
-                  pending: false,
-                  text: res.answer ?? "(no answer produced)",
-                  rewrite: res.was_rewritten ? res.resolved_question : undefined,
-                }
-              : m,
-          ),
-        }));
-      } catch (e) {
-        setState((s) => ({
-          ...s,
-          sending: false,
-          messages: s.messages.map((m) =>
-            m.id === botId ? { ...m, pending: false, text: `Error: ${(e as Error).message}` } : m,
-          ),
-        }));
-      }
+
+      // Stream the running program's stdout/stderr into the pending bubble; the
+      // final `done` event carries the answer. streamChat never rejects — it
+      // reports terminal state through onDone / onError.
+      streamChat(
+        conversationId.current,
+        trimmed,
+        // onLine: append each program output line to this bubble's work log.
+        (line) =>
+          setState((s) => ({
+            ...s,
+            messages: s.messages.map((m) =>
+              m.id === botId
+                ? { ...m, workLog: m.workLog ? `${m.workLog}\n${line}` : line }
+                : m,
+            ),
+          })),
+        // onDone: replace the placeholder with the answer (work log preserved,
+        // still collapsed so the user can expand it after the fact).
+        (done) =>
+          setState((s) => ({
+            ...s,
+            sending: false,
+            messages: s.messages.map((m) =>
+              m.id === botId
+                ? {
+                    ...m,
+                    pending: false,
+                    text: done.answer ?? "(no answer produced)",
+                    rewrite: done.was_rewritten ? done.resolved_question : undefined,
+                  }
+                : m,
+            ),
+          })),
+        // onError: surface the failure in the bubble; keep the work log.
+        (message) =>
+          setState((s) => ({
+            ...s,
+            sending: false,
+            messages: s.messages.map((m) =>
+              m.id === botId ? { ...m, pending: false, text: `Error: ${message}` } : m,
+            ),
+          })),
+      );
     },
     [addMessage, patch],
   );
+
+  const toggleWork = useCallback((messageId: string) => {
+    setState((s) => ({
+      ...s,
+      messages: s.messages.map((m) =>
+        m.id === messageId ? { ...m, workExpanded: !m.workExpanded } : m,
+      ),
+    }));
+  }, []);
 
   const reset = useCallback(async () => {
     if (!state.ontology) return;
@@ -201,5 +237,5 @@ export function useChat() {
     }
   }, [state.ontology, patch, addMessage, streamBuildOutput]);
 
-  return { state, selectOntology, send, reset, rebuild };
+  return { state, selectOntology, send, reset, rebuild, toggleWork };
 }

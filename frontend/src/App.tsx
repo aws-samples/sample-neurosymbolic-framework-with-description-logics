@@ -8,7 +8,7 @@ import { useChat } from "./useChat";
 export type View = "chat" | "program";
 
 export function App() {
-  const { state, selectOntology, send, reset, rebuild } = useChat();
+  const { state, selectOntology, send, reset, rebuild, toggleWork } = useChat();
   const chatReady = state.phase === "ready";
   const [view, setView] = useState<View>("chat");
 
@@ -35,6 +35,7 @@ export function App() {
             buildFailed={state.buildFailed}
             ontology={state.ontology}
             buildLog={state.buildLog}
+            onToggleWork={toggleWork}
           />
           {state.phase !== "building" && (
             <Composer disabled={!chatReady} sending={state.sending} onSend={send} />

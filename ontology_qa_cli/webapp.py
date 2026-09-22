@@ -16,6 +16,8 @@ Endpoints
     POST /api/rebuild             {ontology} -> building(job_id) (force rebuild)
     GET  /api/status/{job_id}     build job progress (poll while building)
     POST /api/chat                {conversation_id, message} -> answer
+    GET  /api/chat/stream         {conversation_id, message} -> SSE: program
+                                  output lines, then a done frame with answer
 
 Design notes
 ------------
@@ -414,6 +416,82 @@ def create_app(
             "resolved_question": turn.resolved_question,
             "was_rewritten": turn.was_rewritten,
         }
+
+    @app.get("/api/chat/stream")
+    async def api_chat_stream(conversation_id: str, message: str):
+        """Answer a question while streaming the program's stdout/stderr live.
+
+        Server-Sent Events: each `data:` frame is one output line the evolved
+        program emitted as it ran; a final `event: done` frame carries the
+        answer (and the rewritten question, if a follow-up was resolved). This
+        is what lets the UI show "what the program is doing" under a collapsible
+        disclosure while the answer is still being computed.
+        """
+        with state_lock:
+            session = sessions.get(conversation_id)
+        if session is None:
+            raise HTTPException(
+                status_code=400,
+                detail="No active conversation. Select an ontology first.",
+            )
+
+        import asyncio
+        import json as _json
+
+        loop = asyncio.get_running_loop()
+        q: "asyncio.Queue[object]" = asyncio.Queue()
+        _SENTINEL = object()
+
+        def _put(item: object) -> None:
+            # Called from the worker thread: schedule the put on the event loop.
+            loop.call_soon_threadsafe(q.put_nowait, item)
+
+        def _on_line(line: str) -> None:
+            _put(("line", line))
+
+        def _work() -> None:
+            try:
+                turn = session.send_streaming(message, _on_line)
+                _put(
+                    (
+                        "done",
+                        {
+                            "answer": turn.answer,
+                            "resolved_question": turn.resolved_question,
+                            "was_rewritten": turn.was_rewritten,
+                        },
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001 - surface as a stream error
+                _put(("error", str(exc)))
+            finally:
+                _put(_SENTINEL)
+
+        async def event_stream():
+            # Run the (blocking) answerer in a worker thread; drain its queue.
+            # asyncio.Queue.get() yields to the loop, so call_soon_threadsafe
+            # puts from the worker thread are actually delivered (a plain
+            # queue.Queue would block the loop and deadlock the handoff).
+            loop.run_in_executor(None, _work)
+            while True:
+                item = await q.get()
+                if item is _SENTINEL:
+                    return
+                kind, payload = item
+                if kind == "line":
+                    # SSE data frames cannot contain raw newlines; each call is
+                    # already one line, so emit it directly.
+                    yield f"data: {payload}\n\n"
+                elif kind == "done":
+                    yield f"event: done\ndata: {_json.dumps(payload)}\n\n"
+                elif kind == "error":
+                    yield f"event: error\ndata: {_json.dumps({'detail': payload})}\n\n"
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     @app.post("/api/conversation")
     async def api_conversation(req: SelectRequest) -> dict:

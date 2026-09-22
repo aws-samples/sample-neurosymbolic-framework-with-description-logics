@@ -143,6 +143,40 @@ class TestWebApp:
             assert "['Heart']" in r["answer"]
             assert r["was_rewritten"] is False
 
+    def test_chat_stream_streams_output_then_answer(self, env):
+        with _client(env) as c:
+            c.post("/api/select", json={"ontology": "TINY"})
+            conv = c.post("/api/conversation", json={"ontology": "TINY"}).json()
+            with c.stream(
+                "GET",
+                "/api/chat/stream",
+                params={
+                    "conversation_id": conv["conversation_id"],
+                    "message": "what classes?",
+                },
+            ) as resp:
+                assert resp.status_code == 200
+                body = "".join(resp.iter_text())
+            # The program's Answer: line is streamed live as a data frame...
+            assert "data: Answer: re 'what classes?': ['Heart']" in body
+            # ...and a terminal done frame carries the parsed answer.
+            assert "event: done" in body
+            done_line = next(
+                ln for ln in body.splitlines()
+                if ln.startswith("data: {") and "answer" in ln
+            )
+            payload = json.loads(done_line[len("data: "):])
+            assert "['Heart']" in payload["answer"]
+            assert payload["was_rewritten"] is False
+
+    def test_chat_stream_without_conversation_400(self, env):
+        with _client(env) as c:
+            resp = c.get(
+                "/api/chat/stream",
+                params={"conversation_id": "nope", "message": "x"},
+            )
+            assert resp.status_code == 400
+
     def test_unknown_ontology_select_404(self, env):
         with _client(env) as c:
             assert c.post("/api/select", json={"ontology": "ZZZ"}).status_code == 404

@@ -103,3 +103,50 @@ export function streamBuild(
   };
   return () => es.close();
 }
+
+export interface ChatDone {
+  answer: string | null;
+  resolved_question: string;
+  was_rewritten: boolean;
+}
+
+/**
+ * Answer a question while streaming the running program's output via SSE.
+ * Calls `onLine` for each stdout/stderr line, `onDone` with the final answer,
+ * and `onError` on failure. Returns a cleanup function that closes the stream.
+ */
+export function streamChat(
+  conversationId: string,
+  message: string,
+  onLine: (line: string) => void,
+  onDone: (done: ChatDone) => void,
+  onError: (message: string) => void,
+): () => void {
+  const qs = new URLSearchParams({ conversation_id: conversationId, message });
+  const es = new EventSource(`/api/chat/stream?${qs.toString()}`);
+  es.onmessage = (e) => onLine(e.data);
+  es.addEventListener("done", (e) => {
+    es.close();
+    try {
+      onDone(JSON.parse((e as MessageEvent).data) as ChatDone);
+    } catch {
+      onError("Malformed chat-complete event.");
+    }
+  });
+  es.addEventListener("error", (e) => {
+    // A server-sent `error` event carries a detail payload; a transport error
+    // has no data and only matters once the connection is closed for good.
+    const data = (e as MessageEvent).data;
+    if (data) {
+      es.close();
+      try {
+        onError((JSON.parse(data) as { detail?: string }).detail || "Query failed.");
+      } catch {
+        onError("Query failed.");
+      }
+    } else if (es.readyState === EventSource.CLOSED) {
+      onError("Lost connection to the answer stream.");
+    }
+  });
+  return () => es.close();
+}
