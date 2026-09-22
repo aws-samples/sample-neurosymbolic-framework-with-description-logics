@@ -182,5 +182,24 @@ export function useChat() {
     await startConversation(state.ontology); // fresh conversation id => cleared history
   }, [state.ontology, patch, startConversation]);
 
-  return { state, selectOntology, send, reset };
+  const rebuild = useCallback(async () => {
+    const ontology = state.ontology;
+    if (!ontology) return;
+    conversationId.current = null;
+    if (closeStream.current) {
+      closeStream.current();
+      closeStream.current = null;
+    }
+    patch({ phase: "building", messages: [], buildLog: "", buildFailed: false, error: null });
+    addMessage({ role: "system", text: `Forcing a rebuild of the query program for ${ontology}…` });
+    try {
+      const res = await api.rebuild(ontology);
+      streamBuildOutput(res.job_id, ontology);
+    } catch (e) {
+      patch({ phase: "error", error: (e as Error).message });
+      addMessage({ role: "system", text: `Error starting rebuild: ${(e as Error).message}` });
+    }
+  }, [state.ontology, patch, addMessage, streamBuildOutput]);
+
+  return { state, selectOntology, send, reset, rebuild };
 }

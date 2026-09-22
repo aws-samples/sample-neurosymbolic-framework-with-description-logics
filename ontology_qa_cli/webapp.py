@@ -13,6 +13,7 @@ Endpoints
     GET  /api/ontologies          [{name, has_program}] for the dropdown
     GET  /api/program/{ontology}  {path, source} of the current best program
     POST /api/select              {ontology} -> ready | building(job_id)
+    POST /api/rebuild             {ontology} -> building(job_id) (force rebuild)
     GET  /api/status/{job_id}     build job progress (poll while building)
     POST /api/chat                {conversation_id, message} -> answer
 
@@ -53,6 +54,7 @@ from ontology_qa_cli.serve import OntologyAnswerer
 try:
     from fastapi import FastAPI, HTTPException
     from fastapi.responses import HTMLResponse, StreamingResponse
+    from fastapi.staticfiles import StaticFiles
     from pydantic import BaseModel, Field
 except ImportError as exc:  # pragma: no cover - only without the api extra
     raise ImportError(
@@ -106,9 +108,11 @@ def create_app(
     config_path: Path = Path("ontology_config.yaml"),
     runs_dir: Path = Path("runs/"),
     resolve_followups: bool = True,
+    frontend_dist: Optional[Path] = None,
 ) -> "FastAPI":
     config_path = Path(config_path).expanduser()
     runs_dir = Path(runs_dir).expanduser()
+    frontend_dist = Path(frontend_dist).expanduser() if frontend_dist else _default_frontend_dist()
 
     app = FastAPI(title="Ontology QA — Web Chatbot", version="0.1.0")
 
@@ -222,6 +226,31 @@ def create_app(
             "source": path.read_text(),
         }
 
+    def _start_build(ontology: str) -> str:
+        """Spawn the builder as a background subprocess; return its job id.
+
+        Used both by /api/select (when no program exists) and /api/rebuild
+        (force a new build even when one does).
+        """
+        job_id = uuid.uuid4().hex[:12]
+        log_path = runs_dir / f"_web_build_{ontology}_{job_id}.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_file = open(log_path, "w")  # noqa: SIM115 - handed to Popen, closed on exit
+        proc = subprocess.Popen(
+            [
+                sys.executable, "-u", "-m", "ontology_qa_cli.builder",
+                ontology, "--plain",
+                "--ontology-config", str(config_path),
+                "--output-dir", str(runs_dir),
+            ],
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+        )
+        job = BuildJob(job_id=job_id, ontology=ontology, proc=proc, log_path=log_path)
+        with state_lock:
+            jobs[job_id] = job
+        return job_id
+
     @app.post("/api/select")
     async def api_select(req: SelectRequest) -> dict:
         ontology = req.ontology
@@ -249,24 +278,34 @@ def create_app(
             return {"status": "ready", "ontology": ontology}
 
         # No program yet -> start a build as a background subprocess.
-        job_id = uuid.uuid4().hex[:12]
-        log_path = runs_dir / f"_web_build_{ontology}_{job_id}.log"
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_file = open(log_path, "w")  # noqa: SIM115 - handed to Popen, closed on exit
-        proc = subprocess.Popen(
-            [
-                sys.executable, "-u", "-m", "ontology_qa_cli.builder",
-                ontology, "--plain",
-                "--ontology-config", str(config_path),
-                "--output-dir", str(runs_dir),
-            ],
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-        )
-        job = BuildJob(job_id=job_id, ontology=ontology, proc=proc, log_path=log_path)
+        return {"status": "building", "job_id": _start_build(ontology)}
+
+    @app.post("/api/rebuild")
+    async def api_rebuild(req: SelectRequest) -> dict:
+        """Force a fresh build of the query program, even if one already exists.
+
+        Requires an existing program (the UI only enables the button then).
+        Evicts the cached answerer so the newly built program is picked up.
+        """
+        ontology = req.ontology
+        if ontology not in _ontology_names():
+            raise HTTPException(status_code=404, detail=f"Unknown ontology '{ontology}'")
+        if not _has_program(ontology):
+            raise HTTPException(
+                status_code=409,
+                detail=f"No query program exists for '{ontology}' to rebuild. "
+                "Select it to build one first.",
+            )
+
+        # If a build is already running for this ontology, just report it.
         with state_lock:
-            jobs[job_id] = job
-        return {"status": "building", "job_id": job_id}
+            for job in jobs.values():
+                if job.ontology == ontology and job.poll() == "running":
+                    return {"status": "building", "job_id": job.job_id}
+            # Drop the cached answerer; it will reload from the new program.
+            answerers.pop(ontology, None)
+
+        return {"status": "building", "job_id": _start_build(ontology)}
 
     @app.get("/api/status/{job_id}")
     async def api_status(job_id: str) -> dict:
@@ -392,21 +431,42 @@ def create_app(
         return {"conversation_id": conversation_id, "ontology": ontology}
 
     # ----------------------------------------------------------------- UI ---
+    # Serve the built React app (frontend/dist). If it has not been built yet,
+    # degrade to a short instruction page rather than a broken UI.
+    dist_dir = Path(frontend_dist).expanduser()
+    index_file = dist_dir / "index.html"
+    assets_dir = dist_dir / "assets"
+    if assets_dir.is_dir():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
+    _NOT_BUILT_HTML = (
+        "<!doctype html><html><body style=\"font-family:sans-serif;max-width:640px;"
+        "margin:60px auto;line-height:1.6\">"
+        "<h2>Frontend not built</h2>"
+        "<p>The React app has not been built yet. From the project root run:</p>"
+        "<pre style=\"background:#f4f4f4;padding:12px;border-radius:8px\">"
+        "cd frontend\nnpm install\nnpm run build</pre>"
+        "<p>Then reload this page. For live development instead, run "
+        "<code>npm run dev</code> and open the Vite dev server.</p>"
+        "</body></html>"
+    )
+
     @app.get("/", response_class=HTMLResponse)
     async def index() -> str:
-        return _INDEX_HTML
+        if index_file.is_file():
+            return index_file.read_text(encoding="utf-8")
+        return _NOT_BUILT_HTML
 
     return app
 
 
-# The single-page UI is defined at import time as a module constant so the
-# package ships without a separate static-file dependency.
-_INDEX_HTML = (Path(__file__).parent / "web" / "index.html").read_text(
-    encoding="utf-8"
-) if (Path(__file__).parent / "web" / "index.html").exists() else "<!doctype html><p>UI missing</p>"
-
-
 app = None  # constructed by main(); avoids loading config at import time
+
+
+def _default_frontend_dist() -> Path:
+    """Locate the built React app (frontend/dist) relative to the repo root."""
+    # ontology_qa_cli/webapp.py -> repo root is the package's parent.
+    return Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 
 def _parse_args() -> argparse.Namespace:
@@ -424,6 +484,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--no-followups", action="store_true",
         help="Disable LLM follow-up resolution for web conversations.",
+    )
+    parser.add_argument(
+        "--frontend-dist", type=Path, default=None,
+        help="Path to the built React app (default: <repo>/frontend/dist). "
+        "Build it with: cd frontend && npm install && npm run build.",
     )
     parser.add_argument("--host", default="127.0.0.1", help="Bind address (default: 127.0.0.1).")
     parser.add_argument("--port", type=int, default=8000, help="Port (default: 8000).")
@@ -446,6 +511,7 @@ def main() -> None:
         config_path=args.config,
         runs_dir=args.runs_dir,
         resolve_followups=not args.no_followups,
+        frontend_dist=args.frontend_dist,
     )
     print(f"Serving web chatbot on http://{args.host}:{args.port}", file=sys.stderr)
     uvicorn.run(application, host=args.host, port=args.port)

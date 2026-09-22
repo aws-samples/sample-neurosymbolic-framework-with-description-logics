@@ -55,6 +55,10 @@ export const api = {
   ontologies: () =>
     get<{ ontologies: OntologyInfo[] }>("/api/ontologies").then((r) => r.ontologies),
   select: (ontology: string) => post<SelectResult>("/api/select", { ontology }),
+  rebuild: (ontology: string) => post<{ status: "building"; job_id: string }>(
+    "/api/rebuild",
+    { ontology },
+  ),
   status: (jobId: string) => get<BuildStatus>(`/api/status/${jobId}`),
   conversation: (ontology: string) =>
     post<{ conversation_id: string; ontology: string }>("/api/conversation", { ontology }),

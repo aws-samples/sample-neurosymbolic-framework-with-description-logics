@@ -8,7 +8,7 @@ import { useChat } from "./useChat";
 export type View = "chat" | "program";
 
 export function App() {
-  const { state, selectOntology, send, reset } = useChat();
+  const { state, selectOntology, send, reset, rebuild } = useChat();
   const chatReady = state.phase === "ready";
   const [view, setView] = useState<View>("chat");
 
@@ -20,6 +20,10 @@ export function App() {
         phase={state.phase}
         onSelect={selectOntology}
         onReset={reset}
+        onRebuild={() => {
+          setView("chat"); // build log streams into the chat view
+          rebuild();
+        }}
         view={view}
         onViewChange={setView}
       />

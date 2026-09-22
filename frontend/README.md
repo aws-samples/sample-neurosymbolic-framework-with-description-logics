@@ -32,8 +32,10 @@ npm run build      # type-checks, then emits static assets to dist/
 npm run preview    # serve the production build locally
 ```
 
-`dist/` is a static bundle you can serve from any static host, or wire the
-FastAPI backend to serve it.
+`dist/` is a static bundle you can serve from any static host. The backend also
+serves it directly: `ontology-qa-web` serves `frontend/dist/` at `/` (build it
+first with `npm run build`, or the page shows a short "not built" instruction).
+Point at a different build with `ontology-qa-web --frontend-dist <path>`.
 
 ## Structure
 

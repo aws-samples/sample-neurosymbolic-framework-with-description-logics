@@ -7,6 +7,7 @@ interface Props {
   phase: ChatState["phase"];
   onSelect: (ontology: string) => void;
   onReset: () => void;
+  onRebuild: () => void;
   view: View;
   onViewChange: (view: View) => void;
 }
@@ -24,6 +25,7 @@ export function Banner({
   phase,
   onSelect,
   onReset,
+  onRebuild,
   view,
   onViewChange,
 }: Props) {
@@ -71,6 +73,18 @@ export function Banner({
         {phase === "ready" && ontology ? `ready · ${ontology}` : pillLabel[phase]}
       </span>
       <span className="spacer" />
+      <button
+        className="rebuild-btn"
+        onClick={onRebuild}
+        disabled={phase !== "ready"}
+        title={
+          phase === "ready"
+            ? "Discard the current program and evolve a new one"
+            : "Available once a query program exists for the selected ontology"
+        }
+      >
+        Force rebuild of query program
+      </button>
       <button className="ghost" onClick={onReset} disabled={phase !== "ready"}>
         Reset chat
       </button>

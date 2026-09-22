@@ -55,30 +55,33 @@ select {
 .pill.building { color: var(--accent); border-color: var(--accent); }
 .pill.error { color: var(--danger); border-color: var(--danger); }
 
-/* Chat | Query program segmented toggle */
+/* Chat / Query program square segmented box:
+   selected half = white bg + dark text, unselected half = black bg + light text */
 .view-toggle {
   display: inline-flex;
-  padding: 3px;
-  gap: 3px;
-  background: var(--panel-2);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 0;              /* square corners */
+  overflow: hidden;
 }
 .view-toggle button {
-  background: transparent;
-  color: var(--muted);
+  background: #000;              /* unselected: black */
+  color: #e6e8ec;
   border: none;
-  border-radius: 999px;
-  padding: 5px 14px;
+  border-radius: 0;
+  padding: 8px 16px;
+  height: auto;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
 }
-.view-toggle button:hover:not(.active) { color: var(--text); }
+.view-toggle button + button {
+  border-left: 1px solid var(--border);
+}
+.view-toggle button:hover:not(.active) { color: #fff; }
 .view-toggle button.active {
-  background: var(--accent);
-  color: #fff;
+  background: #fff;             /* selected: white */
+  color: #000;
 }
 
 /* Query program view */
@@ -135,6 +138,20 @@ button:hover { background: var(--accent-2); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
 button.ghost:hover { color: var(--text); }
+
+/* Force rebuild: solid, clearly a button */
+button.rebuild-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 0 16px;
+  height: 36px;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+button.rebuild-btn:hover:not(:disabled) { background: var(--accent-2); }
 
 /* Transcript */
 .transcript {

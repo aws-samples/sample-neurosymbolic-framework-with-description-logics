@@ -96,8 +96,12 @@ def _client(env, resolve_followups=False):
 
 class TestWebApp:
     def test_index_served(self, env):
+        # `/` serves the built React app when present, otherwise a short
+        # "frontend not built" instruction page. Either way it is HTML 200.
         with _client(env) as c:
-            assert c.get("/").status_code == 200
+            resp = c.get("/")
+            assert resp.status_code == 200
+            assert "text/html" in resp.headers["content-type"]
 
     def test_ontologies_reflect_build_state(self, env):
         with _client(env) as c:
@@ -189,6 +193,29 @@ class TestWebApp:
     def test_status_unknown_job_404(self, env):
         with _client(env) as c:
             assert c.get("/api/status/deadbeef").status_code == 404
+
+    def test_rebuild_forces_build_when_program_exists(self, env, monkeypatch):
+        runs = env["runs"]
+        real_popen = subprocess.Popen
+
+        def fake_popen(cmd, **kw):
+            _seed_run(runs, "TINY")  # simulate rebuild producing a program
+            return real_popen([sys.executable, "-c", "print('rebuilt')"], **kw)
+
+        monkeypatch.setattr(webapp.subprocess, "Popen", fake_popen)
+        with _client(env) as c:
+            res = c.post("/api/rebuild", json={"ontology": "TINY"}).json()
+            assert res["status"] == "building"
+            assert "job_id" in res
+
+    def test_rebuild_409_when_no_program(self, env):
+        with _client(env) as c:
+            assert c.post("/api/rebuild", json={"ontology": "NOPROG"}).status_code == 409
+            assert c.post("/api/rebuild", json={"ontology": "EMPTY"}).status_code == 409
+
+    def test_rebuild_404_unknown_ontology(self, env):
+        with _client(env) as c:
+            assert c.post("/api/rebuild", json={"ontology": "NOPE"}).status_code == 404
 
     def test_stream_unknown_job_404(self, env):
         with _client(env) as c:

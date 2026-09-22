@@ -57,6 +57,3 @@ python_functions = ["test_*"]
 
 [tool.setuptools.packages.find]
 include = ["ontology_qa_cli*"]
-
-[tool.setuptools.package-data]
-ontology_qa_cli = ["web/*.html"]
