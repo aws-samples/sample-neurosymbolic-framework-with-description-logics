@@ -46,6 +46,8 @@ ontology-qa-build = "ontology_qa_cli.builder:main"
 ontology-qa-query = "ontology_qa_cli.query:main"
 ontology-qa-serve = "ontology_qa_cli.serve:main"
 ontology-qa-api = "ontology_qa_cli.api:main"
+ontology-qa-chat = "ontology_qa_cli.chatbot:main"
+ontology-qa-web = "ontology_qa_cli.webapp:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -55,3 +57,6 @@ python_functions = ["test_*"]
 
 [tool.setuptools.packages.find]
 include = ["ontology_qa_cli*"]
+
+[tool.setuptools.package-data]
+ontology_qa_cli = ["web/*.html"]
