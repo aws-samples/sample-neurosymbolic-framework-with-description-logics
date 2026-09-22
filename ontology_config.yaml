@@ -1,6 +1,15 @@
+# owl_file may be one of:
+#   - a bare filename (e.g. "fma.owl")      -> resolved under <repo_root>/data/
+#   - an absolute / ~ / relative path       -> used as-is
+#   - an s3://bucket/key URI                 -> downloaded once to a local cache
+#         (~/.cache/ontology-qa, override with ONTOLOGY_QA_CACHE_DIR) and reused
+#         across runs. Keeps the large .owl out of local disk / the repo tree.
+#         Requires AWS credentials with s3:GetObject on the object.
 ontologies:
   - name: "FMA"
     owl_file: "fma.owl"
+    # Example S3 source (leave owl_file above as-is or swap to this):
+    # owl_file: "s3://my-ontologies-bucket/fma.owl"
     questions:
       - question: "What are the parts of the heart?"
         expected_answer: |

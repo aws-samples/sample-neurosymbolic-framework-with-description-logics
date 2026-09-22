@@ -6,6 +6,8 @@ from typing import Optional
 
 import yaml
 
+from ontology_qa_cli import s3_cache
+
 
 @dataclass
 class QuestionAnswer:
@@ -18,6 +20,10 @@ class OntologyEntry:
     name: str
     owl_file: Path
     questions: list[QuestionAnswer]
+    # Original ``s3://bucket/key`` URI when the ontology is sourced from S3,
+    # otherwise ``None``. ``owl_file`` is the deterministic local cache path in
+    # that case; the object is not downloaded until the entry is resolved.
+    s3_uri: Optional[str] = None
 
 
 @dataclass
@@ -169,19 +175,38 @@ def load_config(config_path: Path) -> AppConfig:
                 )
             )
 
-        # Resolve the OWL file path. A bare filename (no directory component,
-        # e.g. "fma.owl") is assumed to live in <repo_root>/data. Paths with
-        # any directory part (absolute, ~, or relative like "./x" or "data/x")
-        # are used as-is after user expansion.
-        owl_path = Path(owl_file).expanduser()
-        if owl_path.parent == Path("."):
-            owl_path = data_dir / owl_path.name
+        # Resolve the OWL file path.
+        #
+        # * ``s3://bucket/key`` -> the ontology is sourced from S3. We record
+        #   the URI and set ``owl_file`` to the deterministic LOCAL cache path;
+        #   the object itself is downloaded lazily by ``resolve_ontology`` so
+        #   parsing/validation never touches the network.
+        # * A bare filename (no directory component, e.g. "fma.owl") is assumed
+        #   to live in ``<repo_root>/data``.
+        # * Any path with a directory part (absolute, ~, or relative like
+        #   "./x" or "data/x") is used as-is after user expansion.
+        s3_uri: Optional[str] = None
+        if s3_cache.is_s3_uri(owl_file):
+            try:
+                s3_uri = owl_file
+                owl_path = s3_cache.local_cache_path(owl_file)
+            except ValueError as e:
+                print(
+                    f"Error: ontology '{name}' has an invalid S3 owl_file - {e}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+        else:
+            owl_path = Path(owl_file).expanduser()
+            if owl_path.parent == Path("."):
+                owl_path = data_dir / owl_path.name
 
         ontologies.append(
             OntologyEntry(
                 name=name,
                 owl_file=owl_path,
                 questions=questions,
+                s3_uri=s3_uri,
             )
         )
 
@@ -196,6 +221,10 @@ def resolve_ontology(config: AppConfig, name: str) -> OntologyEntry:
     """
     for entry in config.ontologies:
         if entry.name.lower() == name.lower():
+            # Materialize an S3-backed ontology to its local cache on first use.
+            # Kept out of load_config so parsing/validation stays network-free.
+            if entry.s3_uri is not None:
+                entry.owl_file = s3_cache.ensure_local_copy(entry.s3_uri)
             return entry
 
     available = [e.name for e in config.ontologies]

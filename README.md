@@ -429,6 +429,37 @@ ontologies:
 
 Paths support `~/` expansion.
 
+### Ontology sources
+
+`owl_file` accepts three kinds of value:
+
+| Value | Resolves to |
+|---|---|
+| Bare filename, e.g. `"fma.owl"` | `<repo_root>/data/fma.owl` |
+| Absolute / `~` / relative path, e.g. `"~/fma.owl"`, `"data/fma.owl"` | Used as-is (with `~` expansion) |
+| S3 URI, e.g. `"s3://my-bucket/fma.owl"` | Downloaded once to a local cache and reused |
+
+**Loading from S3** keeps the large `.owl` file (and its owlready2 `.sqlite3`
+cache) off your local disk and out of the repo tree:
+
+```yaml
+ontologies:
+  - name: "FMA"
+    owl_file: "s3://my-ontologies-bucket/fma.owl"
+    questions:
+      - ...
+```
+
+- The object is downloaded **lazily** — only when that ontology is actually
+  built, queried, or served — to `~/.cache/ontology-qa/<hash>/fma.owl`.
+- Override the cache location with the `ONTOLOGY_QA_CACHE_DIR` environment
+  variable. The cache is safe to delete at any time; it re-downloads on demand.
+- A cached copy is **reused** across runs when its size matches the S3 object,
+  so you download the ontology at most once.
+- Requires AWS credentials (standard boto3 resolution: env vars, shared config,
+  SSO, instance role) with `s3:GetObject` on the object. Verify with
+  `aws s3 ls s3://my-ontologies-bucket/fma.owl`.
+
 ## A Sample Run
 
 We can see here the [output from a run](assets/sample-run) of the Builder CLI.
