@@ -19,6 +19,7 @@ dev = [
     "pytest>=7.4.0",
     "hypothesis>=6.92.0",
     "pytest-mock>=3.12.0",
+    "pytest-timeout>=2.3.0",
     "httpx>=0.27.0",
 ]
 # Optional HTTP serving stack. Install with `uv sync --extra api`
@@ -38,6 +39,7 @@ dev = [
     "pytest>=7.4.0",
     "hypothesis>=6.92.0",
     "pytest-mock>=3.12.0",
+    "pytest-timeout>=2.3.0",
     "httpx>=0.27.0",
 ]
 
@@ -54,9 +56,12 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+# Fail a hung test fast instead of letting the suite run away (see the SSE
+# deadlock that hung for 35 min). "thread" works even when the hang is in
+# native code or a blocked event loop, where the default signal method cannot
+# interrupt. Override per-test with @pytest.mark.timeout(N) for a slow case.
+timeout = 60
+timeout_method = "thread"
 
 [tool.setuptools.packages.find]
 include = ["ontology_qa_cli*"]
-
-[tool.setuptools.package-data]
-ontology_qa_cli = ["web/*.html"]

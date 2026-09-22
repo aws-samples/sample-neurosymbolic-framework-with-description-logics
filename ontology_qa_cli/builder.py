@@ -205,6 +205,16 @@ def run_build(args: argparse.Namespace) -> None:
     # Render the run banner now that the ontology and params are validated
     ui.banner(ontology.name, args.threshold, args.max_iterations)
 
+    # Set expectations: the evolution loop deliberately runs candidate programs
+    # that often fail, and the fixer streams raw kiro-cli/subprocess output. The
+    # errors and stacktraces below are expected and part of the process.
+    ui.notice(
+        "Heads up: it's normal to see errors and stacktraces below. The builder "
+        "evolves the query program by trying new approaches, running them, and "
+        "self-correcting from the failures. Errors during iterations don't mean "
+        "the run has failed — they're how the system learns and improves."
+    )
+
     # 7. Generate seed program
     seed_dir = run_ctx.base_dir / "_seed"
     seed_path = generate_seed(ontology.name, seed_dir)

@@ -70,12 +70,20 @@ def env(tmp_path: Path):
                 questions:
                   - question: "q?"
                     expected_answer: "a"
+              - name: "EMPTY"
+                owl_file: "{owl}"
+                questions:
+                  - question: "q?"
+                    expected_answer: "a"
             """
         )
     )
     runs = tmp_path / "runs"
     runs.mkdir()
     _seed_run(runs, "TINY")  # TINY has a program; NOPROG does not
+    # EMPTY has a run folder but NO query_program.py inside it (e.g. an
+    # interrupted/failed run) — must NOT count as having a program.
+    (runs / "EMPTY_20260101_000000" / "iteration_1").mkdir(parents=True)
     return {"cfg": cfg, "runs": runs, "owl": owl, "tmp": tmp_path}
 
 
@@ -88,19 +96,41 @@ def _client(env, resolve_followups=False):
 
 class TestWebApp:
     def test_index_served(self, env):
+        # `/` serves the built React app when present, otherwise a short
+        # "frontend not built" instruction page. Either way it is HTML 200.
         with _client(env) as c:
-            assert c.get("/").status_code == 200
+            resp = c.get("/")
+            assert resp.status_code == 200
+            assert "text/html" in resp.headers["content-type"]
 
     def test_ontologies_reflect_build_state(self, env):
         with _client(env) as c:
             onts = c.get("/api/ontologies").json()["ontologies"]
             by_name = {o["name"]: o["has_program"] for o in onts}
-            assert by_name == {"TINY": True, "NOPROG": False}
+            assert by_name == {"TINY": True, "NOPROG": False, "EMPTY": False}
 
     def test_select_ready_when_program_exists(self, env):
         with _client(env) as c:
             res = c.post("/api/select", json={"ontology": "TINY"}).json()
             assert res["status"] == "ready"
+
+    def test_program_returns_source(self, env):
+        with _client(env) as c:
+            r = c.get("/api/program/TINY")
+            assert r.status_code == 200
+            body = r.json()
+            assert body["ontology"] == "TINY"
+            assert body["path"].endswith("iteration_1/query_program.py")
+            assert "def main(" in body["source"]
+
+    def test_program_404_when_no_program(self, env):
+        with _client(env) as c:
+            assert c.get("/api/program/EMPTY").status_code == 404
+            assert c.get("/api/program/NOPROG").status_code == 404
+
+    def test_program_404_unknown_ontology(self, env):
+        with _client(env) as c:
+            assert c.get("/api/program/NOPE").status_code == 404
 
     def test_conversation_and_chat(self, env):
         with _client(env) as c:
@@ -112,6 +142,40 @@ class TestWebApp:
             ).json()
             assert "['Heart']" in r["answer"]
             assert r["was_rewritten"] is False
+
+    def test_chat_stream_streams_output_then_answer(self, env):
+        with _client(env) as c:
+            c.post("/api/select", json={"ontology": "TINY"})
+            conv = c.post("/api/conversation", json={"ontology": "TINY"}).json()
+            with c.stream(
+                "GET",
+                "/api/chat/stream",
+                params={
+                    "conversation_id": conv["conversation_id"],
+                    "message": "what classes?",
+                },
+            ) as resp:
+                assert resp.status_code == 200
+                body = "".join(resp.iter_text())
+            # The program's Answer: line is streamed live as a data frame...
+            assert "data: Answer: re 'what classes?': ['Heart']" in body
+            # ...and a terminal done frame carries the parsed answer.
+            assert "event: done" in body
+            done_line = next(
+                ln for ln in body.splitlines()
+                if ln.startswith("data: {") and "answer" in ln
+            )
+            payload = json.loads(done_line[len("data: "):])
+            assert "['Heart']" in payload["answer"]
+            assert payload["was_rewritten"] is False
+
+    def test_chat_stream_without_conversation_400(self, env):
+        with _client(env) as c:
+            resp = c.get(
+                "/api/chat/stream",
+                params={"conversation_id": "nope", "message": "x"},
+            )
+            assert resp.status_code == 400
 
     def test_unknown_ontology_select_404(self, env):
         with _client(env) as c:
@@ -163,3 +227,66 @@ class TestWebApp:
     def test_status_unknown_job_404(self, env):
         with _client(env) as c:
             assert c.get("/api/status/deadbeef").status_code == 404
+
+    def test_rebuild_forces_build_when_program_exists(self, env, monkeypatch):
+        runs = env["runs"]
+        real_popen = subprocess.Popen
+
+        def fake_popen(cmd, **kw):
+            _seed_run(runs, "TINY")  # simulate rebuild producing a program
+            return real_popen([sys.executable, "-c", "print('rebuilt')"], **kw)
+
+        monkeypatch.setattr(webapp.subprocess, "Popen", fake_popen)
+        with _client(env) as c:
+            res = c.post("/api/rebuild", json={"ontology": "TINY"}).json()
+            assert res["status"] == "building"
+            assert "job_id" in res
+
+    def test_rebuild_409_when_no_program(self, env):
+        with _client(env) as c:
+            assert c.post("/api/rebuild", json={"ontology": "NOPROG"}).status_code == 409
+            assert c.post("/api/rebuild", json={"ontology": "EMPTY"}).status_code == 409
+
+    def test_rebuild_404_unknown_ontology(self, env):
+        with _client(env) as c:
+            assert c.post("/api/rebuild", json={"ontology": "NOPE"}).status_code == 404
+
+    def test_stream_unknown_job_404(self, env):
+        with _client(env) as c:
+            assert c.get("/api/stream/deadbeef").status_code == 404
+
+    def test_stream_failing_build_reports_error(self, env, monkeypatch):
+        """A failing build streams its output and ends with a 'failed' done event.
+
+        Reproduces the missing-OWL-file case: the builder prints an error and
+        exits non-zero; the SSE stream must carry that error and the terminal
+        status, not swallow it.
+        """
+        real_popen = subprocess.Popen
+
+        def fake_popen(cmd, **kw):
+            # Simulate the builder failing on a missing OWL file, exit code 1.
+            return real_popen(
+                [
+                    sys.executable, "-c",
+                    "import sys; print(\"Error: OWL file not found at '/x/go-plus.owl'\"); "
+                    "sys.exit(1)",
+                ],
+                **kw,
+            )
+
+        monkeypatch.setattr(webapp.subprocess, "Popen", fake_popen)
+
+        with _client(env) as c:
+            sel = c.post("/api/select", json={"ontology": "NOPROG"}).json()
+            assert sel["status"] == "building"
+            job = sel["job_id"]
+
+            # Consume the SSE stream to completion.
+            with c.stream("GET", f"/api/stream/{job}") as resp:
+                assert resp.status_code == 200
+                body = "".join(resp.iter_text())
+
+        assert "OWL file not found" in body  # the real error streamed through
+        assert "event: done" in body
+        assert '"status": "failed"' in body

@@ -109,6 +109,51 @@ class TestOntologyAnswerer:
         answerer = OntologyAnswerer.from_program(prog, tiny_owl)
         assert answerer.answer("anything") is None
 
+    def test_streaming_forwards_output_lines(self, tmp_path, tiny_owl):
+        prog = _write_program(tmp_path, FAKE_PROGRAM)
+        answerer = OntologyAnswerer.from_program(prog, tiny_owl)
+
+        lines: list[str] = []
+        ans = answerer.answer_streaming("what?", lines.append)
+
+        # The program's single print() line is forwarded live...
+        assert any("classes=['Heart', 'Liver']" in ln for ln in lines)
+        assert any("q='what?'" in ln for ln in lines)
+        # ...and the final answer is still extracted and returned.
+        assert ans is not None and "classes=['Heart', 'Liver']" in ans
+
+    def test_two_answerers_same_process_isolated_worlds(self, tmp_path):
+        """Regression: constructing a second answerer for a different ontology in
+        the same process must not fail with owlready2's "Cannot save existent
+        quadstore ... File already exists".
+
+        The web app is a single long-lived process; switching ontologies builds a
+        new answerer while a previous one has already populated its world. Each
+        answerer must load into its own owlready2.World, and the second ontology's
+        cache file (created by the first construction) must attach to a fresh,
+        empty world rather than the now-dirty default world.
+        """
+        prog = _write_program(tmp_path, FAKE_PROGRAM)
+
+        owl_a = tmp_path / "onto_a.owl"
+        owl_a.write_text(TINY_OWL)
+        owl_b = tmp_path / "onto_b.owl"
+        owl_b.write_text(TINY_OWL)
+
+        answerer_a = OntologyAnswerer.from_program(prog, owl_a)
+        # First construction leaves onto_a.sqlite3 on disk. Now build a second
+        # answerer for a different ontology in the SAME process.
+        answerer_b = OntologyAnswerer.from_program(prog, owl_b)
+
+        # Both remain independently usable, and each has its own World.
+        assert answerer_a._world is not answerer_b._world
+        assert answerer_a.answer("a?") is not None
+        assert answerer_b.answer("b?") is not None
+
+        # Re-constructing over an EXISTING cache file (the GO case) must also work.
+        answerer_b2 = OntologyAnswerer.from_program(prog, owl_b)
+        assert answerer_b2.answer("b again?") is not None
+
     def test_program_exception_propagates(self, tmp_path, tiny_owl):
         prog = _write_program(tmp_path, FAILING_PROGRAM)
         answerer = OntologyAnswerer.from_program(prog, tiny_owl)

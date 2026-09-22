@@ -111,7 +111,37 @@ class ChatSession:
             was_rewritten=was_rewritten,
         )
 
-    # -- follow-up resolution ---------------------------------------------
+    def send_streaming(self, user_message: str, on_line) -> ChatTurn:
+        """Like :meth:`send`, but stream the program's output live.
+
+        ``on_line`` is called with each stdout/stderr line the evolved program
+        emits while it runs, so a UI can show what the program is doing. The
+        follow-up resolution step (a Bedrock call, if enabled) happens first and
+        is not streamed; only the answerer's program output is.
+        """
+        user_message = user_message.strip()
+
+        resolved = user_message
+        was_rewritten = False
+        if self.resolve_followups and self.history:
+            rewritten = self._resolve(user_message)
+            if rewritten and rewritten != user_message:
+                resolved = rewritten
+                was_rewritten = True
+
+        answer = self.answerer.answer_streaming(resolved, on_line)
+
+        self.history.append(Message(role="user", content=user_message))
+        self.history.append(
+            Message(role="assistant", content=answer if answer is not None else "")
+        )
+
+        return ChatTurn(
+            user_message=user_message,
+            resolved_question=resolved,
+            answer=answer,
+            was_rewritten=was_rewritten,
+        )
 
     def _resolve(self, user_message: str) -> Optional[str]:
         """Rewrite a follow-up into a standalone question via Bedrock.

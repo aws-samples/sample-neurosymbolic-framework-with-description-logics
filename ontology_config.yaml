@@ -1,6 +1,13 @@
+# owl_file may be one of:
+#   - a bare filename (e.g. "fma.owl")      -> resolved under <repo_root>/data/
+#   - an absolute / ~ / relative path       -> used as-is
+#   - an s3://bucket/key URI                 -> downloaded once to a local cache
+#         (~/.cache/ontology-qa, override with ONTOLOGY_QA_CACHE_DIR) and reused
+#         across runs. Keeps the large .owl out of local disk / the repo tree.
+#         Requires AWS credentials with s3:GetObject on the object.
 ontologies:
   - name: "FMA"
-    owl_file: "fma.owl"
+    owl_file: "s3://dl-chatbot/data/fma.owl"
     questions:
       - question: "What are the parts of the heart?"
         expected_answer: |
@@ -82,7 +89,7 @@ ontologies:
           They are major blood vessels in the neck that supply oxygen-rich
           blood directly to the brain, neck, and face.
   - name: "GO"
-    owl_file: "~/go-plus.owl"
+    owl_file: "s3://dl-chatbot/data/go-plus.owl"
     questions:
       - question: "Does TP53 interact with DNA?"
         expected_answer: |
