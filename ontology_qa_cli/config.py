@@ -50,6 +50,11 @@ def load_config(config_path: Path) -> AppConfig:
         )
         sys.exit(1)
 
+    # Repo root is the directory containing the config file. A bare owl_file
+    # name (no path component) is resolved relative to <repo_root>/data.
+    repo_root = config_path.expanduser().resolve().parent
+    data_dir = repo_root / "data"
+
     # Validate top-level structure
     if not isinstance(data, dict) or "ontologies" not in data:
         print(
@@ -164,10 +169,18 @@ def load_config(config_path: Path) -> AppConfig:
                 )
             )
 
+        # Resolve the OWL file path. A bare filename (no directory component,
+        # e.g. "fma.owl") is assumed to live in <repo_root>/data. Paths with
+        # any directory part (absolute, ~, or relative like "./x" or "data/x")
+        # are used as-is after user expansion.
+        owl_path = Path(owl_file).expanduser()
+        if owl_path.parent == Path("."):
+            owl_path = data_dir / owl_path.name
+
         ontologies.append(
             OntologyEntry(
                 name=name,
-                owl_file=Path(owl_file).expanduser(),
+                owl_file=owl_path,
                 questions=questions,
             )
         )

@@ -37,7 +37,7 @@ provide *provably correct* answers to questions like this:
 
 The framework described herein builds agentic systems that answers questions
 like these _accurately_. It does so by switching out the LLM reasoner (which 
-is faulty) with an ontological reasoner (which is provably correct).
+makes mistakes) with an ontological reasoner (which is provably correct).
 
 ## Background 
 According to Accenture[^1], companies with AI-led processes achieve 2.5x higher
@@ -82,11 +82,15 @@ many other domains.
 This project describes a framework for building neurosymbolic AI
 systems that can accurately answer questions based on (biomedical) ontologies.
 Rather than relying solely on an LLM to generate answers (which risks
-hallucinations), the system uses a hybrid approach: 1) an LLM inference
-decomposes a natural language question into an internal representation; 2) 
-a symbolic reasoner (created here) traverses the ontology graph to produce a
-grounded, verifiable answer (in another internal representation); and 3) an 
-LLM inference converts this answer into natural language.
+hallucinations), the system uses a hybrid approach:
+
+1. an LLM inference decomposes a natural language question into an internal
+representation;
+
+2. a symbolic reasoner (created here) traverses the ontology graph to produce a
+grounded, verifiable answer (in another internal representation); and 
+
+3. an LLM inference converts this internal answer back into natural language.
 
 We here demonstrate this system with working code and with five different
 real-world ontologies:
@@ -214,7 +218,7 @@ The ontologies used here are not toy ontologies, they are actively used in
 biomedical research. The following table shows some descriptive statistics
 for these ontologies:
 
-<!-- Regenerate with: python -m ontology_qa_cli.ontology_stats -->
+<!-- Regenerate with: uv run python -m ontology_qa_cli.ontology_stats -->
 
 | Ontology | File Size | Lines | Classes | Object Properties | Data Properties | Individuals | Axioms (Restrictions) |
 |----------|-----------|-------|---------|-------------------|-----------------|-------------|----------------------|
@@ -227,7 +231,7 @@ for these ontologies:
 ## Prerequisites
 
 - Ubuntu 26.04 LTS
-- Python 3.10+
+- [uv](https://docs.astral.sh/uv/) (manages Python 3.10+ for you — see Installation)
 - AWS credentials configured for Bedrock access (Opus 4.6)
 - kiro-cli (see installation below)
 - Java 17 (if you want to use SNOMED)
@@ -238,7 +242,11 @@ for these ontologies:
 curl -fsSL https://cli.kiro.dev/install | bash
 ```
 
-## Install Python 3.13
+## Installing Python (optional)
+
+uv downloads and manages a suitable Python interpreter automatically based on
+`requires-python` in `pyproject.toml`, so you normally don't need to install
+Python yourself. If you prefer a system Python on Ubuntu:
 
 ```
 sudo apt update
@@ -251,25 +259,39 @@ python3 --version
 
 ## Installation
 
+This project uses [uv](https://docs.astral.sh/uv/) for environment and
+dependency management.
+
+Install uv (if you don't have it):
+
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
+
+Then create the environment and install all dependencies (including the dev
+group) from the lockfile:
+
+```bash
+uv sync
+```
+
+`uv sync` creates a `.venv/`, installs the project in editable mode, and pins
+everything via `uv.lock`. You don't need to activate the venv — prefix commands
+with `uv run` (see Usage below) and uv uses the project environment
+automatically. To activate it anyway, run `source .venv/bin/activate`.
+
+> **Note:** uv reads the required Python version from `requires-python` in
+> `pyproject.toml` and will download a matching interpreter if one isn't
+> available, so the manual Python install steps above are optional when using uv.
 
 
 ## Usage
 
 ### Per-session setup
 
-To run a CLI program you need to first activate your environment:
-
-```
-source .venv/bin/activate
-```
-
-Then authenticate with `kiro-cli` (`kiro login`) and then authenticate with AWS,
-for example:
+With uv you don't need to activate a virtualenv — run CLI commands with
+`uv run`, which resolves the project environment automatically. Before running,
+authenticate with `kiro-cli` (`kiro login`) and then with AWS, for example:
 
 ```
 export AWS_ACCESS_KEY_ID=[...]
@@ -282,15 +304,14 @@ export AWS_SESSION_TOKEN=[...]
 Iteratively build and improve a query program for an ontology:
 
 ```bash
-source .venv/bin/activate
-python -m ontology_qa_cli.builder FMA
+kiro login # only the first time in a session
+uv run ontology-qa-build FMA
 ```
 
-Or without activating the venv:
+You can also invoke the module directly:
 
 ```bash
-kiro login # only the first time in a session
-.venv/bin/python -m ontology_qa_cli.builder FMA
+uv run python -m ontology_qa_cli.builder FMA
 ```
 
 Options:
@@ -303,19 +324,20 @@ Options:
 - `--kiro-timeout INT` — Timeout in seconds for kiro-cli invocations (default: no timeout)
 - `--output-dir PATH` — Base directory for run outputs (default: `runs/`)
 - `--llm-costs PATH` — Path to LLM cost configuration file (default: `llm-costs.yaml`)
+- `--plain` — Disable the rich console UI and emit plain text output (useful for CI/log capture)
 
 ### Query CLI
 
 Ask a question using the best program from the most recent builder run:
 
 ```bash
-python -m ontology_qa_cli.query FMA "What are the parts of the heart?"
+uv run ontology-qa-query FMA "What are the parts of the heart?"
 ```
 
 Or specify an explicit program path:
 
 ```bash
-python -m ontology_qa_cli.query runs/FMA_20260506_172902/iteration_9/query_program.py "What are the parts of the heart?"
+uv run ontology-qa-query runs/FMA_20260506_172902/iteration_9/query_program.py "What are the parts of the heart?"
 ```
 
 The first argument is either an ontology name (looks up the best program from the latest run) or a path to a `query_program.py` file.
@@ -324,25 +346,26 @@ Options:
 
 - `--config PATH` — Path to YAML config file (default: `ontology_config.yaml`)
 - `--runs-dir PATH` — Base directory where builder runs are stored (default: `runs/`)
+- `--plain` — Disable the rich console UI and print the bare answer (useful for piping)
 
 ### Ontology Stats CLI
 
 Generate a markdown table with descriptive statistics for all ontologies in the config:
 
 ```bash
-python -m ontology_qa_cli.ontology_stats
+uv run python -m ontology_qa_cli.ontology_stats
 ```
 
 This outputs a markdown table to stdout showing file size, line count, number of classes, properties, individuals, and axioms for each ontology. You can redirect it to a file or pipe it:
 
 ```bash
-python -m ontology_qa_cli.ontology_stats > ontology_stats.md
+uv run python -m ontology_qa_cli.ontology_stats > ontology_stats.md
 ```
 
 To use a custom config file:
 
 ```bash
-python -m ontology_qa_cli.ontology_stats path/to/ontology_config.yaml
+uv run python -m ontology_qa_cli.ontology_stats path/to/ontology_config.yaml
 ```
 
 ## Downloading the ontologies
