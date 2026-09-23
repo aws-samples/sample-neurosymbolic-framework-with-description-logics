@@ -1,0 +1,25 @@
+{
+  "name": "neurosymbolic-dl-cdk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CDK app deploying the neurosymbolic-DL web chatbot (split: Fargate web service + on-demand Fargate builder task), external AWS account, behind Cognito auth.",
+  "bin": {
+    "app": "bin/app.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "synth": "cdk synth",
+    "deploy": "cdk deploy --all"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "aws-cdk": "^2.150.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.150.0",
+    "constructs": "^10.3.0"
+  }
+}
