@@ -12,6 +12,7 @@ import boto3
 import yaml
 
 from ontology_qa_cli.config import load_config, resolve_ontology
+from ontology_qa_cli import llm_config
 from ontology_qa_cli.seed import generate_seed
 from ontology_qa_cli.executor import execute_query_program
 from ontology_qa_cli.judge import judge_answer, compute_accuracy, JudgmentResult
@@ -191,7 +192,7 @@ def run_build(args: argparse.Namespace) -> None:
 
     # 5. Create Bedrock client
     try:
-        bedrock_client = boto3.client("bedrock-runtime", region_name="us-east-1")
+        bedrock_client = boto3.client("bedrock-runtime", region_name=llm_config.bedrock_region())
     except Exception as e:
         print(
             f"Error: Failed to create Bedrock client - {type(e).__name__}: {e}",
@@ -552,7 +553,7 @@ def _generate_report(
     run_duration = (run_end_time - run_ctx.start_time).total_seconds()
     total_judge_tokens = total_judge_input_tokens + total_judge_output_tokens
 
-    judge_model = "us.anthropic.claude-opus-4-6-v1"
+    judge_model = llm_config.bedrock_model()
     KIRO_CREDIT_COST = 0.04  # USD per credit
     total_judge_cost = _compute_cost(total_judge_input_tokens, total_judge_output_tokens, judge_model, llm_costs)
 

@@ -27,12 +27,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
+from ontology_qa_cli import llm_config
 from ontology_qa_cli.serve import OntologyAnswerer
 
 Role = Literal["user", "assistant"]
-
-# Same model/region convention as judge.py.
-_REWRITE_MODEL_ID = "us.anthropic.claude-opus-4-6-v1"
 
 _REWRITE_SYSTEM_PROMPT = (
     "You rewrite a user's latest message into a single, self-contained question "
@@ -169,7 +167,7 @@ class ChatSession:
 
         try:
             response = client.converse(
-                modelId=_REWRITE_MODEL_ID,
+                modelId=llm_config.bedrock_model(),
                 messages=[{"role": "user", "content": [{"text": prompt}]}],
                 system=[{"text": _REWRITE_SYSTEM_PROMPT}],
             )
@@ -186,7 +184,7 @@ class ChatSession:
             import boto3
 
             self.bedrock_client = boto3.client(
-                "bedrock-runtime", region_name="us-east-1"
+                "bedrock-runtime", region_name=llm_config.bedrock_region()
             )
         except Exception:  # noqa: BLE001 - no creds / no boto3 -> pass-through
             self.bedrock_client = None

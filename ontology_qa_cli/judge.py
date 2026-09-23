@@ -3,6 +3,8 @@ from dataclasses import dataclass
 
 import boto3
 
+from ontology_qa_cli import llm_config
+
 
 @dataclass
 class JudgmentResult:
@@ -52,7 +54,7 @@ def judge_answer(
     )
 
     response = bedrock_client.converse(
-        modelId="us.anthropic.claude-opus-4-6-v1",
+        modelId=llm_config.bedrock_model(),
         messages=[
             {
                 "role": "user",
