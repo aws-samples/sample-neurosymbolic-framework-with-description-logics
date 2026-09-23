@@ -238,7 +238,13 @@ ONTOLOGY_RUNS_DIR=/mnt/runs      # shared EFS mount
       terminates TLS at the edge. `webapp.py` warns it is "not for hostile
       multi-tenant use," so the Cognito gate is the front door.
 - [ ] Autoscaling policy for the web service; concurrency limit on build tasks.
-- [ ] Backups/lifecycle for EFS `runs/` and S3 artifacts; log retention.
+- [x] Backups/lifecycle for EFS `runs/` and S3 artifacts; log retention.
+      **EFS:** `enableAutomaticBackups` (AWS Backup daily plan, 35-day retention
+      on the default vault). **S3:** all buckets abort incomplete multipart
+      uploads after 7d; `artifactBucket` (versioned) transitions noncurrent
+      versions to IA after 30d and expires them after 90d. **Log retention:**
+      already set — ECS awslogs use `ONE_MONTH` in `compute-stack.ts`. Source OWL
+      (`ontologyBucket`) and the SPA (`frontendBucket`) keep current objects.
 - [ ] Alarms: ALB 5xx, task crash loops, EFS burst-credit exhaustion.
 
 ## Open questions for you
