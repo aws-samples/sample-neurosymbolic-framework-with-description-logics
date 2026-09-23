@@ -4,6 +4,8 @@ import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cwActions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as subscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as iam from 'aws-cdk-lib/aws-iam';
 
 export interface MonitoringStackProps extends cdk.StackProps {
   /**
@@ -33,12 +35,32 @@ export interface MonitoringStackProps extends cdk.StackProps {
    * Default $200. Set to 0 to skip the billing alarm.
    */
   monthlyUsdCap?: number;
+  /**
+   * Automated kill-switch. When true, a Lambda subscribed to the alert topic
+   * scales the web ECS service to desiredCount=0 the moment the daily
+   * token-cap alarm enters ALARM — a real spend STOP, not just a notification.
+   * OFF by default: an alarm that silently takes the service down is
+   * surprising, so it must be opted into explicitly (`-c killSwitch=true`).
+   *
+   * Requires `killSwitchCluster`, `killSwitchService`, and `killSwitchRegion`
+   * so the Lambda knows exactly which service to scale (the compute stack lives
+   * in the app region, which may differ from this stack's us-east-1 pin).
+   */
+  killSwitch?: boolean;
+  /** ECS cluster name of the web service to scale down. Required if killSwitch. */
+  killSwitchCluster?: string;
+  /** ECS service name to scale to 0. Required if killSwitch. */
+  killSwitchService?: string;
+  /** Region the ECS cluster/service live in. Required if killSwitch. */
+  killSwitchRegion?: string;
 }
 
 /**
  * Cost guardrails (Task 8). Bedrock token spend is the real cost driver, so the
  * primary alarms watch AWS/Bedrock token metrics; a billing alarm is a coarse
- * dollar backstop. All alarms notify one SNS topic.
+ * dollar backstop. All alarms notify one SNS topic. Optionally (killSwitch) a
+ * Lambda on that topic scales the web service to 0 when the token cap is hit,
+ * turning the alarm into a real spend stop.
  *
  * NOTE on region: the AWS/Billing EstimatedCharges metric is ONLY published in
  * us-east-1. Deploy this stack in us-east-1 (the app's default Bedrock region)
@@ -139,6 +161,86 @@ export class MonitoringStack extends cdk.Stack {
       billingAlarm.addAlarmAction(alarmAction);
 
       new cdk.CfnOutput(this, 'BillingAlarmName', { value: billingAlarm.alarmName });
+    }
+
+    // ---- kill-switch (opt-in): scale the web service to 0 on ALARM --------
+    // A CloudWatch alarm only NOTIFIES. When props.killSwitch is set, this
+    // Lambda — subscribed to the same alert topic — turns the token-cap alarm
+    // into a real spend STOP by scaling the web ECS service to desiredCount=0.
+    // It ignores every other alarm on the topic (billing, OK transitions) and
+    // acts only when the daily token-cap alarm enters state ALARM.
+    if (props.killSwitch) {
+      const missing: string[] = [];
+      if (!props.killSwitchCluster) missing.push('killSwitchCluster');
+      if (!props.killSwitchService) missing.push('killSwitchService');
+      if (!props.killSwitchRegion) missing.push('killSwitchRegion');
+      if (missing.length) {
+        throw new Error(
+          `killSwitch=true requires ${missing.join(', ')} so the Lambda knows ` +
+          `which ECS service to scale down (compute lives in the app region, ` +
+          `which may differ from this stack's us-east-1).`,
+        );
+      }
+
+      const killFn = new lambda.Function(this, 'CostKillSwitch', {
+        runtime: lambda.Runtime.PYTHON_3_12,
+        handler: 'index.handler',
+        timeout: cdk.Duration.seconds(30),
+        description:
+          'Scales the web ECS service to 0 when the Bedrock token-cap alarm fires.',
+        environment: {
+          CLUSTER_NAME: props.killSwitchCluster!,
+          SERVICE_NAME: props.killSwitchService!,
+          SERVICE_REGION: props.killSwitchRegion!,
+          // Only this alarm triggers the kill; other topic messages are ignored.
+          TRIGGER_ALARM_NAME: tokenAlarm.alarmName,
+        },
+        code: lambda.Code.fromInline([
+          'import json, os, boto3',
+          '',
+          'ecs = boto3.client("ecs", region_name=os.environ["SERVICE_REGION"])',
+          'CLUSTER = os.environ["CLUSTER_NAME"]',
+          'SERVICE = os.environ["SERVICE_NAME"]',
+          'TRIGGER = os.environ["TRIGGER_ALARM_NAME"]',
+          '',
+          'def handler(event, _ctx):',
+          '    for rec in event.get("Records", []):',
+          '        msg = json.loads(rec["Sns"]["Message"])',
+          '        name = msg.get("AlarmName")',
+          '        state = msg.get("NewStateValue")',
+          '        # Act only on OUR alarm entering ALARM. Ignore billing alarm,',
+          '        # OK/INSUFFICIENT_DATA transitions, and any manual test message.',
+          '        if name != TRIGGER or state != "ALARM":',
+          '            print(f"ignoring alarm={name!r} state={state!r}")',
+          '            continue',
+          '        print(f"KILL: scaling {SERVICE} on {CLUSTER} to desiredCount=0")',
+          '        ecs.update_service(cluster=CLUSTER, service=SERVICE, desiredCount=0)',
+          '        print("scaled to 0")',
+          '    return {"ok": True}',
+        ].join('\n')),
+      });
+
+      // Least privilege: only stop THIS service, and read it back.
+      const serviceArn = cdk.Stack.of(this).formatArn({
+        service: 'ecs',
+        region: props.killSwitchRegion!,
+        resource: 'service',
+        resourceName: `${props.killSwitchCluster!}/${props.killSwitchService!}`,
+      });
+      killFn.addToRolePolicy(new iam.PolicyStatement({
+        actions: ['ecs:UpdateService', 'ecs:DescribeServices'],
+        resources: [serviceArn],
+      }));
+
+      // Wire the Lambda to the alert topic (fan-out alongside email).
+      this.alertTopic.addSubscription(new subscriptions.LambdaSubscription(killFn));
+
+      new cdk.CfnOutput(this, 'KillSwitchFunctionName', {
+        value: killFn.functionName,
+        description:
+          'Scales the web service to 0 when the token-cap alarm fires. ' +
+          'Restore service with: aws ecs update-service --desired-count 1.',
+      });
     }
 
     new cdk.CfnOutput(this, 'AlertTopicArn', {

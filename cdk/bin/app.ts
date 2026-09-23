@@ -79,12 +79,23 @@ new EdgeStack(app, `${prefix}-Edge`, {
 // EstimatedCharges metric is only published there; the Bedrock token alarms
 // work in any region but us-east-1 is also the app's default Bedrock region.
 // Configure via context: -c alertEmail=you@amazon.com -c dailyTokenCap=... -c monthlyUsdCap=...
+//
+// Optional kill-switch (-c killSwitch=true): a Lambda scales the web ECS
+// service to 0 when the token cap fires. It needs the cluster + service names,
+// which the Compute stack prints as outputs (ClusterName; the WebService's
+// generated name) — pass them once known: -c killSwitchCluster=... -c
+// killSwitchService=.... Region defaults to the app region (where Compute lives).
 new MonitoringStack(app, `${prefix}-Monitoring`, {
   env: { account: env.account, region: 'us-east-1' },
   bedrockModelId: bedrockModel,
   alertEmail: app.node.tryGetContext('alertEmail'),
   dailyTokenCap: numContext(app, 'dailyTokenCap'),
   monthlyUsdCap: numContext(app, 'monthlyUsdCap'),
+  killSwitch: app.node.tryGetContext('killSwitch') === 'true' ||
+    app.node.tryGetContext('killSwitch') === true,
+  killSwitchCluster: app.node.tryGetContext('killSwitchCluster'),
+  killSwitchService: app.node.tryGetContext('killSwitchService'),
+  killSwitchRegion: app.node.tryGetContext('killSwitchRegion') ?? env.region,
 });
 
 app.synth();
