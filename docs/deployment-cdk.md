@@ -144,8 +144,10 @@ deploy; 6 adds the web/builder split; 7–8 harden it.
 - [x] Parameterize the Bedrock **region/model** — done. `ontology_qa_cli/llm_config.py`
       reads `ONTOLOGY_QA_BEDROCK_REGION` and `ONTOLOGY_QA_BEDROCK_MODEL`, defaulting
       to the previously-hardcoded `us-east-1` / `us.anthropic.claude-opus-4-6-v1`
-      (no-op when unset). Wired into `chat.py`, `builder.py`, and `judge.py`; the
-      CDK compute stack should set these env vars on the web and builder task defs.
+      (no-op when unset). Wired into `chat.py`, `builder.py`, and `judge.py`. The
+      CDK compute stack sets these exact env vars (`ONTOLOGY_QA_BEDROCK_REGION` /
+      `ONTOLOGY_QA_BEDROCK_MODEL`) on both the web and builder task defs, sourced
+      from the `bedrockRegion` / `bedrockModel` app-context keys (same defaults).
 - [ ] Ensure ontology paths use `s3://` URIs (already supported by
       `s3_cache.py`) and point `ONTOLOGY_QA_CACHE_DIR` at the EFS mount.
 - [ ] Confirm `ontology_config.yaml` is baked into the image or read from S3.

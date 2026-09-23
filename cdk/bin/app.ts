@@ -39,6 +39,9 @@ const compute = new ComputeStack(app, `${prefix}-Compute`, {
   webImageAsset: app.node.tryGetContext('webImage'),
   builderImageAsset: app.node.tryGetContext('builderImage'),
   bedrockRegion: app.node.tryGetContext('bedrockRegion') ?? 'us-east-1',
+  // Default matches ontology_qa_cli/llm_config.py's DEFAULT_BEDROCK_MODEL.
+  bedrockModel:
+    app.node.tryGetContext('bedrockModel') ?? 'us.anthropic.claude-opus-4-6-v1',
 });
 
 new EdgeStack(app, `${prefix}-Edge`, {

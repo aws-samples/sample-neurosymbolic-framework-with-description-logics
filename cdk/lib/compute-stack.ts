@@ -20,6 +20,7 @@ export interface ComputeStackProps extends cdk.StackProps {
   webImageAsset?: string;
   builderImageAsset?: string;
   bedrockRegion: string;
+  bedrockModel: string;
 }
 
 const APP_PORT = 8000;
@@ -64,8 +65,11 @@ export class ComputeStack extends cdk.Stack {
 
     const commonEnv: Record<string, string> = {
       ONTOLOGY_QA_CACHE_DIR: EFS_MOUNT,
-      BEDROCK_REGION: props.bedrockRegion,
-      // BEDROCK_MODEL_ID: '...'  // wire once Task 2 parameterizes it
+      // Names MUST match what ontology_qa_cli/llm_config.py reads at runtime
+      // (ONTOLOGY_QA_BEDROCK_REGION / ONTOLOGY_QA_BEDROCK_MODEL); otherwise the
+      // app silently falls back to its hardcoded defaults, ignoring these.
+      ONTOLOGY_QA_BEDROCK_REGION: props.bedrockRegion,
+      ONTOLOGY_QA_BEDROCK_MODEL: props.bedrockModel,
     };
 
     // ---- shared IAM: Bedrock invoke (scope to the model ARN in Task 8) -----
