@@ -173,17 +173,31 @@ deploy; 6 adds the web/builder split; 7–8 harden it.
 - [ ] Deploy SPA build to the frontend bucket (CDK `BucketDeployment` or CI step).
 - [ ] End-to-end test: load the site, select an ontology, get an answer.
 
-### Task 6 — Web → builder split (only if Task 0 chose "split")
-- [ ] Replace `subprocess.Popen([... builder ...])` in `webapp.py` with an ECS
-      **`RunTask`** call (boto3 `ecs.run_task`) that launches the builder task,
-      passing the ontology name as a container override.
-- [ ] Replace `BuildJob.poll()` (reads a local subprocess exit code) with ECS
-      task-status polling (`describe_tasks`), and the log tail with CloudWatch
-      Logs (or keep tailing the EFS log file the builder writes).
-- [ ] IAM: web task role gets `ecs:RunTask` + `iam:PassRole` for the builder
-      task role, scoped to that task def.
-- [ ] Test: trigger a build from the UI, watch it run as a separate task, then
-      chat against the freshly built program.
+### Task 6 — Web → builder split ✅ (2026-09-23)
+Implemented as a **pluggable build backend** (`ontology_qa_cli/build_backend.py`)
+selected by the `BUILD_BACKEND` env var — `subprocess` (default, local dev /
+single container) or `ecs` (Fargate RunTask). `webapp.py` is now backend-agnostic
+(`backend.start/poll/log_tail/stream_lines`); the original subprocess behavior is
+unchanged and all existing tests stay green. New tests in `tests/test_build_backend.py`.
+- [x] `subprocess.Popen(...)` extracted to `SubprocessBuildBackend`.
+- [x] `EcsBuildBackend`: `ecs.run_task` (ontology as container command override),
+      `ecs.describe_tasks` for status, CloudWatch `get_log_events` for the SSE log tail.
+- [x] IAM already granted in `compute-stack.ts` (`ecs:RunTask`, `DescribeTasks`, `PassRole`).
+- [ ] Set the ECS backend env vars on the web task definition (below) and flip
+      `BUILD_BACKEND=ecs`. Wire `BUILD_ECS_*` from CDK outputs in `compute-stack.ts`.
+
+**ECS backend env vars** (set on the web Fargate task def):
+```
+BUILD_BACKEND=ecs
+BUILD_ECS_CLUSTER=<cluster name/arn>
+BUILD_ECS_TASK_DEFINITION=<builder task def family:revision or arn>
+BUILD_ECS_CONTAINER_NAME=builder
+BUILD_ECS_SUBNETS=<private subnet ids, comma-separated>
+BUILD_ECS_SECURITY_GROUPS=<sg ids, comma-separated>
+BUILD_ECS_LOG_GROUP=<builder awslogs group>
+BUILD_ECS_LOG_STREAM_PREFIX=builder
+ONTOLOGY_RUNS_DIR=/mnt/runs      # shared EFS mount
+```
 
 ### Task 7 — CI/CD pipeline
 - [ ] Pipeline: on merge to `main`, build both images → push to ECR, build SPA,
