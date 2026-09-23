@@ -22,25 +22,29 @@ COPY ontology_config.yaml ./ontology_config.yaml
 RUN uv sync --frozen
 
 # ===========================================================================
-# !!! UNRESOLVED ASSUMPTION — see Task 0 in docs/deployment-cdk.md !!!
+# kiro-cli — the builder invokes it as a subprocess (ontology_qa_cli/fixer.py)
+# to fix the query program each iteration. It must be on PATH.
 #
-# The builder invokes `kiro-cli` as a subprocess (ontology_qa_cli/fixer.py).
-# It MUST be present on PATH inside this image for a build to succeed.
+# CONFIRMED containerizable: kiro-cli ships a Linux build and, since 2.x, a
+# headless mode that authenticates from an API key in KIRO_API_KEY (no browser,
+# no SSO session to expire) — the natural fit for a Fargate task. See
+# https://kiro.dev/docs/cli/headless/ and the auth notes in docs/deployment-cdk.md.
 #
-# Whether kiro-cli can be installed into a container in this environment is
-# NOT YET CONFIRMED and is the single biggest risk to the split architecture.
-# Fill in the real install below once confirmed, e.g.:
-#
-#   RUN curl -fsSL <kiro-cli-install-url> | sh
-#   # or COPY a vendored binary:
-#   # COPY vendor/kiro-cli /usr/local/bin/kiro-cli
-#   # RUN chmod +x /usr/local/bin/kiro-cli
-#
-# Until this is real, the builder task will fail at the fix step. If kiro-cli
-# cannot be containerized, the build half needs a rethink (run builds outside
-# AWS and serve only pre-built programs).
-# ===========================================================================
-# RUN <install kiro-cli here>
+# curl|bash is used because that is the officially documented install path.
+# Pin/verify it for a locked-down build (mirror the installer, or vendor the
+# release binary and COPY it in) rather than fetching latest at build time.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL https://cli.kiro.dev/install | bash \
+    && ( command -v kiro-cli >/dev/null 2>&1 \
+         || ln -s "$(find / -name kiro-cli -type f 2>/dev/null | head -1)" /usr/local/bin/kiro-cli ) \
+    && kiro-cli --version
+
+# Auth is a RUNTIME secret, never baked into the image. The ECS task definition
+# injects KIRO_API_KEY from Secrets Manager (headless mode reads it directly);
+# a browser/device-flow login is not possible in a Fargate task.
+ENV KIRO_API_KEY=""
 
 # Runtime config (overridable by the ECS task definition):
 #   ONTOLOGY_QA_CACHE_DIR  - EFS mount, shared with the web service
