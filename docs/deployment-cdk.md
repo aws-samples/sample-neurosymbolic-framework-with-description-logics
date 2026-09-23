@@ -264,7 +264,14 @@ ONTOLOGY_RUNS_DIR=/mnt/runs      # shared EFS mount
       versions to IA after 30d and expires them after 90d. **Log retention:**
       already set — ECS awslogs use `ONE_MONTH` in `compute-stack.ts`. Source OWL
       (`ontologyBucket`) and the SPA (`frontendBucket`) keep current objects.
-- [ ] Alarms: ALB 5xx, task crash loops, EFS burst-credit exhaustion.
+- [x] Alarms: ALB 5xx, task crash loops, EFS burst-credit exhaustion. Added to
+      `MonitoringStack` (same alert topic as the cost alarms): **ALB 5xx**
+      (`HTTPCode_ELB_5XX_Count` > 10/5min), **ECS crash loop**
+      (`RunningTaskCount` < 1 avg for 15min, needs Container Insights — already
+      on), **EFS burst credit** (`BurstCreditBalance` low; bursting mode only).
+      Config-driven by name/id with an explicit `opsResourceRegion` (app region)
+      so the us-east-1-pinned stack reads app-region metrics; ALB name + EFS id
+      wired from live constructs, ECS cluster/service reuse the killSwitch keys.
 
 ## Open questions for you
 1. **Split or single-service for v1?** (Task 0) — single is faster to ship; split

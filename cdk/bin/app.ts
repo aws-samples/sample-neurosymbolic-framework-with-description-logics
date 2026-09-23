@@ -96,6 +96,17 @@ new MonitoringStack(app, `${prefix}-Monitoring`, {
   killSwitchCluster: app.node.tryGetContext('killSwitchCluster'),
   killSwitchService: app.node.tryGetContext('killSwitchService'),
   killSwitchRegion: app.node.tryGetContext('killSwitchRegion') ?? env.region,
+
+  // Ops alarms (Task 8). ALB + EFS come straight from the live constructs (same
+  // app, cross-region metric read is fine). ECS cluster/service reuse the
+  // killSwitch context keys — the Compute stack doesn't expose the service as a
+  // public field, and these are the same names the kill-switch already needs.
+  opsResourceRegion: env.region,
+  albFullName: compute.loadBalancer.loadBalancerFullName,
+  alb5xxThreshold: numContext(app, 'alb5xxThreshold'),
+  ecsClusterName: app.node.tryGetContext('killSwitchCluster'),
+  ecsServiceName: app.node.tryGetContext('killSwitchService'),
+  efsFileSystemId: storage.fileSystem.fileSystemId,
 });
 
 app.synth();
