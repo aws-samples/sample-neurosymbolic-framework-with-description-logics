@@ -7,6 +7,7 @@ import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 
 export interface ComputeStackProps extends cdk.StackProps {
   vpc: ec2.IVpc;
@@ -146,6 +147,14 @@ export class ComputeStack extends cdk.Stack {
     props.artifactBucket.grantReadWrite(this.builderTaskDefinition.taskRole);
     props.fileSystem.grantReadWrite(this.builderTaskDefinition.taskRole);
 
+    // kiro-cli headless auth. The API key lives in Secrets Manager (create the
+    // empty secret with CDK, then set its value out-of-band — never in code) and
+    // is injected into the builder container as KIRO_API_KEY at task start, so
+    // the value never appears in the task definition or image.
+    const kiroApiKeySecret = new secretsmanager.Secret(this, 'KiroApiKey', {
+      description: 'kiro-cli headless API key for the ontology builder task',
+    });
+
     const builderContainer = this.builderTaskDefinition.addContainer('builder', {
       image: builderImage,
       logging: ecs.LogDrivers.awsLogs({
@@ -153,6 +162,10 @@ export class ComputeStack extends cdk.Stack {
         logRetention: logs.RetentionDays.ONE_MONTH,
       }),
       environment: commonEnv,
+      secrets: {
+        // kiro-cli reads KIRO_API_KEY for headless auth (ontology_qa_cli/fixer.py).
+        KIRO_API_KEY: ecs.Secret.fromSecretsManager(kiroApiKeySecret),
+      },
       // Command (ontology name + build args) is supplied as a container
       // override by the web service's run_task call in Task 6, e.g.:
       //   overrides.containerOverrides[0].command = [
@@ -187,6 +200,10 @@ export class ComputeStack extends cdk.Stack {
     }));
 
     new cdk.CfnOutput(this, 'ClusterName', { value: cluster.clusterName });
+    new cdk.CfnOutput(this, 'KiroApiKeySecretArn', {
+      value: kiroApiKeySecret.secretArn,
+      description: 'Set the kiro-cli API key value here (Secrets Manager) before running a build.',
+    });
     new cdk.CfnOutput(this, 'BuilderTaskDefArn', {
       value: this.builderTaskDefinition.taskDefinitionArn,
     });

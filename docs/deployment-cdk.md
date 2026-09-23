@@ -14,9 +14,11 @@ breaks the work into ordered tasks.
   `@amzn/pipelines`); CI via CDK Pipelines / CodePipeline or GitLab CI.
 - **Behind auth** — the app is not public. Cognito (CloudFront/ALB OIDC) moves
   into the **core build**, not Task 8 hardening.
-- **Still open / biggest risk:** whether `kiro-cli` can be baked into
-  `Dockerfile.builder` in this environment. The design assumes it can; if not,
-  the build-task half needs a rethink (build outside AWS, serve pre-built only).
+- **Resolved (2026-09-23):** `kiro-cli` CAN be containerized. It ships a Linux
+  build (`curl -fsSL https://cli.kiro.dev/install | bash`) and a headless mode
+  that authenticates from a `KIRO_API_KEY` env var — no browser, no expiring SSO
+  session — so it fits a Fargate task cleanly. `Dockerfile.builder` installs it;
+  the ECS task def injects `KIRO_API_KEY` from Secrets Manager at runtime.
 
 ## What the app actually is (drives everything below)
 
@@ -128,15 +130,18 @@ deploy; 6 adds the web/builder split; 7–8 harden it.
 - [x] Target: **split** (web service + separate build task).
 - [x] Account: **external AWS**, **app behind auth** (Cognito).
 - [ ] Confirm region for Bedrock Opus availability (default us-east-1) + account owner.
-- [ ] **Confirm `kiro-cli` can be installed into a container image** — still the
-      top risk. If not, the builder cannot be containerized as-is.
+- [x] **`kiro-cli` confirmed containerizable** (2026-09-23) — Linux install via
+      the official script + headless `KIRO_API_KEY` auth. Installed in
+      `Dockerfile.builder`; the ECS task def supplies `KIRO_API_KEY` from a
+      Secrets Manager secret.
 
 ### Task 1 — Containerize the app
 - [ ] `Dockerfile.web`: Python 3.12 base, `uv sync --extra api`, copy source,
       run `uvicorn ontology_qa_cli.webapp:app`. Bind `0.0.0.0`, honor `$PORT`.
-- [ ] `Dockerfile.builder`: same base + **`kiro-cli` installed**, entrypoint
-      `python -m ontology_qa_cli.builder`. (Skip if single-service v1 — the web
-      image already spawns the builder.)
+- [x] `Dockerfile.builder`: same base + **`kiro-cli` installed** (official Linux
+      installer), headless auth via `KIRO_API_KEY` (injected at runtime, not
+      baked in), entrypoint `python -m ontology_qa_cli.builder`. (Skip if
+      single-service v1 — the web image already spawns the builder.)
 - [ ] Build the React app in a multi-stage layer (or in CI) → `frontend/dist`.
 - [ ] Local smoke test: `docker run` the web image, hit `/api/ontologies`.
 
@@ -230,9 +235,9 @@ ONTOLOGY_RUNS_DIR=/mnt/runs      # shared EFS mount
 ## Open questions for you
 1. **Split or single-service for v1?** (Task 0) — single is faster to ship; split
    is the right long-term shape.
-2. Is `kiro-cli` installable in a container image in your environment? If not, the
-   builder can't be containerized and the build step needs a rethink (e.g. run
-   builds outside AWS and only serve pre-built programs).
+2. ~~Is `kiro-cli` installable in a container image?~~ **RESOLVED (2026-09-23):
+   yes** — Linux installer + headless `KIRO_API_KEY` auth; installed in
+   `Dockerfile.builder`, key injected from Secrets Manager at runtime.
 3. Should the deployed app be **public** or behind auth? Changes Task 8 materially.
 4. Internal Amazon account (Pipelines/Isengard) or external AWS account? Changes
    the CDK construct library and CI in Tasks 3 and 7.
