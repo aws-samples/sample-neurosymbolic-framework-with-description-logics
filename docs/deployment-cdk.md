@@ -208,6 +208,12 @@ ONTOLOGY_RUNS_DIR=/mnt/runs      # shared EFS mount
 - [ ] Gate on the test suite (now ~1.6s — the `conftest.py` fix makes CI cheap).
 
 ### Task 8 — Hardening & ops
+- [x] **ALB ingress locked to CloudFront.** `NetworkStack` no longer opens the
+      ALB security group to `0.0.0.0/0`. It resolves the AWS-managed
+      `com.amazonaws.global.cloudfront.origin-facing` prefix list at deploy time
+      (via a `DescribeManagedPrefixLists` custom resource, since the id is
+      region-specific) and scopes ALB ingress to it on ports 80 and 443 — so the
+      internet-facing ALB is reachable only from CloudFront edge, not directly.
 - [ ] Bedrock **cost guardrails**: CloudWatch alarm on token spend / a per-day
       cap; this is the real cost driver.
 - [ ] Authentication in front of the app if it shouldn't be public (Cognito on
