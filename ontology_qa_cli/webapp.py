@@ -41,11 +41,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
+import subprocess  # noqa: F401 - retained so tests can monkeypatch webapp.subprocess.Popen (shared module object with build_backend)
 import sys
 import threading
 import uuid
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -53,6 +52,8 @@ from ontology_qa_cli.chat import ChatSession
 from ontology_qa_cli.config import load_config
 from ontology_qa_cli.query import find_best_program
 from ontology_qa_cli.serve import OntologyAnswerer
+from ontology_qa_cli.build_backend import BuildBackend, BuildJob, make_build_backend
+from ontology_qa_cli import s3_cache
 
 try:
     from fastapi import FastAPI, HTTPException
@@ -69,33 +70,9 @@ except ImportError as exc:  # pragma: no cover - only without the api extra
 # --------------------------------------------------------------------------- #
 # Build job tracking
 # --------------------------------------------------------------------------- #
-@dataclass
-class BuildJob:
-    job_id: str
-    ontology: str
-    proc: subprocess.Popen
-    log_path: Path
-    status: str = "running"  # running | finished | failed
-    lock: threading.Lock = field(default_factory=threading.Lock)
-
-    def poll(self) -> str:
-        """Refresh and return status based on the subprocess exit code."""
-        with self.lock:
-            if self.status != "running":
-                return self.status
-            code = self.proc.poll()
-            if code is None:
-                return "running"
-            self.status = "finished" if code == 0 else "failed"
-            return self.status
-
-    def log_tail(self, max_lines: int = 40) -> str:
-        try:
-            text = self.log_path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            return ""
-        lines = text.splitlines()
-        return "\n".join(lines[-max_lines:])
+# BuildJob and the build backends (subprocess / ecs) live in build_backend.py.
+# The backend is selected by the BUILD_BACKEND env var and created in
+# create_app(); this module only calls backend.start/poll/log_tail/stream_lines.
 
 
 class ChatRequest(BaseModel):
@@ -125,12 +102,39 @@ def create_app(
     jobs: dict[str, BuildJob] = {}                       # job_id -> build job
     state_lock = threading.Lock()
 
+    # How builds run: local subprocess (default) or a Fargate task (BUILD_BACKEND=ecs).
+    build_backend: BuildBackend = make_build_backend(config_path, runs_dir)
+
     def _ontology_names() -> list[str]:
         return [e.name for e in load_config(config_path).ontologies]
 
     def _owl_for(ontology: str) -> Path:
         for e in load_config(config_path).ontologies:
             if e.name.lower() == ontology.lower():
+                # For an S3-sourced ontology, load_config only records the
+                # deterministic local cache PATH; the object is downloaded
+                # lazily. The CLI does this in resolve_ontology, but the web
+                # load path never calls it, so materialize it here. Guard the
+                # CLI-style sys.exit / errors so a bad URI or missing creds
+                # returns an HTTP error instead of killing the server.
+                if e.s3_uri is not None:
+                    try:
+                        return s3_cache.ensure_local_copy(e.s3_uri)
+                    except SystemExit as exc:
+                        raise HTTPException(
+                            status_code=502,
+                            detail=(
+                                f"Could not fetch the OWL file for '{ontology}' "
+                                f"from {e.s3_uri}. Check the S3 URI, that the "
+                                "object exists, and that AWS credentials grant "
+                                "s3:GetObject."
+                            ),
+                        ) from exc
+                    except Exception as exc:  # noqa: BLE001
+                        raise HTTPException(
+                            status_code=502,
+                            detail=f"Could not fetch the OWL file for '{ontology}': {exc}",
+                        ) from exc
                 return e.owl_file
         raise HTTPException(status_code=404, detail=f"Unknown ontology '{ontology}'")
 
@@ -230,34 +234,18 @@ def create_app(
         }
 
     def _start_build(ontology: str) -> str:
-        """Spawn the builder as a background subprocess; return its job id.
+        """Launch a build for ``ontology`` via the configured backend; return
+        its job id.
 
         Used both by /api/select (when no program exists) and /api/rebuild
-        (force a new build even when one does).
+        (force a new build even when one does). Whether this runs a local
+        subprocess or a Fargate task depends on BUILD_BACKEND — this function
+        is backend-agnostic.
         """
-        job_id = uuid.uuid4().hex[:12]
-        log_path = runs_dir / f"_web_build_{ontology}_{job_id}.log"
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_file = open(log_path, "w", encoding="utf-8")  # noqa: SIM115 - handed to Popen, closed on exit
-        # Force the child to encode stdout/stderr as UTF-8 regardless of the
-        # host locale, so non-ASCII output (em dashes, bullets, Rich glyphs)
-        # is written cleanly instead of producing replacement characters.
-        child_env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
-        proc = subprocess.Popen(
-            [
-                sys.executable, "-u", "-m", "ontology_qa_cli.builder",
-                ontology, "--plain",
-                "--ontology-config", str(config_path),
-                "--output-dir", str(runs_dir),
-            ],
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-            env=child_env,
-        )
-        job = BuildJob(job_id=job_id, ontology=ontology, proc=proc, log_path=log_path)
+        job = build_backend.start(ontology)
         with state_lock:
-            jobs[job_id] = job
-        return job_id
+            jobs[job.job_id] = job
+        return job.job_id
 
     @app.post("/api/select")
     async def api_select(req: SelectRequest) -> dict:
@@ -268,7 +256,7 @@ def create_app(
         # Already-running build for this ontology? Report it.
         with state_lock:
             for job in jobs.values():
-                if job.ontology == ontology and job.poll() == "running":
+                if job.ontology == ontology and build_backend.poll(job) == "running":
                     return {"status": "building", "job_id": job.job_id}
 
         if _has_program(ontology):
@@ -308,7 +296,7 @@ def create_app(
         # If a build is already running for this ontology, just report it.
         with state_lock:
             for job in jobs.values():
-                if job.ontology == ontology and job.poll() == "running":
+                if job.ontology == ontology and build_backend.poll(job) == "running":
                     return {"status": "building", "job_id": job.job_id}
             # Drop the cached answerer; it will reload from the new program.
             answerers.pop(ontology, None)
@@ -320,8 +308,8 @@ def create_app(
         job = jobs.get(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")
-        status = job.poll()
-        result = {"status": status, "ontology": job.ontology, "log": job.log_tail()}
+        status = build_backend.poll(job)
+        result = {"status": status, "ontology": job.ontology, "log": build_backend.log_tail(job)}
         if status == "finished":
             # Preload the answerer so the first chat is instant.
             try:
@@ -349,45 +337,26 @@ def create_app(
         import json as _json
 
         async def event_stream():
-            pos = 0
-            # Tail the log file until the process exits and the file is drained.
-            while True:
+            # Stream log lines from whichever backend owns the job (local log
+            # file for subprocess, CloudWatch for ecs), then emit a terminal
+            # done frame. The backend's stream_lines() ends when the job is
+            # terminal; we still call poll() once more for the final status.
+            async for line in build_backend.stream_lines(job):
+                yield f"data: {line}\n\n"
+
+            status = build_backend.poll(job)
+            ready = False
+            if status == "finished":
                 try:
-                    with open(job.log_path, "r", encoding="utf-8", errors="replace") as fh:
-                        fh.seek(pos)
-                        chunk = fh.read()
-                        pos = fh.tell()
-                except OSError:
-                    chunk = ""
-                if chunk:
-                    # SSE frames: one `data:` line per output line.
-                    for line in chunk.splitlines():
-                        yield f"data: {line}\n\n"
-                status = job.poll()
-                if status != "running":
-                    # Drain any final bytes written after the last read.
-                    try:
-                        with open(job.log_path, "r", encoding="utf-8", errors="replace") as fh:
-                            fh.seek(pos)
-                            tail = fh.read()
-                        for line in tail.splitlines():
-                            yield f"data: {line}\n\n"
-                    except OSError:
-                        pass
-                    ready = False
-                    if status == "finished":
-                        try:
-                            _load_answerer(job.ontology)
-                            ready = True
-                        except Exception as exc:  # noqa: BLE001
-                            status = "failed"
-                            yield f"data: [load error] {exc}\n\n"
-                    payload = _json.dumps(
-                        {"status": status, "ready": ready, "ontology": job.ontology}
-                    )
-                    yield f"event: done\ndata: {payload}\n\n"
-                    return
-                await asyncio.sleep(0.5)
+                    _load_answerer(job.ontology)
+                    ready = True
+                except Exception as exc:  # noqa: BLE001
+                    status = "failed"
+                    yield f"data: [load error] {exc}\n\n"
+            payload = _json.dumps(
+                {"status": status, "ready": ready, "ontology": job.ontology}
+            )
+            yield f"event: done\ndata: {payload}\n\n"
 
         return StreamingResponse(
             event_stream(),

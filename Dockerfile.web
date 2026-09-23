@@ -1,0 +1,52 @@
+# syntax=docker/dockerfile:1
+# ---------------------------------------------------------------------------
+# Dockerfile.web — the FastAPI chat/serve container (ECS Fargate service).
+#
+# Serves ontology_qa_cli.webapp:app (uvicorn) plus the built React SPA.
+# Stateful: holds OntologyAnswerer / ChatSession caches in memory and reuses an
+# owlready2 SQLite backend on a mounted volume — so it runs as a long-lived
+# service, NOT Lambda. See docs/deployment-cdk.md.
+# ---------------------------------------------------------------------------
+
+# --- Stage 1: build the React frontend -> frontend/dist ---------------------
+FROM node:20-slim AS frontend
+WORKDIR /frontend
+# Install deps first for layer caching, then build.
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm install
+COPY frontend/ ./
+RUN npm run build          # -> /frontend/dist
+
+# --- Stage 2: python runtime ------------------------------------------------
+FROM python:3.12-slim AS runtime
+
+# uv for fast, locked installs (repo uses uv; see uv.lock / pyproject.toml).
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /app
+
+# Resolve/install dependencies against the lockfile first (cache-friendly).
+# The `api` extra pulls in fastapi + uvicorn[standard]; core deps include
+# owlready2, boto3, pyyaml, rich.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --extra api --frozen --no-install-project
+
+# Application source.
+COPY ontology_qa_cli/ ./ontology_qa_cli/
+COPY ontology_config.yaml ./ontology_config.yaml
+# Install the project itself (entry points) now that source is present.
+RUN uv sync --extra api --frozen
+
+# Built SPA from stage 1 — webapp.py's _default_frontend_dist() looks for
+# <repo>/frontend/dist relative to the package parent.
+COPY --from=frontend /frontend/dist ./frontend/dist
+
+# Runtime config (overridable by the ECS task definition):
+#   PORT                     - listen port (default 8000)
+#   ONTOLOGY_QA_CACHE_DIR    - point at the EFS mount for the sqlite cache
+#   BEDROCK_REGION / MODEL   - see Task 2 (parameterize the hardcoded values)
+ENV PORT=8000
+EXPOSE 8000
+
+# uv run keeps us inside the synced environment. Bind 0.0.0.0 for the ALB.
+CMD ["sh", "-c", "uv run uvicorn ontology_qa_cli.webapp:app --host 0.0.0.0 --port ${PORT}"]
