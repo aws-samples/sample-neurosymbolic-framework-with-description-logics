@@ -41,6 +41,9 @@ export interface ComputeStackProps extends cdk.StackProps {
    * via Cognito before forwarding to the web service.
    */
   certificateArn?: string;
+  /** Web-service autoscaling bounds (target tracking on CPU + request count). */
+  webMinCapacity?: number;
+  webMaxCapacity?: number;
 }
 
 const APP_PORT = 8000;
@@ -216,6 +219,31 @@ export class ComputeStack extends cdk.Stack {
         defaultAction: elbv2.ListenerAction.forward([webTargetGroup]),
       });
     }
+
+    // ---- Autoscaling for the web service ----------------------------------
+    // The web tasks hold in-memory ChatSession/OntologyAnswerer state and serve
+    // long-lived SSE streams, so scale OUT readily but scale IN cautiously — a
+    // premature scale-in would drop active sessions/streams. Bounds are modest
+    // (a small interactive service, not a fleet); raise maxCapacity via context
+    // if load warrants.
+    const scaling = service.autoScaleTaskCount({
+      minCapacity: props.webMinCapacity ?? 1,
+      maxCapacity: props.webMaxCapacity ?? 4,
+    });
+    // CPU target tracking — the primary signal for the Bedrock-bound workload.
+    scaling.scaleOnCpuUtilization('CpuScaling', {
+      targetUtilizationPercent: 60,
+      scaleInCooldown: cdk.Duration.minutes(5), // slow to give SSE streams time to drain
+      scaleOutCooldown: cdk.Duration.minutes(1), // quick to absorb bursts
+    });
+    // Request-count-per-target — catches connection load CPU may not reflect
+    // (many idle-ish SSE clients). Tied to the ALB target group above.
+    scaling.scaleOnRequestCount('RequestScaling', {
+      requestsPerTarget: 200,
+      targetGroup: webTargetGroup,
+      scaleInCooldown: cdk.Duration.minutes(5),
+      scaleOutCooldown: cdk.Duration.minutes(1),
+    });
 
     // ======================= BUILDER TASK ==================================
     // Launched on demand by the web service via ecs.run_task (Task 6), NOT a
