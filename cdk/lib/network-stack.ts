@@ -1,6 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as cr from 'aws-cdk-lib/custom-resources';
 
 /**
  * VPC + security groups shared by the storage and compute stacks.
@@ -40,15 +41,49 @@ export class NetworkStack extends cdk.Stack {
 
     this.albSecurityGroup = new ec2.SecurityGroup(this, 'AlbSg', {
       vpc: this.vpc,
-      description: 'ALB ingress (from CloudFront) / egress to the service',
+      description: 'ALB ingress (from CloudFront only) / egress to the service',
       allowAllOutbound: true,
     });
-    // ALB accepts HTTP from CloudFront. Lock this to the CloudFront managed
-    // prefix list in Task 8 so the ALB is not open to the world directly.
+
+    // The ALB is internet-facing so CloudFront can reach it, but it must NOT be
+    // open to the world directly — that would let anyone bypass CloudFront (and
+    // any WAF / auth / caching in front of it). AWS publishes a managed prefix
+    // list, `com.amazonaws.global.cloudfront.origin-facing`, holding exactly the
+    // CloudFront edge origin-facing CIDRs. Its ID is region-specific and is not
+    // a CloudFormation pseudo-parameter, so we resolve it at deploy time with a
+    // tiny DescribeManagedPrefixLists custom resource and scope ALB ingress to
+    // it. Result: only CloudFront can hit the ALB on 80/443.
+    const cloudFrontPrefixList = new cr.AwsCustomResource(this, 'CloudFrontOriginPrefixList', {
+      onUpdate: {
+        service: 'EC2',
+        action: 'describeManagedPrefixLists',
+        parameters: {
+          Filters: [
+            { Name: 'prefix-list-name', Values: ['com.amazonaws.global.cloudfront.origin-facing'] },
+          ],
+        },
+        physicalResourceId: cr.PhysicalResourceId.of('cloudfront-origin-facing-prefix-list'),
+      },
+      policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
+        resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE,
+      }),
+      installLatestAwsSdk: false,
+    });
+    const cloudFrontPrefixListId = cloudFrontPrefixList.getResponseField(
+      'PrefixLists.0.PrefixListId',
+    );
+
+    // ALB accepts traffic only from the CloudFront origin-facing prefix list,
+    // on both 80 (redirected to HTTPS at CloudFront) and 443.
     this.albSecurityGroup.addIngressRule(
-      ec2.Peer.anyIpv4(),
+      ec2.Peer.prefixList(cloudFrontPrefixListId),
       ec2.Port.tcp(80),
-      'HTTP from CloudFront (tighten to the CloudFront prefix list in Task 8)',
+      'HTTP from CloudFront edge only',
+    );
+    this.albSecurityGroup.addIngressRule(
+      ec2.Peer.prefixList(cloudFrontPrefixListId),
+      ec2.Port.tcp(443),
+      'HTTPS from CloudFront edge only',
     );
 
     this.serviceSecurityGroup = new ec2.SecurityGroup(this, 'ServiceSg', {
