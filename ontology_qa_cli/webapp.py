@@ -52,7 +52,12 @@ from ontology_qa_cli.chat import ChatSession
 from ontology_qa_cli.config import load_config
 from ontology_qa_cli.query import find_best_program
 from ontology_qa_cli.serve import OntologyAnswerer
-from ontology_qa_cli.build_backend import BuildBackend, BuildJob, make_build_backend
+from ontology_qa_cli.build_backend import (
+    BuildBackend,
+    BuildCapacityError,
+    BuildJob,
+    make_build_backend,
+)
 from ontology_qa_cli import s3_cache
 
 try:
@@ -242,7 +247,11 @@ def create_app(
         subprocess or a Fargate task depends on BUILD_BACKEND — this function
         is backend-agnostic.
         """
-        job = build_backend.start(ontology)
+        try:
+            job = build_backend.start(ontology)
+        except BuildCapacityError as exc:
+            # At the concurrent-build limit — a transient, retryable condition.
+            raise HTTPException(status_code=429, detail=str(exc))
         with state_lock:
             jobs[job.job_id] = job
         return job.job_id
