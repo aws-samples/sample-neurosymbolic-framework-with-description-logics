@@ -157,6 +157,10 @@ deploy; 6 adds the web/builder split; 7–8 harden it.
 - [ ] Stacks: `NetworkStack` (VPC, subnets, SGs), `StorageStack` (S3 buckets,
       EFS), `ComputeStack` (ECS cluster, task defs, service, ALB),
       `EdgeStack` (CloudFront + S3 SPA origin + `/api/*` → ALB behavior).
+      NOTE: the frontend SPA bucket lives in `EdgeStack`, not `StorageStack` —
+      CloudFront's OAC mutates the bucket policy to reference the distribution,
+      so co-locating the bucket and distribution avoids a `StorageStack`↔
+      `EdgeStack` dependency cycle that otherwise blocks `cdk synth`.
 - [ ] Wire ECR repositories for the image(s); `cdk deploy` should reference them.
 
 ### Task 4 — Storage + networking

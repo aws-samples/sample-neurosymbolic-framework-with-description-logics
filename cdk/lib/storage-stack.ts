@@ -12,15 +12,17 @@ export interface StorageStackProps extends cdk.StackProps {
 /**
  * S3 buckets + EFS filesystem.
  *
- * - frontendBucket: the built React SPA, served via CloudFront OAC (private).
  * - ontologyBucket: source OWL files (the app already speaks s3:// via
  *   ontology_qa_cli/s3_cache.py).
  * - artifactBucket: optional durable copy of runs/ artifacts.
  * - fileSystem + accessPoint: shared runs/ + *.sqlite3 cache, mounted by BOTH
  *   the web service (reads the best program) and the builder task (writes it).
+ *
+ * NOTE: the frontend SPA bucket lives in EdgeStack, not here. CloudFront's OAC
+ * mutates the bucket policy to reference the distribution; keeping the bucket
+ * and distribution in one stack avoids a Storage<->Edge dependency cycle.
  */
 export class StorageStack extends cdk.Stack {
-  public readonly frontendBucket: s3.Bucket;
   public readonly ontologyBucket: s3.Bucket;
   public readonly artifactBucket: s3.Bucket;
   public readonly fileSystem: efs.FileSystem;
@@ -38,7 +40,6 @@ export class StorageStack extends cdk.Stack {
       autoDeleteObjects: true,
     };
 
-    this.frontendBucket = new s3.Bucket(this, 'FrontendBucket', commonBucketProps);
     this.ontologyBucket = new s3.Bucket(this, 'OntologyBucket', commonBucketProps);
     this.artifactBucket = new s3.Bucket(this, 'ArtifactBucket', {
       ...commonBucketProps,

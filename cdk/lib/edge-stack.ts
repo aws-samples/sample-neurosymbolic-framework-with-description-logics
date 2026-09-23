@@ -8,7 +8,6 @@ import * as cognito from 'aws-cdk-lib/aws-cognito';
 
 export interface EdgeStackProps extends cdk.StackProps {
   loadBalancer: elbv2.IApplicationLoadBalancer;
-  frontendBucket: s3.IBucket;
 }
 
 /**
@@ -29,9 +28,20 @@ export interface EdgeStackProps extends cdk.StackProps {
 export class EdgeStack extends cdk.Stack {
   public readonly distribution: cloudfront.Distribution;
   public readonly userPool: cognito.UserPool;
+  public readonly frontendBucket: s3.Bucket;
 
   constructor(scope: Construct, id: string, props: EdgeStackProps) {
     super(scope, id, props);
+
+    // ---- Frontend SPA bucket (owned here so CloudFront's OAC policy mutation
+    // stays in-stack; see StorageStack note on the avoided dependency cycle) --
+    this.frontendBucket = new s3.Bucket(this, 'FrontendBucket', {
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      removalPolicy: cdk.RemovalPolicy.DESTROY, // RETAIN in prod
+      autoDeleteObjects: true,
+    });
 
     // ---- Cognito (identity for the app) ----------------------------------
     this.userPool = new cognito.UserPool(this, 'UserPool', {
@@ -60,7 +70,7 @@ export class EdgeStack extends cdk.Stack {
       defaultRootObject: 'index.html',
       // Default behavior: the SPA from S3 (OAC configured automatically by S3BucketOrigin).
       defaultBehavior: {
-        origin: origins.S3BucketOrigin.withOriginAccessControl(props.frontendBucket),
+        origin: origins.S3BucketOrigin.withOriginAccessControl(this.frontendBucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
       },
@@ -86,6 +96,7 @@ export class EdgeStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'DistributionDomain', {
       value: this.distribution.distributionDomainName,
     });
+    new cdk.CfnOutput(this, 'FrontendBucketName', { value: this.frontendBucket.bucketName });
     new cdk.CfnOutput(this, 'UserPoolId', { value: this.userPool.userPoolId });
     new cdk.CfnOutput(this, 'UserPoolClientId', { value: userPoolClient.userPoolClientId });
   }

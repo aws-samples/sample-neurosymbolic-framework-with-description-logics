@@ -44,7 +44,6 @@ const compute = new ComputeStack(app, `${prefix}-Compute`, {
 new EdgeStack(app, `${prefix}-Edge`, {
   env,
   loadBalancer: compute.loadBalancer,
-  frontendBucket: storage.frontendBucket,
 });
 
 app.synth();
