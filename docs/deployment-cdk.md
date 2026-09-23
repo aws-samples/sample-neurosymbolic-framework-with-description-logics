@@ -225,8 +225,15 @@ ONTOLOGY_RUNS_DIR=/mnt/runs      # shared EFS mount
       (via a `DescribeManagedPrefixLists` custom resource, since the id is
       region-specific) and scopes ALB ingress to it on ports 80 and 443 — so the
       internet-facing ALB is reachable only from CloudFront edge, not directly.
-- [ ] Bedrock **cost guardrails**: CloudWatch alarm on token spend / a per-day
-      cap; this is the real cost driver.
+- [x] Bedrock **cost guardrails** ✅ (2026-09-23): new `MonitoringStack`
+      (`cdk/lib/monitoring-stack.ts`, pinned to `us-east-1`) with an SNS alert
+      topic and two alarms — (1) a daily Bedrock **token cap** on
+      `AWS/Bedrock` `InputTokenCount`+`OutputTokenCount` for the app's `ModelId`
+      (the real cost driver), and (2) a coarse `AWS/Billing` `EstimatedCharges`
+      dollar backstop. Configure via context: `-c alertEmail=you@amazon.com`
+      `-c dailyTokenCap=<tokens>` `-c monthlyUsdCap=<usd>` (`monthlyUsdCap=0`
+      skips the billing alarm). `ModelId` tracks the same `bedrockModel`
+      default as Task 2's `llm_config.py`.
 - [x] Authentication in front of the app (Cognito). Identity now lives in a
       dedicated **`AuthStack`** (user pool + app client + hosted-UI domain),
       consumed by an **ALB HTTPS (443) listener** in `ComputeStack` that runs an
