@@ -35,13 +35,24 @@ export class StorageStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: StorageStackProps) {
     super(scope, id, props);
 
+    // `-c prod=true` retains data on stack deletion (buckets, EFS) so a teardown
+    // can't wipe prod state. Default (dev/test) keeps DESTROY + autoDelete for a
+    // clean, no-orphan teardown. RETAIN and autoDeleteObjects are mutually
+    // exclusive, so autoDelete is disabled whenever we retain.
+    const isProd = this.node.tryGetContext('prod') === true
+      || this.node.tryGetContext('prod') === 'true';
+    const dataRemovalPolicy = isProd
+      ? cdk.RemovalPolicy.RETAIN
+      : cdk.RemovalPolicy.DESTROY;
+
     const commonBucketProps: s3.BucketProps = {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
       enforceSSL: true,
-      // RETAIN in prod; DESTROY+autoDelete is convenient for a first iteration.
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      autoDeleteObjects: true,
+      // RETAIN under `-c prod=true`; DESTROY+autoDelete is convenient for a
+      // first iteration. autoDelete is off when retaining (they conflict).
+      removalPolicy: dataRemovalPolicy,
+      autoDeleteObjects: !isProd,
       // Reclaim storage from failed/abandoned multipart uploads everywhere.
       lifecycleRules: [
         { abortIncompleteMultipartUploadAfter: cdk.Duration.days(7) },
@@ -81,7 +92,7 @@ export class StorageStack extends cdk.Stack {
       // shared runs/ + sqlite cache is recoverable. This is the managed plan;
       // swap for a custom BackupPlan if a different cadence/retention is needed.
       enableAutomaticBackups: true,
-      removalPolicy: cdk.RemovalPolicy.DESTROY, // RETAIN in prod
+      removalPolicy: dataRemovalPolicy, // RETAIN under `-c prod=true`
     });
 
     // POSIX identity + root the containers see. Both tasks mount this AP so
