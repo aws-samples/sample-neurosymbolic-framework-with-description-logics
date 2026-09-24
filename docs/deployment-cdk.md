@@ -264,7 +264,14 @@ ONTOLOGY_RUNS_DIR=/mnt/runs      # shared EFS mount
       name as outputs). IAM is least-privilege: `ecs:UpdateService` +
       `ecs:DescribeServices` on that one service ARN only. Restore service after
       a kill with `aws ecs update-service --desired-count 1`.
-- [ ] Autoscaling policy for the web service; concurrency limit on build tasks.
+- [~] Autoscaling policy for the web service **(done)**; concurrency limit on
+      build tasks **(still open)**. Web service target-tracks on CPU (60%) and
+      ALB request-count-per-target (200/target), bounds 1–4 tasks
+      (`-c webMinCapacity=` / `-c webMaxCapacity=`). Scale-in cooldown is a
+      deliberate 5 min (vs 1 min out) because web tasks hold in-memory
+      ChatSession state and serve long-lived SSE streams — a fast scale-in would
+      drop active sessions. Build-task concurrency capping is separate (Task 6
+      run_task path) and not yet done.
 - [x] Backups/lifecycle for EFS `runs/` and S3 artifacts; log retention.
       **EFS:** `enableAutomaticBackups` (AWS Backup daily plan, 35-day retention
       on the default vault). **S3:** all buckets abort incomplete multipart
