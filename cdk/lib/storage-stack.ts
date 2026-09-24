@@ -14,9 +14,13 @@ export interface StorageStackProps extends cdk.StackProps {
  *
  * - ontologyBucket: source OWL files (the app already speaks s3:// via
  *   ontology_qa_cli/s3_cache.py).
- * - artifactBucket: optional durable copy of runs/ artifacts.
+ * - artifactBucket: optional durable copy of runs/ artifacts (versioned, with
+ *   lifecycle: old versions -> IA after 30d, expire after 90d).
  * - fileSystem + accessPoint: shared runs/ + *.sqlite3 cache, mounted by BOTH
  *   the web service (reads the best program) and the builder task (writes it).
+ *   AWS Backup automatic daily backups enabled.
+ *
+ * All buckets abort incomplete multipart uploads after 7 days.
  *
  * NOTE: the frontend SPA bucket lives in EdgeStack, not here. CloudFront's OAC
  * mutates the bucket policy to reference the distribution; keeping the bucket
@@ -38,12 +42,32 @@ export class StorageStack extends cdk.Stack {
       // RETAIN in prod; DESTROY+autoDelete is convenient for a first iteration.
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
+      // Reclaim storage from failed/abandoned multipart uploads everywhere.
+      lifecycleRules: [
+        { abortIncompleteMultipartUploadAfter: cdk.Duration.days(7) },
+      ],
     };
 
     this.ontologyBucket = new s3.Bucket(this, 'OntologyBucket', commonBucketProps);
     this.artifactBucket = new s3.Bucket(this, 'ArtifactBucket', {
       ...commonBucketProps,
       versioned: true,
+      // Durable copy of runs/ artifacts: keep current objects, but cap the cost
+      // of old versions and cool down infrequently-accessed artifacts.
+      lifecycleRules: [
+        { abortIncompleteMultipartUploadAfter: cdk.Duration.days(7) },
+        {
+          // Old versions are recovery points, not hot data — expire after 90d,
+          // move to cheaper storage well before that.
+          noncurrentVersionExpiration: cdk.Duration.days(90),
+          noncurrentVersionTransitions: [
+            {
+              storageClass: s3.StorageClass.INFREQUENT_ACCESS,
+              transitionAfter: cdk.Duration.days(30),
+            },
+          ],
+        },
+      ],
     });
 
     this.fileSystem = new efs.FileSystem(this, 'RunsFs', {
@@ -53,6 +77,10 @@ export class StorageStack extends cdk.Stack {
       encrypted: true,
       lifecyclePolicy: efs.LifecyclePolicy.AFTER_30_DAYS,
       performanceMode: efs.PerformanceMode.GENERAL_PURPOSE,
+      // AWS Backup daily plan (35-day retention) on the default vault, so the
+      // shared runs/ + sqlite cache is recoverable. This is the managed plan;
+      // swap for a custom BackupPlan if a different cadence/retention is needed.
+      enableAutomaticBackups: true,
       removalPolicy: cdk.RemovalPolicy.DESTROY, // RETAIN in prod
     });
 
