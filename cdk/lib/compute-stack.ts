@@ -4,6 +4,9 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as efs from 'aws-cdk-lib/aws-efs';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
+import * as actions from 'aws-cdk-lib/aws-elasticloadbalancingv2-actions';
+import * as cognito from 'aws-cdk-lib/aws-cognito';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as logs from 'aws-cdk-lib/aws-logs';
@@ -22,6 +25,22 @@ export interface ComputeStackProps extends cdk.StackProps {
   builderImageAsset?: string;
   bedrockRegion: string;
   bedrockModel: string;
+  /**
+   * Cognito identity (from AuthStack) used by the ALB HTTPS listener's
+   * `authenticate-cognito` action. Required together with `certificateArn` to
+   * enable the authenticated HTTPS listener; omit both to keep the plain HTTP
+   * listener only.
+   */
+  userPool?: cognito.IUserPool;
+  userPoolClient?: cognito.IUserPoolClient;
+  userPoolDomain?: cognito.IUserPoolDomain;
+  /**
+   * ARN of an ACM certificate for the ALB HTTPS (443) listener. Must be in the
+   * SAME region as the ALB (unlike the CloudFront cert, which lives in
+   * us-east-1). When set, the ALB serves an HTTPS listener that authenticates
+   * via Cognito before forwarding to the web service.
+   */
+  certificateArn?: string;
 }
 
 const APP_PORT = 8000;
@@ -120,11 +139,11 @@ export class ComputeStack extends cdk.Stack {
       internetFacing: true,
       securityGroup: props.albSecurityGroup,
     });
-    const listener = this.loadBalancer.addListener('Http', {
-      port: 80,
-      open: false, // ingress is controlled by the ALB security group
-    });
-    listener.addTargets('WebTargets', {
+
+    // Shared target group for the web service — referenced by whichever
+    // listener(s) exist below.
+    const webTargetGroup = new elbv2.ApplicationTargetGroup(this, 'WebTargets', {
+      vpc: props.vpc,
       port: APP_PORT,
       protocol: elbv2.ApplicationProtocol.HTTP,
       targets: [service],
@@ -137,6 +156,66 @@ export class ComputeStack extends cdk.Stack {
       // SSE: don't let the target group idle-timeout mid-stream.
       deregistrationDelay: cdk.Duration.seconds(30),
     });
+
+    // Enable the authenticated HTTPS listener only when BOTH an ACM cert and
+    // the Cognito identity are supplied. `authenticate-cognito` requires HTTPS
+    // (the ALB will not run it on a plain HTTP listener), so without a cert we
+    // fall back to the plain HTTP listener and leave auth to be added once a
+    // cert + domain exist.
+    const cognitoReady =
+      !!props.certificateArn &&
+      !!props.userPool &&
+      !!props.userPoolClient &&
+      !!props.userPoolDomain;
+
+    if (cognitoReady) {
+      // The ALB SG (NetworkStack) allows :80 today; open :443 for the HTTPS
+      // listener. Kept as anyIpv4 to match the current :80 rule — the
+      // `alb-hardening` change tightens both to the CloudFront prefix list.
+      props.albSecurityGroup.addIngressRule(
+        ec2.Peer.anyIpv4(),
+        ec2.Port.tcp(443),
+        'HTTPS from CloudFront (tighten to the CloudFront prefix list in Task 8)',
+      );
+
+      const httpsListener = this.loadBalancer.addListener('Https', {
+        port: 443,
+        protocol: elbv2.ApplicationProtocol.HTTPS,
+        certificates: [elbv2.ListenerCertificate.fromArn(props.certificateArn!)],
+        open: false, // ingress is controlled by the ALB security group
+        // Unauthenticated requests are bounced to the Cognito hosted UI; once
+        // authenticated the request is forwarded to the web target group.
+        defaultAction: new actions.AuthenticateCognitoAction({
+          userPool: props.userPool!,
+          userPoolClient: props.userPoolClient!,
+          userPoolDomain: props.userPoolDomain!,
+          next: elbv2.ListenerAction.forward([webTargetGroup]),
+        }),
+      });
+      // Referenced so the construct is not flagged as unused; the action above
+      // already wires the target group in.
+      void httpsListener;
+
+      // Plain HTTP now only redirects to HTTPS so the auth handshake always
+      // happens over TLS.
+      this.loadBalancer.addListener('Http', {
+        port: 80,
+        open: false,
+        defaultAction: elbv2.ListenerAction.redirect({
+          protocol: 'HTTPS',
+          port: '443',
+          permanent: true,
+        }),
+      });
+    } else {
+      // No cert/identity yet: single HTTP listener forwarding to the service.
+      // (CloudFront still fronts this with HTTPS at the edge.)
+      this.loadBalancer.addListener('Http', {
+        port: 80,
+        open: false, // ingress is controlled by the ALB security group
+        defaultAction: elbv2.ListenerAction.forward([webTargetGroup]),
+      });
+    }
 
     // ======================= BUILDER TASK ==================================
     // Launched on demand by the web service via ecs.run_task (Task 6), NOT a

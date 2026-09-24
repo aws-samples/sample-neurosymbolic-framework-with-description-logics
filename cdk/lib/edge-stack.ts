@@ -8,26 +8,27 @@ import * as cognito from 'aws-cdk-lib/aws-cognito';
 
 export interface EdgeStackProps extends cdk.StackProps {
   loadBalancer: elbv2.IApplicationLoadBalancer;
+  /** Cognito user pool from AuthStack (identity is owned there, not here). */
+  userPool: cognito.IUserPool;
 }
 
 /**
- * Edge + auth:
+ * Edge:
+ *  - Frontend SPA S3 bucket (owned here so CloudFront's OAC policy mutation
+ *    stays in-stack; see StorageStack note on the avoided Storage <-> Edge
+ *    dependency cycle).
  *  - CloudFront: default origin = frontend S3 bucket (OAC, private); /api/* ->
  *    the ALB with caching disabled and headers forwarded (SSE-friendly).
- *  - Cognito user pool + app client for the "behind auth" requirement.
  *
- * AUTH WIRING NOTE: with an INTERNET-FACING ALB the robust pattern is an ALB
- * listener `authenticate-cognito` action in front of the target group (so
- * unauthenticated /api/* is bounced to the Cognito hosted UI). That action
- * lives on the listener in ComputeStack; it needs an HTTPS listener + ACM cert
- * + the user pool below. This stack provisions the Cognito resources and the
- * CloudFront distribution; the listener auth action is added once a domain +
- * cert exist (see the TODO). For a quick gate you can instead use a
- * CloudFront + Lambda@Edge / signed-cookie check — heavier, not recommended.
+ * AUTH WIRING NOTE: identity (the Cognito user pool/client/domain) now lives in
+ * AuthStack. With an INTERNET-FACING ALB the auth enforcement is an ALB HTTPS
+ * listener `authenticate-cognito` action in front of the target group (added in
+ * ComputeStack, which consumes AuthStack's user pool). This stack only fronts
+ * the app with CloudFront and echoes the user-pool id as an output for
+ * convenience.
  */
 export class EdgeStack extends cdk.Stack {
   public readonly distribution: cloudfront.Distribution;
-  public readonly userPool: cognito.UserPool;
   public readonly frontendBucket: s3.Bucket;
 
   constructor(scope: Construct, id: string, props: EdgeStackProps) {
@@ -41,24 +42,6 @@ export class EdgeStack extends cdk.Stack {
       enforceSSL: true,
       removalPolicy: cdk.RemovalPolicy.DESTROY, // RETAIN in prod
       autoDeleteObjects: true,
-    });
-
-    // ---- Cognito (identity for the app) ----------------------------------
-    this.userPool = new cognito.UserPool(this, 'UserPool', {
-      selfSignUpEnabled: false, // invite-only; flip on if public sign-up is wanted
-      signInAliases: { email: true },
-      removalPolicy: cdk.RemovalPolicy.DESTROY, // RETAIN in prod
-    });
-    const userPoolClient = this.userPool.addClient('AppClient', {
-      generateSecret: true,
-      oAuth: {
-        flows: { authorizationCodeGrant: true },
-        scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL],
-        // callbackUrls: [`https://<distribution-domain>/oauth2/idpresponse`], // set after the domain exists
-      },
-    });
-    this.userPool.addDomain('HostedUiDomain', {
-      cognitoDomain: { domainPrefix: `neurosymbolic-dl-${this.account}` },
     });
 
     // ---- CloudFront ------------------------------------------------------
@@ -97,7 +80,8 @@ export class EdgeStack extends cdk.Stack {
       value: this.distribution.distributionDomainName,
     });
     new cdk.CfnOutput(this, 'FrontendBucketName', { value: this.frontendBucket.bucketName });
-    new cdk.CfnOutput(this, 'UserPoolId', { value: this.userPool.userPoolId });
-    new cdk.CfnOutput(this, 'UserPoolClientId', { value: userPoolClient.userPoolClientId });
+    // Identity lives in AuthStack (which outputs the client id + hosted-UI
+    // domain); echoed here for convenience alongside the distribution domain.
+    new cdk.CfnOutput(this, 'UserPoolId', { value: props.userPool.userPoolId });
   }
 }

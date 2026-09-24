@@ -227,9 +227,16 @@ ONTOLOGY_RUNS_DIR=/mnt/runs      # shared EFS mount
       internet-facing ALB is reachable only from CloudFront edge, not directly.
 - [ ] Bedrock **cost guardrails**: CloudWatch alarm on token spend / a per-day
       cap; this is the real cost driver.
-- [ ] Authentication in front of the app if it shouldn't be public (Cognito on
-      CloudFront, or an ALB OIDC action) — `webapp.py` warns it is "not for
-      hostile multi-tenant use."
+- [x] Authentication in front of the app (Cognito). Identity now lives in a
+      dedicated **`AuthStack`** (user pool + app client + hosted-UI domain),
+      consumed by an **ALB HTTPS (443) listener** in `ComputeStack` that runs an
+      `authenticate-cognito` action before forwarding to the web service —
+      unauthenticated `/api/*` is bounced to the Cognito hosted UI. Enabled by
+      passing an ACM cert ARN (`-c albCertificateArn=...`, same region as the
+      ALB) + `-c appDomain=https://<cloudfront-domain>` for the OAuth callback;
+      without the cert the ALB keeps a plain HTTP listener and CloudFront
+      terminates TLS at the edge. `webapp.py` warns it is "not for hostile
+      multi-tenant use," so the Cognito gate is the front door.
 - [ ] Autoscaling policy for the web service; concurrency limit on build tasks.
 - [ ] Backups/lifecycle for EFS `runs/` and S3 artifacts; log retention.
 - [ ] Alarms: ALB 5xx, task crash loops, EFS burst-credit exhaustion.
