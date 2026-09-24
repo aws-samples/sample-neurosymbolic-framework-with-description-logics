@@ -53,14 +53,46 @@ export interface MonitoringStackProps extends cdk.StackProps {
   killSwitchService?: string;
   /** Region the ECS cluster/service live in. Required if killSwitch. */
   killSwitchRegion?: string;
+
+  // ---- Ops alarms (Task 8): ALB 5xx, ECS task crash loops, EFS burst credit.
+  // All optional and config-driven by name/id so this us-east-1-pinned stack can
+  // alarm on resources in the app region without cross-region construct refs.
+  // Each group is created only when its identifier(s) are supplied.
+  /**
+   * Region the ALB / ECS / EFS resources live in (the app region). Defaults to
+   * `killSwitchRegion` when set, else this stack's region. Ops-alarm metrics are
+   * built with this explicit region so they read the right account/region data.
+   */
+  opsResourceRegion?: string;
+  /**
+   * ALB metric dimension value, i.e. `loadBalancer.loadBalancerFullName`
+   * (`app/<name>/<id>`). When set, an ALB 5xx alarm is created.
+   */
+  albFullName?: string;
+  /** ALB 5xx count over 5 min that trips the alarm. Default 10. */
+  alb5xxThreshold?: number;
+  /**
+   * ECS cluster + service names to watch for a crash loop (sustained low/zero
+   * RunningTaskCount). When both set, a crash-loop alarm is created. Defaults to
+   * the killSwitch cluster/service when those are provided.
+   */
+  ecsClusterName?: string;
+  ecsServiceName?: string;
+  /**
+   * EFS filesystem id (`fs-...`). When set, a burst-credit-exhaustion alarm is
+   * created (BurstCreditBalance approaching zero). Note: only meaningful in
+   * EFS bursting-throughput mode.
+   */
+  efsFileSystemId?: string;
 }
 
 /**
- * Cost guardrails (Task 8). Bedrock token spend is the real cost driver, so the
- * primary alarms watch AWS/Bedrock token metrics; a billing alarm is a coarse
- * dollar backstop. All alarms notify one SNS topic. Optionally (killSwitch) a
- * Lambda on that topic scales the web service to 0 when the token cap is hit,
- * turning the alarm into a real spend stop.
+ * Cost guardrails + ops alarms (Task 8). Bedrock token spend is the real cost
+ * driver, so the primary alarms watch AWS/Bedrock token metrics; a billing alarm
+ * is a coarse dollar backstop. Ops alarms (ALB 5xx, ECS crash loop, EFS
+ * burst-credit) watch health. All alarms notify one SNS topic. Optionally
+ * (killSwitch) a Lambda on that topic scales the web service to 0 when the token
+ * cap is hit, turning the alarm into a real spend stop.
  *
  * NOTE on region: the AWS/Billing EstimatedCharges metric is ONLY published in
  * us-east-1. Deploy this stack in us-east-1 (the app's default Bedrock region)
@@ -241,6 +273,101 @@ export class MonitoringStack extends cdk.Stack {
           'Scales the web service to 0 when the token-cap alarm fires. ' +
           'Restore service with: aws ecs update-service --desired-count 1.',
       });
+    }
+
+    // ---- Ops alarms (Task 8) ---------------------------------------------
+    // ALB 5xx, ECS crash loop, EFS burst-credit exhaustion. Built from
+    // names/ids with an explicit region so this us-east-1 stack can watch
+    // app-region resources. Each is created only when its id(s) are supplied.
+    const opsRegion = props.opsResourceRegion ?? props.killSwitchRegion ?? this.region;
+
+    // ALB 5xx: elevated server-side errors from the load balancer itself.
+    if (props.albFullName) {
+      const alb5xx = new cloudwatch.Metric({
+        namespace: 'AWS/ApplicationELB',
+        metricName: 'HTTPCode_ELB_5XX_Count',
+        dimensionsMap: { LoadBalancer: props.albFullName },
+        statistic: cloudwatch.Stats.SUM,
+        period: cdk.Duration.minutes(5),
+        region: opsRegion,
+      });
+      const alb5xxAlarm = new cloudwatch.Alarm(this, 'Alb5xx', {
+        alarmName: `${this.stackName}-alb-5xx`,
+        alarmDescription:
+          `ALB returned more than ${props.alb5xxThreshold ?? 10} 5xx responses ` +
+          `in 5 min — the load balancer could not reach a healthy target.`,
+        metric: alb5xx,
+        threshold: props.alb5xxThreshold ?? 10,
+        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+        evaluationPeriods: 1,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      });
+      alb5xxAlarm.addAlarmAction(alarmAction);
+      alb5xxAlarm.addOkAction(alarmAction);
+    }
+
+    // ECS crash loop: the web service running fewer tasks than desired for a
+    // sustained window (tasks starting then dying). RunningTaskCount < 1
+    // averaged over 15 min (3 x 5-min periods) catches a task that can't stay up.
+    if (props.ecsClusterName && props.ecsServiceName) {
+      const runningTasks = new cloudwatch.Metric({
+        namespace: 'ECS/ContainerInsights',
+        metricName: 'RunningTaskCount',
+        dimensionsMap: {
+          ClusterName: props.ecsClusterName,
+          ServiceName: props.ecsServiceName,
+        },
+        statistic: cloudwatch.Stats.AVERAGE,
+        period: cdk.Duration.minutes(5),
+        region: opsRegion,
+      });
+      const crashLoopAlarm = new cloudwatch.Alarm(this, 'EcsCrashLoop', {
+        alarmName: `${this.stackName}-ecs-crash-loop`,
+        alarmDescription:
+          `Web service ${props.ecsServiceName} had <1 running task on average ` +
+          `for 15 min — likely a crash loop (tasks starting then exiting). ` +
+          `Requires Container Insights (enabled on the cluster).`,
+        metric: runningTasks,
+        threshold: 1,
+        comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+        evaluationPeriods: 3,
+        datapointsToAlarm: 3,
+        // No data here would mean the service/insights is gone — treat as
+        // breaching so a vanished service is noticed rather than silently OK.
+        treatMissingData: cloudwatch.TreatMissingData.BREACHING,
+      });
+      crashLoopAlarm.addAlarmAction(alarmAction);
+      crashLoopAlarm.addOkAction(alarmAction);
+    }
+
+    // EFS burst-credit exhaustion: in bursting-throughput mode, a depleted
+    // BurstCreditBalance throttles the shared runs/ + sqlite cache, stalling
+    // both web and builder. Alarm well before zero so there's time to react.
+    if (props.efsFileSystemId) {
+      const burstCredits = new cloudwatch.Metric({
+        namespace: 'AWS/EFS',
+        metricName: 'BurstCreditBalance',
+        dimensionsMap: { FileSystemId: props.efsFileSystemId },
+        statistic: cloudwatch.Stats.AVERAGE,
+        period: cdk.Duration.minutes(15),
+        region: opsRegion,
+      });
+      const burstAlarm = new cloudwatch.Alarm(this, 'EfsBurstCredit', {
+        alarmName: `${this.stackName}-efs-burst-credit`,
+        alarmDescription:
+          `EFS ${props.efsFileSystemId} burst-credit balance is low — sustained ` +
+          `throughput will throttle the shared runs/ + sqlite cache. Only ` +
+          `meaningful in bursting-throughput mode; ignore if using Elastic/` +
+          `Provisioned throughput.`,
+        metric: burstCredits,
+        // ~1 TiB-minute: comfortably above zero, giving lead time to act.
+        threshold: 1_000_000_000_000,
+        comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+        evaluationPeriods: 1,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      });
+      burstAlarm.addAlarmAction(alarmAction);
+      burstAlarm.addOkAction(alarmAction);
     }
 
     new cdk.CfnOutput(this, 'AlertTopicArn', {
