@@ -15,16 +15,25 @@ from ontology_qa_cli import build_backend as bb
 # Fake boto3 session/clients
 # --------------------------------------------------------------------------- #
 class _FakeEcs:
-    def __init__(self, *, task_arn="arn:aws:ecs:us-east-1:1:task/c/abc123", run_failures=None):
+    def __init__(self, *, task_arn="arn:aws:ecs:us-east-1:1:task/c/abc123", run_failures=None,
+                 active_running=0, active_pending=0):
         self.task_arn = task_arn
         self.run_failures = run_failures or []
         self.run_task_calls = []
+        self.list_tasks_calls = []
+        self._active_running = active_running
+        self._active_pending = active_pending
         self._last_status = "RUNNING"
         self._exit_code = None
 
     def set_stopped(self, exit_code):
         self._last_status = "STOPPED"
         self._exit_code = exit_code
+
+    def list_tasks(self, **kwargs):
+        self.list_tasks_calls.append(kwargs)
+        n = self._active_running if kwargs.get("desiredStatus") == "RUNNING" else self._active_pending
+        return {"taskArns": [f"arn/task-{i}" for i in range(n)]}
 
     def run_task(self, **kwargs):
         self.run_task_calls.append(kwargs)
@@ -104,6 +113,34 @@ class TestEcsBackend:
         ecs = _FakeEcs(run_failures=[{"reason": "CAPACITY"}])
         with pytest.raises(RuntimeError):
             _backend(ecs).start("FMA")
+
+    def test_no_concurrency_check_when_cap_unset(self, ecs_env):
+        # Default (BUILD_ECS_MAX_CONCURRENT unset -> 0) means unlimited: no
+        # list_tasks call, task launches regardless of how many are running.
+        ecs = _FakeEcs(active_running=99)
+        _backend(ecs).start("FMA")
+        assert ecs.list_tasks_calls == []
+        assert len(ecs.run_task_calls) == 1
+
+    def test_start_under_cap_launches(self, ecs_env, monkeypatch):
+        monkeypatch.setenv("BUILD_ECS_MAX_CONCURRENT", "3")
+        ecs = _FakeEcs(active_running=2)  # 2 < 3
+        _backend(ecs).start("FMA")
+        assert len(ecs.run_task_calls) == 1
+        # list_tasks filtered by the task-def family, not the raw "builder:1".
+        assert ecs.list_tasks_calls[0]["family"] == "builder"
+
+    def test_start_at_cap_raises_capacity_error(self, ecs_env, monkeypatch):
+        monkeypatch.setenv("BUILD_ECS_MAX_CONCURRENT", "2")
+        ecs = _FakeEcs(active_running=1, active_pending=1)  # 1+1 == 2
+        with pytest.raises(bb.BuildCapacityError):
+            _backend(ecs).start("FMA")
+        assert ecs.run_task_calls == []  # never launched
+
+    def test_capacity_error_is_runtimeerror_subclass(self):
+        # The web app catches BuildCapacityError specifically (429); make sure it
+        # stays distinguishable from the generic launch-failure RuntimeError.
+        assert issubclass(bb.BuildCapacityError, RuntimeError)
 
     def test_poll_running_then_finished(self, ecs_env):
         ecs = _FakeEcs()

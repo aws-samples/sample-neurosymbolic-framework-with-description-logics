@@ -196,6 +196,13 @@ unchanged and all existing tests stay green. New tests in `tests/test_build_back
 - [x] `EcsBuildBackend`: `ecs.run_task` (ontology as container command override),
       `ecs.describe_tasks` for status, CloudWatch `get_log_events` for the SSE log tail.
 - [x] IAM already granted in `compute-stack.ts` (`ecs:RunTask`, `DescribeTasks`, `PassRole`).
+- [x] **Build-task concurrency limit** (also the Task 8 "concurrency limit on
+      build tasks" item): `EcsBuildBackend` refuses a launch when
+      `BUILD_ECS_MAX_CONCURRENT` (0 = unlimited, default) RUNNING+PENDING builder
+      tasks already exist, raising `BuildCapacityError` → HTTP 429 in `webapp.py`.
+      Counts via `ecs:ListTasks` filtered by the builder task-def family
+      (`ecs:ListTasks` is already granted to the web task role in
+      `compute-stack.ts`, so no IAM change is needed).
 - [ ] Set the ECS backend env vars on the web task definition (below) and flip
       `BUILD_BACKEND=ecs`. Wire `BUILD_ECS_*` from CDK outputs in `compute-stack.ts`.
 
@@ -209,6 +216,7 @@ BUILD_ECS_SUBNETS=<private subnet ids, comma-separated>
 BUILD_ECS_SECURITY_GROUPS=<sg ids, comma-separated>
 BUILD_ECS_LOG_GROUP=<builder awslogs group>
 BUILD_ECS_LOG_STREAM_PREFIX=builder
+BUILD_ECS_MAX_CONCURRENT=3       # 0 = unlimited (default); cap on in-flight builder tasks
 ONTOLOGY_RUNS_DIR=/mnt/runs      # shared EFS mount
 ```
 

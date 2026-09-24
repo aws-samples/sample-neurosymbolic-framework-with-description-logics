@@ -33,6 +33,13 @@ from pathlib import Path
 from typing import AsyncIterator, Callable, Optional, Protocol
 
 
+class BuildCapacityError(RuntimeError):
+    """Raised when a build is refused because the configured maximum number of
+    concurrent builder tasks is already running. Distinct from a launch failure
+    so the web app can surface a "try again shortly" 429 rather than a 500.
+    """
+
+
 # --------------------------------------------------------------------------- #
 # Job handle
 # --------------------------------------------------------------------------- #
@@ -180,6 +187,7 @@ class EcsBuildBackend:
         BUILD_ECS_LOG_STREAM_PREFIX  awslogs stream prefix (default "builder")
         ONTOLOGY_CONFIG              config path passed to the builder (default ontology_config.yaml)
         ONTOLOGY_RUNS_DIR            output dir on the shared EFS mount (default /mnt/runs)
+        BUILD_ECS_MAX_CONCURRENT     max in-flight builder tasks; 0 = unlimited (default)
     """
 
     def __init__(self, *, boto_session: object = None) -> None:
@@ -193,6 +201,10 @@ class EcsBuildBackend:
         self._log_prefix = os.environ.get("BUILD_ECS_LOG_STREAM_PREFIX", "builder")
         self._config_path = os.environ.get("ONTOLOGY_CONFIG", "ontology_config.yaml")
         self._runs_dir = os.environ.get("ONTOLOGY_RUNS_DIR", "/mnt/runs")
+        # Concurrency cap on in-flight builder tasks. 0 (default) = unlimited,
+        # preserving the prior behavior. Builds are long and Bedrock-costly, so
+        # a small positive cap protects both cost and Fargate task limits.
+        self._max_concurrent = _int_env("BUILD_ECS_MAX_CONCURRENT", 0)
 
     # -- lazily-created AWS clients (so import/tests don't need boto3/creds) --
     def _client(self, service: str):
@@ -204,6 +216,17 @@ class EcsBuildBackend:
     def start(self, ontology: str) -> BuildJob:
         job_id = uuid.uuid4().hex[:12]
         ecs = self._client("ecs")
+        # Enforce the concurrency cap before launching. A cap of 0 disables the
+        # check (unlimited). We count RUNNING + PENDING builder tasks in the
+        # cluster; the small race window (two callers passing the check at once)
+        # is acceptable for a cost/limit guardrail, not a hard quota.
+        if self._max_concurrent > 0:
+            running = self._count_active_builder_tasks(ecs)
+            if running >= self._max_concurrent:
+                raise BuildCapacityError(
+                    f"build refused: {running} builder task(s) already running "
+                    f"(limit {self._max_concurrent}); try again shortly"
+                )
         resp = ecs.run_task(
             cluster=self._cluster,
             taskDefinition=self._task_def,
@@ -236,6 +259,31 @@ class EcsBuildBackend:
             raise RuntimeError(f"ecs.run_task failed to launch builder: {failures}")
         task_arn = resp["tasks"][0]["taskArn"]
         return BuildJob(job_id=job_id, ontology=ontology, task_arn=task_arn)
+
+    def _task_family(self) -> str:
+        """The task-def family used to filter list_tasks. Accepts either a
+        ``family:revision`` string or a full task-definition ARN
+        (``.../builder:3``); strip the ``:revision`` suffix in both cases.
+        """
+        tail = self._task_def.rsplit("/", 1)[-1]  # ARN -> "builder:3"; plain -> unchanged
+        return tail.split(":", 1)[0]
+
+    def _count_active_builder_tasks(self, ecs) -> int:
+        """Count builder tasks in the cluster that are RUNNING or PENDING."""
+        family = self._task_family()
+        total = 0
+        for status in ("RUNNING", "PENDING"):
+            token = None
+            while True:
+                kwargs = {"cluster": self._cluster, "family": family, "desiredStatus": status}
+                if token:
+                    kwargs["nextToken"] = token
+                resp = ecs.list_tasks(**kwargs)
+                total += len(resp.get("taskArns") or [])
+                token = resp.get("nextToken")
+                if not token:
+                    break
+        return total
 
     def poll(self, job: BuildJob) -> str:
         with job.lock:
@@ -317,6 +365,15 @@ class EcsBuildBackend:
 def _csv_env(name: str) -> list[str]:
     raw = os.environ.get(name, "")
     return [s.strip() for s in raw.split(",") if s.strip()]
+
+
+def _int_env(name: str, default: int) -> int:
+    """Parse an int env var; fall back to ``default`` when unset or malformed."""
+    raw = os.environ.get(name, "")
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
 
 
 def make_build_backend(config_path: Path, runs_dir: Path) -> BuildBackend:
