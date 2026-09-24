@@ -225,8 +225,15 @@ ONTOLOGY_RUNS_DIR=/mnt/runs      # shared EFS mount
       (via a `DescribeManagedPrefixLists` custom resource, since the id is
       region-specific) and scopes ALB ingress to it on ports 80 and 443 — so the
       internet-facing ALB is reachable only from CloudFront edge, not directly.
-- [ ] Bedrock **cost guardrails**: CloudWatch alarm on token spend / a per-day
-      cap; this is the real cost driver.
+- [x] Bedrock **cost guardrails** ✅ (2026-09-23): new `MonitoringStack`
+      (`cdk/lib/monitoring-stack.ts`, pinned to `us-east-1`) with an SNS alert
+      topic and two alarms — (1) a daily Bedrock **token cap** on
+      `AWS/Bedrock` `InputTokenCount`+`OutputTokenCount` for the app's `ModelId`
+      (the real cost driver), and (2) a coarse `AWS/Billing` `EstimatedCharges`
+      dollar backstop. Configure via context: `-c alertEmail=you@amazon.com`
+      `-c dailyTokenCap=<tokens>` `-c monthlyUsdCap=<usd>` (`monthlyUsdCap=0`
+      skips the billing alarm). `ModelId` tracks the same `bedrockModel`
+      default as Task 2's `llm_config.py`.
 - [x] Authentication in front of the app (Cognito). Identity now lives in a
       dedicated **`AuthStack`** (user pool + app client + hosted-UI domain),
       consumed by an **ALB HTTPS (443) listener** in `ComputeStack` that runs an
@@ -237,6 +244,18 @@ ONTOLOGY_RUNS_DIR=/mnt/runs      # shared EFS mount
       without the cert the ALB keeps a plain HTTP listener and CloudFront
       terminates TLS at the edge. `webapp.py` warns it is "not for hostile
       multi-tenant use," so the Cognito gate is the front door.
+- [x] Bedrock **cost kill-switch** ✅ (2026-09-23): opt-in Lambda (also in
+      `MonitoringStack`) subscribed to the alert topic. When the daily
+      token-cap alarm enters `ALARM` it scales the web ECS service to
+      `desiredCount=0` — a real spend STOP, not just a notification. It ignores
+      every other topic message (billing alarm, OK transitions). OFF by default;
+      enable with `-c killSwitch=true` and supply the target service:
+      `-c killSwitchCluster=<name> -c killSwitchService=<name>`
+      (`killSwitchRegion` defaults to the app region where Compute lives —
+      the Compute stack prints `ClusterName` and the web service's generated
+      name as outputs). IAM is least-privilege: `ecs:UpdateService` +
+      `ecs:DescribeServices` on that one service ARN only. Restore service after
+      a kill with `aws ecs update-service --desired-count 1`.
 - [ ] Autoscaling policy for the web service; concurrency limit on build tasks.
 - [x] Backups/lifecycle for EFS `runs/` and S3 artifacts; log retention.
       **EFS:** `enableAutomaticBackups` (AWS Backup daily plan, 35-day retention
