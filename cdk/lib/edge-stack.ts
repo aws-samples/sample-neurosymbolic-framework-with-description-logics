@@ -34,14 +34,19 @@ export class EdgeStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: EdgeStackProps) {
     super(scope, id, props);
 
+    // `-c prod=true` retains the SPA bucket on teardown; dev/test keeps
+    // DESTROY + autoDelete (mutually exclusive with RETAIN).
+    const isProd = this.node.tryGetContext('prod') === true
+      || this.node.tryGetContext('prod') === 'true';
+
     // ---- Frontend SPA bucket (owned here so CloudFront's OAC policy mutation
     // stays in-stack; see StorageStack note on the avoided dependency cycle) --
     this.frontendBucket = new s3.Bucket(this, 'FrontendBucket', {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
       enforceSSL: true,
-      removalPolicy: cdk.RemovalPolicy.DESTROY, // RETAIN in prod
-      autoDeleteObjects: true,
+      removalPolicy: isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: !isProd,
     });
 
     // ---- CloudFront ------------------------------------------------------

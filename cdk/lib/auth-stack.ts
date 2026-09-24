@@ -34,10 +34,15 @@ export class AuthStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: AuthStackProps = {}) {
     super(scope, id, props);
 
+    // `-c prod=true` retains the user pool on teardown so real user accounts
+    // survive a stack deletion; dev/test keeps DESTROY for a clean teardown.
+    const isProd = this.node.tryGetContext('prod') === true
+      || this.node.tryGetContext('prod') === 'true';
+
     this.userPool = new cognito.UserPool(this, 'UserPool', {
       selfSignUpEnabled: false, // invite-only; flip on if public sign-up is wanted
       signInAliases: { email: true },
-      removalPolicy: cdk.RemovalPolicy.DESTROY, // RETAIN in prod
+      removalPolicy: isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
     });
 
     // The ALB authenticate-cognito action needs the confidential

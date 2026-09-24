@@ -287,6 +287,14 @@ ONTOLOGY_RUNS_DIR=/mnt/runs      # shared EFS mount
       Config-driven by name/id with an explicit `opsResourceRegion` (app region)
       so the us-east-1-pinned stack reads app-region metrics; ALB name + EFS id
       wired from live constructs, ECS cluster/service reuse the killSwitch keys.
+- [x] **Prod data retention.** `-c prod=true` flips `removalPolicy` to `RETAIN`
+      on all stateful resources — S3 buckets (ontology, artifact, frontend SPA),
+      the EFS filesystem, and the Cognito user pool — and disables
+      `autoDeleteObjects` (mutually exclusive with RETAIN, and it would otherwise
+      empty a bucket on teardown and defeat the retention). Default (no flag) is
+      DESTROY + autoDelete for clean dev/test teardowns. Verified via `cdk synth`:
+      prod → `DeletionPolicy: Retain` everywhere, zero auto-delete custom
+      resources; dev → `Delete` + auto-delete as before.
 
 ## Open questions for you
 1. **Split or single-service for v1?** (Task 0) — single is faster to ship; split
