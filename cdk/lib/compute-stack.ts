@@ -106,6 +106,12 @@ export class ComputeStack extends cdk.Stack {
       cpu: 512,
       memoryLimitMiB: 1024,
       volumes: [efsVolume],
+      // Run on Graviton/arm64 so the natively-built (Apple Silicon) image runs
+      // without emulation. Both task defs must match the image architecture.
+      runtimePlatform: {
+        cpuArchitecture: ecs.CpuArchitecture.ARM64,
+        operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
+      },
     });
     webTaskDef.addToTaskRolePolicy(bedrockInvoke);
     props.ontologyBucket.grantRead(webTaskDef.taskRole);
@@ -252,6 +258,10 @@ export class ComputeStack extends cdk.Stack {
       cpu: 1024,
       memoryLimitMiB: 2048,
       volumes: [efsVolume],
+      runtimePlatform: {
+        cpuArchitecture: ecs.CpuArchitecture.ARM64,
+        operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
+      },
     });
     this.builderTaskDefinition.addToTaskRolePolicy(bedrockInvoke);
     props.ontologyBucket.grantRead(this.builderTaskDefinition.taskRole);

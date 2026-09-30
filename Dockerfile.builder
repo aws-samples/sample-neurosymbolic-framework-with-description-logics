@@ -34,7 +34,7 @@ RUN uv sync --frozen
 # Pin/verify it for a locked-down build (mirror the installer, or vendor the
 # release binary and COPY it in) rather than fetching latest at build time.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && apt-get install -y --no-install-recommends curl ca-certificates unzip \
     && rm -rf /var/lib/apt/lists/* \
     && curl -fsSL https://cli.kiro.dev/install | bash \
     && ( command -v kiro-cli >/dev/null 2>&1 \
