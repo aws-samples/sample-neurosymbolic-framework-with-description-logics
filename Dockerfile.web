@@ -49,4 +49,7 @@ ENV PORT=8000
 EXPOSE 8000
 
 # uv run keeps us inside the synced environment. Bind 0.0.0.0 for the ALB.
-CMD ["sh", "-c", "uv run uvicorn ontology_qa_cli.webapp:app --host 0.0.0.0 --port ${PORT}"]
+# NOTE: module-level `app` is a None placeholder (webapp.py defers config loading
+# to create_app()); launch the factory so uvicorn builds the real FastAPI app at
+# startup. Serving `...:app` directly yields ASGI2-wrapping of None -> 500s.
+CMD ["sh", "-c", "uv run uvicorn ontology_qa_cli.webapp:create_app --factory --host 0.0.0.0 --port ${PORT}"]

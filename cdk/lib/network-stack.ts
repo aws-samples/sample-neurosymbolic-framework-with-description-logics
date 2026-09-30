@@ -73,13 +73,13 @@ export class NetworkStack extends cdk.Stack {
       'PrefixLists.0.PrefixListId',
     );
 
-    // ALB accepts traffic only from the CloudFront origin-facing prefix list,
-    // on both 80 (redirected to HTTPS at CloudFront) and 443.
-    this.albSecurityGroup.addIngressRule(
-      ec2.Peer.prefixList(cloudFrontPrefixListId),
-      ec2.Port.tcp(80),
-      'HTTP from CloudFront edge only',
-    );
+    // ALB accepts traffic only from the CloudFront origin-facing prefix list.
+    // Scoped to 443 ONLY: the origin-facing prefix list has ~55 entries, and
+    // each entry consumes a security-group rule allowance. Adding it on both
+    // 80 and 443 (~110 rules) exceeds the default 60-rules-per-SG limit
+    // (ServiceLimitExceeded). CloudFront reaches the origin over one protocol,
+    // and HTTP is redirected to HTTPS at the edge, so the :80 origin rule is
+    // unnecessary. Restore a :80 rule only after raising the SG rule quota.
     this.albSecurityGroup.addIngressRule(
       ec2.Peer.prefixList(cloudFrontPrefixListId),
       ec2.Port.tcp(443),
