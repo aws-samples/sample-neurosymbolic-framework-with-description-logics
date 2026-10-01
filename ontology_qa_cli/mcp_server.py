@@ -283,3 +283,7 @@ def main() -> None:  # pragma: no cover - thin uvicorn launcher
         host=args.host,
         port=args.port,
     )
+
+
+if __name__ == "__main__":  # pragma: no cover - module entrypoint
+    main()
