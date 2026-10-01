@@ -55,8 +55,8 @@ from ontology_qa_cli.serve import OntologyAnswerer
 from ontology_qa_cli.build_backend import (
     BuildBackend,
     BuildCapacityError,
-    BuildJob,
     make_build_backend,
+    make_job_store,
 )
 from ontology_qa_cli import s3_cache
 
@@ -104,11 +104,16 @@ def create_app(
     # In-memory state (single process).
     answerers: dict[str, OntologyAnswerer] = {}          # ontology -> answerer
     sessions: dict[str, ChatSession] = {}                # conversation_id -> session
-    jobs: dict[str, BuildJob] = {}                       # job_id -> build job
     state_lock = threading.Lock()
 
     # How builds run: local subprocess (default) or a Fargate task (BUILD_BACKEND=ecs).
     build_backend: BuildBackend = make_build_backend(config_path, runs_dir)
+
+    # Where running-build handles are tracked. For the ECS deployment this is a
+    # shared store on the EFS mount, so a build started on one web task can be
+    # polled/streamed from any other (the service runs >1 task behind the ALB).
+    # For the subprocess backend it is an in-process dict (single process).
+    jobs = make_job_store(runs_dir)
 
     def _ontology_names() -> list[str]:
         return [e.name for e in load_config(config_path).ontologies]
@@ -252,8 +257,7 @@ def create_app(
         except BuildCapacityError as exc:
             # At the concurrent-build limit — a transient, retryable condition.
             raise HTTPException(status_code=429, detail=str(exc))
-        with state_lock:
-            jobs[job.job_id] = job
+        jobs.put(job)
         return job.job_id
 
     @app.post("/api/select")
@@ -263,10 +267,9 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"Unknown ontology '{ontology}'")
 
         # Already-running build for this ontology? Report it.
-        with state_lock:
-            for job in jobs.values():
-                if job.ontology == ontology and build_backend.poll(job) == "running":
-                    return {"status": "building", "job_id": job.job_id}
+        running = jobs.running_for(ontology, build_backend.poll)
+        if running is not None:
+            return {"status": "building", "job_id": running.job_id}
 
         if _has_program(ontology):
             # Load in a worker thread so the event loop is not blocked by the
@@ -303,10 +306,10 @@ def create_app(
             )
 
         # If a build is already running for this ontology, just report it.
+        running = jobs.running_for(ontology, build_backend.poll)
+        if running is not None:
+            return {"status": "building", "job_id": running.job_id}
         with state_lock:
-            for job in jobs.values():
-                if job.ontology == ontology and build_backend.poll(job) == "running":
-                    return {"status": "building", "job_id": job.job_id}
             # Drop the cached answerer; it will reload from the new program.
             answerers.pop(ontology, None)
 
@@ -318,6 +321,10 @@ def create_app(
         if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")
         status = build_backend.poll(job)
+        if status in ("finished", "failed"):
+            # Persist the terminal status so other web tasks (sharing the store)
+            # don't re-poll ECS for a job that's already done.
+            jobs.put(job)
         result = {"status": status, "ontology": job.ontology, "log": build_backend.log_tail(job)}
         if status == "finished":
             # Preload the answerer so the first chat is instant.
@@ -354,6 +361,8 @@ def create_app(
                 yield f"data: {line}\n\n"
 
             status = build_backend.poll(job)
+            if status in ("finished", "failed"):
+                jobs.put(job)  # persist terminal status for sibling web tasks
             ready = False
             if status == "finished":
                 try:

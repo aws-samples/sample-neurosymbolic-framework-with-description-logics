@@ -7,7 +7,7 @@
 #         Requires AWS credentials with s3:GetObject on the object.
 ontologies:
   - name: "FMA"
-    owl_file: "s3://dl-chatbot/data/fma.owl"
+    owl_file: "s3://neurosymbolicdl-storage-ontologybucket795a3498-gjp5avevev34/ontologies/fma.owl"
     questions:
       - question: "What are the parts of the heart?"
         expected_answer: |
@@ -89,7 +89,7 @@ ontologies:
           They are major blood vessels in the neck that supply oxygen-rich
           blood directly to the brain, neck, and face.
   - name: "GO"
-    owl_file: "s3://dl-chatbot/data/go-plus.owl"
+    owl_file: "s3://neurosymbolicdl-storage-ontologybucket795a3498-gjp5avevev34/ontologies/go-plus.owl"
     questions:
       - question: "Does TP53 interact with DNA?"
         expected_answer: |

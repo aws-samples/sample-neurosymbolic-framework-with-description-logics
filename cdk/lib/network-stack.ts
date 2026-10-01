@@ -74,16 +74,21 @@ export class NetworkStack extends cdk.Stack {
     );
 
     // ALB accepts traffic only from the CloudFront origin-facing prefix list.
-    // Scoped to 443 ONLY: the origin-facing prefix list has ~55 entries, and
-    // each entry consumes a security-group rule allowance. Adding it on both
-    // 80 and 443 (~110 rules) exceeds the default 60-rules-per-SG limit
-    // (ServiceLimitExceeded). CloudFront reaches the origin over one protocol,
-    // and HTTP is redirected to HTTPS at the edge, so the :80 origin rule is
-    // unnecessary. Restore a :80 rule only after raising the SG rule quota.
+    // Scoped to :80 ONLY. Two constraints force a single port:
+    //   1. The origin-facing prefix list (~55 entries) consumes one SG-rule
+    //      allowance per entry, so putting it on both 80 and 443 (~110 rules)
+    //      exceeds the default 60-rules-per-SG limit (ServiceLimitExceeded).
+    //   2. CloudFront reaches this ALB origin over HTTP:80 (the distribution's
+    //      ALB origin is http-only; viewer-side redirect-to-https is separate).
+    // So the origin rule MUST be :80 — CloudFront->ALB traffic is dropped
+    // otherwise (manifests as a CloudFront origin timeout / HTTP 000 on /api).
+    // When the opt-in HTTPS:443 ALB listener is enabled, switch the CloudFront
+    // origin to https + move this rule to 443 (still one port, still under the
+    // limit), or raise the SG rule quota to allow both.
     this.albSecurityGroup.addIngressRule(
       ec2.Peer.prefixList(cloudFrontPrefixListId),
-      ec2.Port.tcp(443),
-      'HTTPS from CloudFront edge only',
+      ec2.Port.tcp(80),
+      'HTTP from CloudFront edge only (CloudFront ALB origin is http-only)',
     );
 
     this.serviceSecurityGroup = new ec2.SecurityGroup(this, 'ServiceSg', {

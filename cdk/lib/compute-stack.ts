@@ -276,11 +276,16 @@ export class ComputeStack extends cdk.Stack {
       description: 'kiro-cli headless API key for the ontology builder task',
     });
 
+    const builderLogGroup = new logs.LogGroup(this, 'BuilderLogGroup', {
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
     const builderContainer = this.builderTaskDefinition.addContainer('builder', {
       image: builderImage,
       logging: ecs.LogDrivers.awsLogs({
         streamPrefix: 'builder',
-        logRetention: logs.RetentionDays.ONE_MONTH,
+        logGroup: builderLogGroup,
       }),
       environment: commonEnv,
       secrets: {
@@ -319,6 +324,36 @@ export class ComputeStack extends cdk.Stack {
         this.builderTaskDefinition.obtainExecutionRole().roleArn,
       ],
     }));
+
+    // ---- Tell the WEB app to use the ECS build backend -------------------
+    // Without BUILD_BACKEND=ecs the web app defaults to the subprocess backend
+    // and runs the (long, costly) build INSIDE the web container instead of
+    // launching the builder Fargate task. These vars are read by
+    // ontology_qa_cli/build_backend.py:EcsBuildBackend. The private subnets +
+    // service SG match where the web service itself runs (egress to Bedrock/S3,
+    // reachable by EFS). The log group is the builder's, tailed for the live
+    // build stream; grant the web role read on it.
+    const builderSubnets = props.vpc.selectSubnets({
+      subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+    });
+    webContainer.addEnvironment('BUILD_BACKEND', 'ecs');
+    webContainer.addEnvironment('BUILD_ECS_CLUSTER', cluster.clusterName);
+    webContainer.addEnvironment(
+      'BUILD_ECS_TASK_DEFINITION',
+      this.builderTaskDefinition.taskDefinitionArn,
+    );
+    webContainer.addEnvironment('BUILD_ECS_CONTAINER_NAME', 'builder');
+    webContainer.addEnvironment('BUILD_ECS_SUBNETS', builderSubnets.subnetIds.join(','));
+    webContainer.addEnvironment(
+      'BUILD_ECS_SECURITY_GROUPS',
+      props.serviceSecurityGroup.securityGroupId,
+    );
+    webContainer.addEnvironment('BUILD_ECS_LOG_GROUP', builderLogGroup.logGroupName);
+    webContainer.addEnvironment('BUILD_ECS_LOG_STREAM_PREFIX', 'builder');
+    webContainer.addEnvironment('ONTOLOGY_CONFIG', 'ontology_config.yaml');
+    webContainer.addEnvironment('ONTOLOGY_RUNS_DIR', EFS_MOUNT);
+    // The web app tails the builder's CloudWatch logs for the live build stream.
+    builderLogGroup.grantRead(webTaskDef.taskRole);
 
     new cdk.CfnOutput(this, 'ClusterName', { value: cluster.clusterName });
     new cdk.CfnOutput(this, 'KiroApiKeySecretArn', {

@@ -130,14 +130,21 @@ def run_build(args: argparse.Namespace) -> None:
 
     # 0. Check AWS credentials are available
     import os
-    has_key_pair = os.environ.get("AWS_ACCESS_KEY_ID") and os.environ.get("AWS_SECRET_ACCESS_KEY")
-    has_profile = os.environ.get("AWS_PROFILE")
-    has_role = os.environ.get("AWS_ROLE_ARN") or os.environ.get("AWS_WEB_IDENTITY_TOKEN_FILE")
-    has_sso = os.environ.get("AWS_SSO_ACCOUNT_ID") or os.path.exists(os.path.expanduser("~/.aws/credentials"))
-    if not (has_key_pair or has_profile or has_role or has_sso):
+    # Ask botocore whether ANY credential source resolves. This is the
+    # authoritative check: it covers env keys, AWS_PROFILE, SSO, web-identity
+    # AND the ECS/Fargate container-credentials endpoint + EC2 IMDS — the last
+    # two being how a Fargate task role is delivered (no env keys / profile are
+    # set, so the old env-var-only guard wrongly aborted under the task role).
+    try:
+        import botocore.session
+
+        if botocore.session.get_session().get_credentials() is None:
+            raise RuntimeError("no credentials")
+    except Exception:
         print(
             "Error: No AWS credentials found. Set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, "
-            "AWS_PROFILE, or configure ~/.aws/credentials before running.",
+            "AWS_PROFILE, configure ~/.aws/credentials, or run with an ECS task role / "
+            "EC2 instance profile before running.",
             file=sys.stderr,
         )
         sys.exit(1)
