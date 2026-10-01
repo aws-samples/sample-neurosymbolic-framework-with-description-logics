@@ -290,3 +290,36 @@ class TestWebApp:
         assert "OWL file not found" in body  # the real error streamed through
         assert "event: done" in body
         assert '"status": "failed"' in body
+
+
+
+class TestRunsDirResolution:
+    """create_app must find built programs on the shared EFS mount.
+
+    The Dockerfile.web launch is `uvicorn ...:create_app --factory` with NO
+    runs_dir argument, so the ONLY way the web task is told where the builder
+    Fargate task wrote programs (the EFS mount, ONTOLOGY_RUNS_DIR=/mnt/runs) is
+    via that env var. If create_app ignored it and used the container-local
+    ./runs, every ontology would show has_program=false even after a successful
+    build. These tests lock that wiring in.
+    """
+
+    def test_env_runs_dir_used_when_arg_omitted(self, env, monkeypatch):
+        monkeypatch.setenv("ONTOLOGY_RUNS_DIR", str(env["runs"]))
+        app = webapp.create_app(config_path=env["cfg"], resolve_followups=False)
+        with TestClient(app) as c:
+            onts = {o["name"]: o["has_program"] for o in c.get("/api/ontologies").json()["ontologies"]}
+            # TINY was seeded with a program under env["runs"]; it must be found
+            # via the env var alone (no runs_dir arg passed).
+            assert onts["TINY"] is True
+            assert onts["NOPROG"] is False
+
+    def test_explicit_arg_overrides_env(self, env, monkeypatch):
+        # An explicit runs_dir arg wins over the env var.
+        monkeypatch.setenv("ONTOLOGY_RUNS_DIR", str(env["tmp"] / "nonexistent"))
+        app = webapp.create_app(
+            config_path=env["cfg"], runs_dir=env["runs"], resolve_followups=False
+        )
+        with TestClient(app) as c:
+            onts = {o["name"]: o["has_program"] for o in c.get("/api/ontologies").json()["ontologies"]}
+            assert onts["TINY"] is True
