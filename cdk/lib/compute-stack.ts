@@ -23,6 +23,10 @@ export interface ComputeStackProps extends cdk.StackProps {
   /** Path to the web image build context, or undefined to use a repo asset. */
   webImageAsset?: string;
   builderImageAsset?: string;
+  /** Path to the MCP image build context, or undefined to use a repo asset. */
+  mcpImageAsset?: string;
+  /** Which configured ontology the MCP server serves (default "GO"). */
+  mcpOntology?: string;
   bedrockRegion: string;
   bedrockModel: string;
   /**
@@ -47,6 +51,7 @@ export interface ComputeStackProps extends cdk.StackProps {
 }
 
 const APP_PORT = 8000;
+const MCP_PORT = 8080; // the MCP Streamable-HTTP server (Dockerfile.mcp)
 const EFS_MOUNT = '/mnt/runs'; // ONTOLOGY_QA_CACHE_DIR + runs/ live here
 const VOLUME_NAME = 'runs';
 
@@ -75,6 +80,9 @@ export class ComputeStack extends cdk.Stack {
     });
     const builderImage = ecs.ContainerImage.fromAsset(props.builderImageAsset ?? '..', {
       file: 'Dockerfile.builder',
+    });
+    const mcpImage = ecs.ContainerImage.fromAsset(props.mcpImageAsset ?? '..', {
+      file: 'Dockerfile.mcp',
     });
 
     const efsVolume: ecs.Volume = {
@@ -177,6 +185,14 @@ export class ComputeStack extends cdk.Stack {
       !!props.userPoolClient &&
       !!props.userPoolDomain;
 
+    // Captured when the authenticated HTTPS listener exists, so the MCP service
+    // below can attach its own path-based (`/mcp*`) authenticated rule to the
+    // same listener (same Cognito identity, same ALB).
+    let httpsListener: elbv2.ApplicationListener | undefined;
+    // Captured in the no-cert fallback so the MCP service can expose `/mcp*` on
+    // the plain HTTP listener for testing.
+    let plainHttpListener: elbv2.ApplicationListener | undefined;
+
     if (cognitoReady) {
       // The ALB SG (NetworkStack) allows :80 today; open :443 for the HTTPS
       // listener. Kept as anyIpv4 to match the current :80 rule — the
@@ -187,7 +203,7 @@ export class ComputeStack extends cdk.Stack {
         'HTTPS from CloudFront (tighten to the CloudFront prefix list in Task 8)',
       );
 
-      const httpsListener = this.loadBalancer.addListener('Https', {
+      httpsListener = this.loadBalancer.addListener('Https', {
         port: 443,
         protocol: elbv2.ApplicationProtocol.HTTPS,
         certificates: [elbv2.ListenerCertificate.fromArn(props.certificateArn!)],
@@ -201,9 +217,6 @@ export class ComputeStack extends cdk.Stack {
           next: elbv2.ListenerAction.forward([webTargetGroup]),
         }),
       });
-      // Referenced so the construct is not flagged as unused; the action above
-      // already wires the target group in.
-      void httpsListener;
 
       // Plain HTTP now only redirects to HTTPS so the auth handshake always
       // happens over TLS.
@@ -219,7 +232,7 @@ export class ComputeStack extends cdk.Stack {
     } else {
       // No cert/identity yet: single HTTP listener forwarding to the service.
       // (CloudFront still fronts this with HTTPS at the edge.)
-      this.loadBalancer.addListener('Http', {
+      plainHttpListener = this.loadBalancer.addListener('Http', {
         port: 80,
         open: false, // ingress is controlled by the ALB security group
         defaultAction: elbv2.ListenerAction.forward([webTargetGroup]),
@@ -250,6 +263,98 @@ export class ComputeStack extends cdk.Stack {
       scaleInCooldown: cdk.Duration.minutes(5),
       scaleOutCooldown: cdk.Duration.minutes(1),
     });
+
+    // ======================= MCP SERVICE ===================================
+    // A long-lived Fargate service running the remote MCP server (Dockerfile.mcp)
+    // which exposes PROVABLE ontology subsumption tools over MCP Streamable HTTP
+    // at POST /mcp. Loads the Gene Ontology (MCP_ONTOLOGY=GO) once at startup
+    // from the shared S3 ontology bucket. Reaches the ALB through a path-based
+    // (`/mcp*`) rule on the SAME Cognito-authenticated HTTPS listener as the web
+    // service, so every MCP request is authenticated before it hits the service.
+    const mcpOntology = props.mcpOntology ?? 'GO';
+
+    const mcpTaskDef = new ecs.FargateTaskDefinition(this, 'McpTaskDef', {
+      cpu: 512,
+      memoryLimitMiB: 1024,
+      volumes: [efsVolume],
+      runtimePlatform: {
+        cpuArchitecture: ecs.CpuArchitecture.ARM64,
+        operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
+      },
+    });
+    // S3 read for the ontology OWL; EFS for the owlready2 sqlite cache. No
+    // Bedrock — the reasoning path is pure DL, no model invocation.
+    props.ontologyBucket.grantRead(mcpTaskDef.taskRole);
+    props.fileSystem.grantReadWrite(mcpTaskDef.taskRole);
+
+    const mcpContainer = mcpTaskDef.addContainer('mcp', {
+      image: mcpImage,
+      logging: ecs.LogDrivers.awsLogs({
+        streamPrefix: 'mcp',
+        logRetention: logs.RetentionDays.ONE_MONTH,
+      }),
+      environment: {
+        ONTOLOGY_QA_CACHE_DIR: EFS_MOUNT,
+        ONTOLOGY_CONFIG: 'ontology_config.yaml',
+        MCP_ONTOLOGY: mcpOntology,
+        PORT: String(MCP_PORT),
+      },
+      portMappings: [{ containerPort: MCP_PORT }],
+    });
+    mcpContainer.addMountPoints({
+      containerPath: EFS_MOUNT,
+      sourceVolume: VOLUME_NAME,
+      readOnly: false,
+    });
+
+    const mcpService = new ecs.FargateService(this, 'McpService', {
+      cluster,
+      taskDefinition: mcpTaskDef,
+      desiredCount: 1,
+      securityGroups: [props.serviceSecurityGroup],
+      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      minHealthyPercent: 100,
+    });
+
+    const mcpTargetGroup = new elbv2.ApplicationTargetGroup(this, 'McpTargets', {
+      vpc: props.vpc,
+      port: MCP_PORT,
+      protocol: elbv2.ApplicationProtocol.HTTP,
+      targets: [mcpService],
+      // GET /mcp/health is a cheap liveness probe (no ontology load, no auth).
+      healthCheck: {
+        path: '/mcp/health',
+        healthyHttpCodes: '200',
+        interval: cdk.Duration.seconds(30),
+      },
+      deregistrationDelay: cdk.Duration.seconds(30),
+    });
+
+    if (httpsListener) {
+      // Authenticated path rule: `/mcp*` -> Cognito auth -> MCP target group.
+      // Higher-priority (lower number) than the listener default so it wins for
+      // MCP paths; everything else still falls through to the web service.
+      httpsListener.addAction('McpRule', {
+        priority: 10,
+        conditions: [elbv2.ListenerCondition.pathPatterns(['/mcp', '/mcp/*'])],
+        action: new actions.AuthenticateCognitoAction({
+          userPool: props.userPool!,
+          userPoolClient: props.userPoolClient!,
+          userPoolDomain: props.userPoolDomain!,
+          next: elbv2.ListenerAction.forward([mcpTargetGroup]),
+        }),
+      });
+    } else {
+      // No authenticated HTTPS listener yet (no cert/identity): expose `/mcp*`
+      // on the plain HTTP listener so the service is still reachable for
+      // testing. NOTE: unauthenticated — the authenticated rule above is the
+      // intended production path once a cert + Cognito identity are supplied.
+      plainHttpListener?.addAction('McpRule', {
+        priority: 10,
+        conditions: [elbv2.ListenerCondition.pathPatterns(['/mcp', '/mcp/*'])],
+        action: elbv2.ListenerAction.forward([mcpTargetGroup]),
+      });
+    }
 
     // ======================= BUILDER TASK ==================================
     // Launched on demand by the web service via ecs.run_task (Task 6), NOT a
@@ -364,5 +469,11 @@ export class ComputeStack extends cdk.Stack {
       value: this.builderTaskDefinition.taskDefinitionArn,
     });
     new cdk.CfnOutput(this, 'AlbDnsName', { value: this.loadBalancer.loadBalancerDnsName });
+    new cdk.CfnOutput(this, 'McpEndpointPath', {
+      value: '/mcp',
+      description:
+        'MCP Streamable-HTTP endpoint (POST /mcp), behind Cognito auth on the ALB HTTPS listener. ' +
+        `Serving ontology: ${mcpOntology}.`,
+    });
   }
 }

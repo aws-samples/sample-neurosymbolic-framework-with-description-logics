@@ -1,0 +1,47 @@
+# syntax=docker/dockerfile:1
+# ---------------------------------------------------------------------------
+# Dockerfile.mcp — the remote MCP server container (ECS Fargate service).
+#
+# Serves ontology_qa_cli.mcp_server (uvicorn/FastAPI) over MCP Streamable HTTP
+# at POST /mcp. Exposes PROVABLE ontology subsumption tools (ontology_subtypes /
+# ontology_resolve) that compute the complete transitive is-a descendant set
+# directly from the ontology's DL hierarchy — no LLM in the answer path.
+#
+# Stateful only in the sense that it loads the configured ontology once at
+# startup (owlready2) and keeps the reasoner in memory, so it runs as a
+# long-lived service, NOT Lambda. Defaults to the Gene Ontology (MCP_ONTOLOGY=GO),
+# loaded from the shared S3 ontology bucket via ontology_config.yaml.
+# See docs/deployment-cdk.md.
+# ---------------------------------------------------------------------------
+FROM python:3.12-slim AS runtime
+
+# uv for fast, locked installs (repo uses uv; see uv.lock / pyproject.toml).
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /app
+
+# Resolve/install dependencies against the lockfile first (cache-friendly).
+# The `api` extra pulls in fastapi + uvicorn[standard]; core deps include
+# owlready2 (the reasoner), boto3 (S3 fetch), pyyaml.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --extra api --frozen --no-install-project
+
+# Application source + ontology config (owl_file points at s3:// — materialized
+# to a local cache at startup by config.resolve_ontology).
+COPY ontology_qa_cli/ ./ontology_qa_cli/
+COPY ontology_config.yaml ./ontology_config.yaml
+# Install the project itself (entry points) now that source is present.
+RUN uv sync --extra api --frozen
+
+# Runtime config (overridable by the ECS task definition):
+#   PORT           - listen port (default 8080)
+#   MCP_ONTOLOGY   - which configured ontology to serve (default GO)
+#   ONTOLOGY_CONFIG- path to the config file (default ontology_config.yaml)
+#   AWS creds      - supplied by the ECS task role (S3 read on the ontology bucket)
+ENV PORT=8080
+ENV MCP_ONTOLOGY=GO
+EXPOSE 8080
+
+# Launch the uvicorn launcher in mcp_server.main (reads PORT / MCP_ONTOLOGY and
+# binds 0.0.0.0 for the ALB). main() builds the FastAPI app via create_mcp_app.
+CMD ["sh", "-c", "uv run python -m ontology_qa_cli.mcp_server --host 0.0.0.0 --port ${PORT}"]

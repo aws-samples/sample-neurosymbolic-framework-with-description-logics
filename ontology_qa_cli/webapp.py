@@ -91,11 +91,19 @@ class SelectRequest(BaseModel):
 
 def create_app(
     config_path: Path = Path("ontology_config.yaml"),
-    runs_dir: Path = Path("runs/"),
+    runs_dir: Optional[Path] = None,
     resolve_followups: bool = True,
     frontend_dist: Optional[Path] = None,
 ) -> "FastAPI":
     config_path = Path(config_path).expanduser()
+    # runs_dir resolution order: explicit arg > ONTOLOGY_RUNS_DIR env > "runs/".
+    # The uvicorn --factory launch (Dockerfile.web) passes no arg, so the env var
+    # is how the web task is told to read the SHARED EFS mount that the builder
+    # Fargate task writes built programs to (ONTOLOGY_RUNS_DIR=/mnt/runs). Without
+    # this the web app looks in the container-local ./runs and never sees the
+    # builder's output, so every ontology shows has_program=false.
+    if runs_dir is None:
+        runs_dir = Path(os.environ.get("ONTOLOGY_RUNS_DIR", "runs/"))
     runs_dir = Path(runs_dir).expanduser()
     frontend_dist = Path(frontend_dist).expanduser() if frontend_dist else _default_frontend_dist()
 
@@ -549,8 +557,9 @@ def _parse_args() -> argparse.Namespace:
         help="Path to the YAML configuration file (default: ontology_config.yaml).",
     )
     parser.add_argument(
-        "--runs-dir", type=Path, default=Path("runs/"),
-        help="Base directory where builder runs are stored (default: runs/).",
+        "--runs-dir", type=Path, default=Path(os.environ.get("ONTOLOGY_RUNS_DIR", "runs/")),
+        help="Base directory where builder runs are stored "
+             "(default: $ONTOLOGY_RUNS_DIR or runs/).",
     )
     parser.add_argument(
         "--no-followups", action="store_true",

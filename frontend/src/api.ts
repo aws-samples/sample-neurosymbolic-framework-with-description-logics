@@ -48,6 +48,14 @@ async function post<T>(url: string, body: unknown): Promise<T> {
 async function get<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  // CloudFront's SPA error-page fallback can rewrite an API 4xx into a 200 that
+  // serves index.html (text/html) from the S3 origin. Parsing that as JSON throws
+  // an opaque "string did not match the expected pattern". Detect a non-JSON body
+  // and surface a clear message instead.
+  const contentType = res.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    throw new Error("not available yet");
+  }
   return res.json() as Promise<T>;
 }
 
