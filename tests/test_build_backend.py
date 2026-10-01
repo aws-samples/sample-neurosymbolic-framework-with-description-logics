@@ -196,3 +196,98 @@ class TestBackendSelection:
         monkeypatch.setenv("BUILD_BACKEND", "nope")
         with pytest.raises(ValueError):
             bb.make_build_backend(tmp_path / "cfg.yaml", tmp_path / "runs")
+
+
+# --------------------------------------------------------------------------- #
+# Job store (shared registry across web tasks)
+# --------------------------------------------------------------------------- #
+def _always_running(job):
+    return "running"
+
+
+def _always_finished(job):
+    return "finished"
+
+
+class TestBuildJobRecord:
+    def test_round_trip_preserves_shared_fields(self):
+        job = bb.BuildJob(job_id="abc123", ontology="GO", status="running",
+                          task_arn="arn:aws:ecs:us-east-1:1:task/c/t1")
+        rebuilt = bb.BuildJob.from_record(job.to_record())
+        assert rebuilt.job_id == "abc123"
+        assert rebuilt.ontology == "GO"
+        assert rebuilt.status == "running"
+        assert rebuilt.task_arn == "arn:aws:ecs:us-east-1:1:task/c/t1"
+
+    def test_record_omits_process_local_fields(self):
+        # proc/log_path are process-local and must not appear in the record.
+        job = bb.BuildJob(job_id="x", ontology="GO")
+        rec = job.to_record()
+        assert set(rec) == {"job_id", "ontology", "status", "task_arn"}
+
+
+class TestMemoryJobStore:
+    def test_put_get(self):
+        store = bb.MemoryJobStore()
+        job = bb.BuildJob(job_id="j1", ontology="GO", task_arn="arn/1")
+        store.put(job)
+        assert store.get("j1") is job
+        assert store.get("missing") is None
+
+    def test_running_for_matches_only_running(self):
+        store = bb.MemoryJobStore()
+        store.put(bb.BuildJob(job_id="j1", ontology="GO", task_arn="arn/1"))
+        assert store.running_for("GO", _always_running).job_id == "j1"
+        assert store.running_for("GO", _always_finished) is None
+        assert store.running_for("FMA", _always_running) is None
+
+
+class TestFileJobStore:
+    def test_shares_jobs_across_instances(self, tmp_path):
+        # The whole point: a job recorded by one web task's store instance is
+        # visible to a DIFFERENT instance pointed at the same (EFS) directory.
+        shared = tmp_path / ".jobs"
+        store_a = bb.FileJobStore(shared)
+        store_b = bb.FileJobStore(shared)
+        job = bb.BuildJob(job_id="deadbeef", ontology="GO", task_arn="arn/t")
+        store_a.put(job)
+        # store_b never saw the put() in memory — it reads it from disk.
+        rebuilt = store_b.get("deadbeef")
+        assert rebuilt is not None
+        assert rebuilt.ontology == "GO"
+        assert rebuilt.task_arn == "arn/t"
+
+    def test_running_for_finds_shared_running_job(self, tmp_path):
+        shared = tmp_path / ".jobs"
+        bb.FileJobStore(shared).put(
+            bb.BuildJob(job_id="j1", ontology="GO", task_arn="arn/1")
+        )
+        other = bb.FileJobStore(shared)
+        assert other.running_for("GO", _always_running).job_id == "j1"
+        assert other.running_for("GO", _always_finished) is None
+
+    def test_running_for_skips_recorded_terminal_without_polling(self, tmp_path):
+        shared = tmp_path / ".jobs"
+        bb.FileJobStore(shared).put(
+            bb.BuildJob(job_id="done1", ontology="GO", status="finished", task_arn="arn/1")
+        )
+
+        def _boom(job):  # must not be called for an already-terminal record
+            raise AssertionError("poll should not be called for a terminal record")
+
+        assert bb.FileJobStore(shared).running_for("GO", _boom) is None
+
+    def test_get_unknown_returns_none(self, tmp_path):
+        assert bb.FileJobStore(tmp_path / ".jobs").get("nope") is None
+
+
+class TestJobStoreSelection:
+    def test_default_is_memory(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("BUILD_BACKEND", raising=False)
+        assert isinstance(bb.make_job_store(tmp_path / "runs"), bb.MemoryJobStore)
+
+    def test_ecs_selects_file_store_under_runs(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("BUILD_BACKEND", "ecs")
+        store = bb.make_job_store(tmp_path / "runs")
+        assert isinstance(store, bb.FileJobStore)
+        assert store._dir == (tmp_path / "runs" / ".jobs")

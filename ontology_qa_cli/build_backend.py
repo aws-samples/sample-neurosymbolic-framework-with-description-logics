@@ -60,6 +60,33 @@ class BuildJob:
     # ecs backend
     task_arn: Optional[str] = None
 
+    def to_record(self) -> dict:
+        """Serialize the shareable fields of this job for a cross-process store.
+
+        Only the fields needed to RECONSTRUCT the job elsewhere are included.
+        The ECS backend derives poll/log/stream entirely from ``task_arn``, so
+        a job started on one web task can be served by any other. The
+        subprocess backend's ``proc``/``log_path`` are process-local and NOT
+        serialized -- that backend is single-process and uses the in-memory
+        store, where the live object is kept as-is.
+        """
+        return {
+            "job_id": self.job_id,
+            "ontology": self.ontology,
+            "status": self.status,
+            "task_arn": self.task_arn,
+        }
+
+    @classmethod
+    def from_record(cls, record: dict) -> "BuildJob":
+        """Rebuild a job handle from :meth:`to_record` output (ECS fields only)."""
+        return cls(
+            job_id=record["job_id"],
+            ontology=record["ontology"],
+            status=record.get("status", "running"),
+            task_arn=record.get("task_arn"),
+        )
+
 
 class BuildBackend(Protocol):
     """Strategy for launching, polling and streaming an ontology build."""
@@ -386,3 +413,149 @@ def make_build_backend(config_path: Path, runs_dir: Path) -> BuildBackend:
     raise ValueError(
         f"Unknown BUILD_BACKEND={kind!r}; expected 'subprocess' or 'ecs'."
     )
+
+
+# --------------------------------------------------------------------------- #
+# Job registry (shared across web tasks when the deployment is horizontal)
+# --------------------------------------------------------------------------- #
+# A single-process web server can keep running jobs in a dict. The ECS/Fargate
+# deployment runs MORE THAN ONE web task behind an ALB, so a build started on
+# task A must be pollable/streamable from task B (otherwise /api/status and
+# /api/stream 404 the moment the ALB routes a follow-up request to a different
+# task -- which surfaced as a spurious "build failed"). The JobStore abstracts
+# WHERE the job registry lives: in memory (single process) or on the shared EFS
+# mount (every web task sees the same records).
+#
+# Only ECS jobs are shareable: they are fully reconstructable from
+# ``BuildJob.to_record()`` (job_id/ontology/status/task_arn) because the ECS
+# backend derives poll/log/stream from the task ARN. Subprocess jobs hold a
+# live Popen handle and local log file, so they are single-process by nature
+# and use the in-memory store.
+class JobStore(Protocol):
+    """Registry mapping job_id -> BuildJob, possibly shared across processes."""
+
+    def put(self, job: BuildJob) -> None:
+        """Record (or update) a job."""
+        ...
+
+    def get(self, job_id: str) -> Optional[BuildJob]:
+        """Return the job for ``job_id``, or None if unknown."""
+        ...
+
+    def running_for(self, ontology: str, poll: Callable[[BuildJob], str]) -> Optional[BuildJob]:
+        """Return a still-running job for ``ontology`` if one exists.
+
+        ``poll`` is the backend's poll function; the store calls it to decide
+        whether a recorded job is still running (a terminal job no longer
+        counts as the active build for its ontology).
+        """
+        ...
+
+
+class MemoryJobStore:
+    """In-process job registry. Correct for the subprocess backend and any
+    single-process deployment; preserves the original webapp behavior exactly.
+    """
+
+    def __init__(self) -> None:
+        self._jobs: dict[str, BuildJob] = {}
+        self._lock = threading.Lock()
+
+    def put(self, job: BuildJob) -> None:
+        with self._lock:
+            self._jobs[job.job_id] = job
+
+    def get(self, job_id: str) -> Optional[BuildJob]:
+        with self._lock:
+            return self._jobs.get(job_id)
+
+    def running_for(self, ontology: str, poll) -> Optional[BuildJob]:
+        with self._lock:
+            candidates = list(self._jobs.values())
+        for job in candidates:
+            if job.ontology == ontology and poll(job) == "running":
+                return job
+        return None
+
+
+class FileJobStore:
+    """Job registry persisted as one JSON file per job under a shared directory.
+
+    Used for the ECS deployment: the directory lives on the EFS access point
+    that every web task (and the builder) already mounts, so a job started on
+    one task is visible to all. Writes are atomic (temp file + ``os.replace``)
+    so a concurrent reader never sees a half-written record. Records store only
+    the shareable fields (:meth:`BuildJob.to_record`); the backend rebuilds the
+    live handle via :meth:`BuildJob.from_record`.
+    """
+
+    def __init__(self, directory: Path) -> None:
+        self._dir = Path(directory)
+        self._dir.mkdir(parents=True, exist_ok=True)
+
+    def _path(self, job_id: str) -> Path:
+        # job_id is a 12-char uuid hex (we control it); still, guard against a
+        # path-traversal value by taking only the basename.
+        safe = os.path.basename(job_id)
+        return self._dir / f"{safe}.json"
+
+    def put(self, job: BuildJob) -> None:
+        import json
+
+        path = self._path(job.job_id)
+        tmp = path.with_suffix(".json.tmp")
+        try:
+            tmp.write_text(json.dumps(job.to_record()), encoding="utf-8")
+            os.replace(tmp, path)
+        except OSError:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
+
+    def get(self, job_id: str) -> Optional[BuildJob]:
+        import json
+
+        path = self._path(job_id)
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return BuildJob.from_record(record)
+
+    def running_for(self, ontology: str, poll) -> Optional[BuildJob]:
+        import json
+
+        try:
+            entries = list(self._dir.glob("*.json"))
+        except OSError:
+            return None
+        for entry in entries:
+            try:
+                record = json.loads(entry.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if record.get("ontology") != ontology:
+                continue
+            # Skip records already recorded terminal without a backend poll.
+            if record.get("status") in ("finished", "failed"):
+                continue
+            job = BuildJob.from_record(record)
+            if poll(job) == "running":
+                return job
+        return None
+
+
+def make_job_store(runs_dir: Path) -> JobStore:
+    """Return the job store matching the active ``BUILD_BACKEND``.
+
+    ecs        -> FileJobStore under ``<runs_dir>/.jobs`` (shared EFS mount),
+                  so every web task sees the same registry.
+    subprocess -> MemoryJobStore (single process; the live Popen handle cannot
+                  be shared anyway).
+    """
+    kind = os.environ.get("BUILD_BACKEND", "subprocess").strip().lower()
+    if kind == "ecs":
+        return FileJobStore(Path(runs_dir) / ".jobs")
+    return MemoryJobStore()
