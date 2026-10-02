@@ -90,7 +90,17 @@ ontologies:
           blood directly to the brain, neck, and face.
   - name: "GO"
     owl_file: "s3://neurosymbolicdl-storage-ontologybucket795a3498-gjp5avevev34/ontologies/go-plus.owl"
+    # The GO eval set has TWO complementary kinds of question so the evolved
+    # program stays competent at BOTH:
+    #   (a) factual single-gene annotation lookups, and
+    #   (b) interpretive "practical meaning" of an experimental finding
+    #       (typically a GO enrichment result).
+    # Every expected_answer stays grounded in retrievable GO facts (annotations,
+    # the enriched term's definition / parent process / child terms) and then
+    # interprets them, so the neurosymbolic retrieval still drives the answer
+    # rather than free speculation.
     questions:
+      # --- (a) Factual single-gene annotation lookups ---
       - question: "Does TP53 interact with DNA?"
         expected_answer: |
           Yes, it has DNA-binding transcription factor activity.
@@ -115,40 +125,135 @@ ontologies:
           It localizes to nuclear replication forks and sites of DNA damage.
       - question: "What kind of receptor is EGFR?"
         expected_answer: |
-           It has transmembrane receptor protein tyrosine kinase activity.
-      - question: "What kind of receptor is EGFR?"
-        expected_answer: |
-           It has transmembrane receptor protein tyrosine kinase activity.
-      - question: "What macro-level change does EGFR cause?"
-        expected_answer: |
-           It triggers cell proliferation (rapid division) and
-           angiogenesis (the growth of new blood vessels).
+          It has transmembrane receptor protein tyrosine kinase activity.
       - question: "Where is EGFR positioned to catch signals?"
         expected_answer: |
-           It is anchored in the plasma membrane, with parts projecting
-           outside the cell to "catch" growth factors.
-      - question: "Is GAPDH just a structural component or does it have enzymatic activity?"
+          It is anchored in the plasma membrane, with parts projecting
+          outside the cell to "catch" growth factors.
+
+      # --- (b) Interpretive "practical meaning" questions ---
+      - question: |
+          In a transcriptomic study of drug-resistant cancer cells, a scientist
+          identifies 200 significantly upregulated genes. A GO enrichment
+          analysis reveals a statistically significant enrichment for the term
+          "microtubule cytoskeleton organization". What does this result mean
+          practically?
         expected_answer: |
-           It has glyceraldehyde-3-phosphate dehydrogenase
-           activity, meaning it's an active enzyme in glycolysis.
-      - question: "What specific chemical reaction does GAPDH catalyze?"
+          Practically, it means the drug-resistant cells are preferentially
+          turning up genes that build and reorganize the microtubule
+          cytoskeleton. "Microtubule cytoskeleton organization" is the
+          biological process of assembling and arranging microtubule-based
+          structures, so enrichment implies these cells are investing in
+          spindle formation, intracellular transport, and cell-shape/division
+          machinery. Because microtubules are the target of taxanes and vinca
+          alkaloids, this is a plausible resistance mechanism: the cells may be
+          compensating for microtubule-targeting chemotherapy. The actionable
+          read is that microtubule dynamics are a candidate driver of the
+          resistant phenotype and a lead for follow-up.
+      - question: |
+          A GO enrichment analysis of genes upregulated after a viral infection
+          shows strong enrichment for "defense response to virus". How should I
+          interpret this biologically?
         expected_answer: |
-            It is involved in oxidation-reduction processes.
-      - question: "Does SLC6A4 move molecules across a membrane or just signal from the outside?"
+          It means the up-regulated gene set is dominated by genes whose role is
+          mounting an antiviral defense. "Defense response to virus" is the
+          biological process of reacting to a virus to limit its replication or
+          spread, so enrichment indicates the cells have switched on an
+          antiviral program (interferon-stimulated and innate-immune effectors).
+          Practically, the sample is responding as expected to infection, and
+          the enriched term points you toward the immune-defense arm rather than,
+          say, metabolism or proliferation.
+      - question: |
+          My differentially expressed genes are enriched for "oxidative
+          phosphorylation". What does an enrichment for this process practically
+          tell me about the cells?
         expected_answer: |
-            SLC6A4 is annotated with serotonin transmembrane transporter activity,
-            confirming it physically moves serotonin.
-      - question: "For SLC6A4, in which specific direction is the transport moving?"
+          Oxidative phosphorylation is the mitochondrial process that generates
+          ATP by transferring electrons through the respiratory chain, so
+          enrichment practically indicates a shift in the cells' energy
+          metabolism toward mitochondrial ATP production. It suggests increased
+          reliance on aerobic respiration rather than glycolysis, which can
+          reflect higher energy demand or a metabolic reprogramming. The
+          actionable interpretation is that mitochondrial/respiratory function
+          is a distinguishing feature of this condition.
+      - question: |
+          A gene of interest is annotated with the cellular component
+          "extracellular space". What does that localization practically imply
+          about the protein's function?
         expected_answer: |
-            It is involved in serotonin uptake, moving the neurotransmitter
-            from the synaptic cleft back into the neuron.
-      - question: "Does COL1A1 (Collagen) produce a protein that stays inside the cell or leaves it?"
+          Localization to the extracellular space practically implies the
+          protein is secreted and acts outside the cell. That constrains its
+          likely functions to things that happen externally: signaling to other
+          cells, remodeling the extracellular matrix, or acting as a ligand,
+          enzyme, or structural component in the surrounding environment. It
+          also makes the protein a more accessible drug or biomarker target,
+          since it is not sequestered inside the cell.
+      - question: |
+          Enrichment analysis of a tumor sample highlights "cell cycle" and
+          "DNA replication". Practically, what does the co-enrichment of these
+          processes suggest?
         expected_answer: |
-            COL1A1 is located in the extracellular matrix, meaning it is
-            secreted to the outside of the cell.
-      - question: "What is COL1A1's contribution to tissue strength?"
+          Together these point to actively proliferating cells. "Cell cycle" is
+          the process controlling cell division and "DNA replication" is the
+          copying of the genome that must precede each division, so
+          co-enrichment practically means the sample is dominated by dividing
+          cells synthesizing DNA. In a tumor context this is consistent with a
+          high proliferative index and aggressive growth, and it flags
+          cell-cycle/replication machinery as candidate therapeutic targets.
+      - question: |
+          Downregulated genes in a neurodegeneration model are enriched for
+          "synaptic signaling". What is the practical significance of losing
+          expression in this process?
         expected_answer: |
-            It is annotated with the biological process collagen fibril organization.
+          "Synaptic signaling" is the process of transmitting signals across
+          synapses between neurons, so losing expression there practically means
+          the neurons' ability to communicate is being degraded. In a
+          neurodegeneration model this suggests synaptic dysfunction and loss of
+          connectivity as a mechanism of the disease phenotype, and it points to
+          synaptic maintenance as a process to protect or restore.
+      - question: |
+          A screen returns enrichment for "response to oxidative stress".
+          Practically, what state are these cells likely in?
+        expected_answer: |
+          "Response to oxidative stress" is the process cells use to counter
+          damage from reactive oxygen species, so its enrichment practically
+          indicates the cells are experiencing or defending against oxidative
+          stress. They are likely upregulating antioxidant and damage-repair
+          machinery, which signals an underlying stressful or damaging
+          condition rather than a resting steady state.
+      - question: |
+          If a set of upregulated genes is enriched for "angiogenesis" in a
+          tumor biopsy, what does that practically indicate about the tumor?
+        expected_answer: |
+          Angiogenesis is the process of forming new blood vessels, so
+          enrichment practically indicates the tumor is driving new vessel
+          growth to supply itself with oxygen and nutrients. This is a hallmark
+          of growing, more aggressive tumors and flags the angiogenic program
+          (e.g. VEGF-driven signaling) as a therapeutically targetable
+          vulnerability.
+      - question: |
+          Enrichment analysis shows "inflammatory response" is significantly
+          over-represented in a wound-healing time course. How do I read this
+          practically?
+        expected_answer: |
+          "Inflammatory response" is the process of reacting to harmful stimuli
+          or injury, so its over-representation in a wound-healing course
+          practically means the inflammatory phase of healing is active in these
+          samples. It indicates immune cells and signaling are engaged to clear
+          damage and initiate repair, which is the expected early stage of
+          wound healing rather than an abnormal finding.
+      - question: |
+          A GO term enriched in my dataset is "protein folding". Practically,
+          what cellular situation does enrichment for this process most likely
+          reflect?
+        expected_answer: |
+          "Protein folding" is the process of giving proteins their functional
+          three-dimensional shape, often assisted by chaperones. Enrichment
+          practically reflects increased demand for folding capacity, typically
+          because the cells are under proteotoxic or ER stress, synthesizing
+          large amounts of protein, or coping with misfolded proteins. The
+          practical read is a stressed proteostasis state engaging the
+          chaperone/quality-control machinery.
   
   - name: "SNOMED"
     owl_file: "~/ontology-2026-05-08_20-47-35.owl"
