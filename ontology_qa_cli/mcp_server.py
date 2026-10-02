@@ -1,36 +1,21 @@
-"""Remote MCP server exposing provable ontology subsumption as agent tools.
+"""Remote MCP server exposing a free-form GO question-answering tool.
 
 Speaks the Model Context Protocol over the **Streamable HTTP** transport: a
 single ``POST /mcp`` endpoint accepting JSON-RPC 2.0 requests (initialize,
 tools/list, tools/call). This shape sits cleanly behind an ALB -- one path, no
-long-lived socket required for the request/response tools here -- and reuses the
+long-lived socket required for the request/response tool here -- and reuses the
 project's existing FastAPI/uvicorn stack (the ``api`` extra).
-
-The exposed tools do PURE DL reasoning via
-:class:`ontology_qa_cli.subsumption.SubsumptionReasoner`; there is no LLM in the
-answer path, so results are provably sound+complete given the ontology. The
-calling agent phrases the question; this server computes the exact set.
-
-The tools are ontology-neutral: the same server serves whichever ontology
-``MCP_ONTOLOGY`` selects (Gene Ontology by default, but equally FMA or any other
-configured entry) without code changes.
 
 Tools
 -----
-* ``ontology_subtypes`` -- given a term name (e.g. "immune system process"),
-  return ALL specific sub-types (transitive is-a descendants). Ambiguous names
-  return candidate terms for the agent to disambiguate rather than a guess.
-* ``ontology_resolve`` -- resolve a term name to its canonical id + label (or
-  candidates), useful for disambiguation before a subtypes call.
 * ``answer_question_with_GO`` -- answer a free-form natural-language question
   using the SAME evolved query program the web app runs. The program is built
   offline by the builder (``ontology-qa-build``) and persisted to the shared
   runs/ mount; this server loads the best GO program once (lazily, on first
   call) via :class:`ontology_qa_cli.serve.OntologyAnswerer` and runs it per
   question -- mirroring the web app's "build at startup, run per question" flow.
-  Unlike the two subsumption tools, the answer path here DOES involve the
-  evolved program (which may call an LLM); it is the conversational QA path,
-  not the provable-reasoning path.
+  The answer path runs the evolved program (which may call an LLM); it is the
+  conversational QA path, not a provable-reasoning path.
 
 Config: ``MCP_ONTOLOGY`` selects which configured ontology to serve (default
 "GO"); the ontology is loaded once at startup from the same
@@ -43,7 +28,6 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ontology_qa_cli.config import load_config, resolve_ontology
-from ontology_qa_cli.subsumption import SubsumptionReasoner
 from ontology_qa_cli.query import find_best_program
 from ontology_qa_cli.serve import OntologyAnswerer
 
@@ -72,53 +56,6 @@ _INTERNAL_ERROR = -32603
 def _tool_definitions() -> list[dict[str, Any]]:
     return [
         {
-            "name": "ontology_subtypes",
-            "description": (
-                "Return ALL specific sub-types of an ontology term (the "
-                "complete, transitive is-a descendant set). The result is "
-                "computed directly from the ontology's description-logic "
-                "hierarchy and is provably complete and sound -- there is no "
-                "language-model guessing in the answer. Example: concept="
-                "'immune system process' returns every process the ontology "
-                "classifies as a kind of immune system process. If the term "
-                "name is ambiguous, candidate terms are returned instead of "
-                "a guess; call again with a specific label or the term id."
-            ),
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "concept": {
-                        "type": "string",
-                        "description": (
-                            "The ontology term name or id to find sub-types of, "
-                            "e.g. 'immune system process' or 'GO:0002376'."
-                        ),
-                    },
-                    "include_self": {
-                        "type": "boolean",
-                        "description": "Include the term itself in the result (default false).",
-                        "default": False,
-                    },
-                },
-                "required": ["concept"],
-            },
-        },
-        {
-            "name": "ontology_resolve",
-            "description": (
-                "Resolve an ontology term name to its canonical id + label, or "
-                "return candidate terms when the name is ambiguous. Use to "
-                "disambiguate before ontology_subtypes."
-            ),
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "concept": {"type": "string", "description": "Term name to resolve."},
-                },
-                "required": ["concept"],
-            },
-        },
-        {
             "name": "answer_question_with_GO",
             "description": (
                 "Answer a free-form natural-language question about the Gene "
@@ -129,11 +66,9 @@ def _tool_definitions() -> list[dict[str, Any]]:
                 "upregulated genes -- what does this mean practically?') and a "
                 "prose answer is returned. The query program is built offline "
                 "and loaded once; this call runs it against the pre-loaded "
-                "ontology. Note: unlike ontology_subtypes/ontology_resolve, this "
-                "path runs the evolved program (which may use an LLM), so it is "
-                "the conversational QA path, not the provable-reasoning path. "
-                "Use ontology_subtypes when you need a provably complete subtype "
-                "set rather than an explanatory answer."
+                "ontology. This path runs the evolved program (which may use an "
+                "LLM), so it is a conversational QA path rather than a "
+                "provable-reasoning one."
             ),
             "inputSchema": {
                 "type": "object",
@@ -147,57 +82,6 @@ def _tool_definitions() -> list[dict[str, Any]]:
             },
         },
     ]
-
-
-def _format_subtypes(reasoner: SubsumptionReasoner, args: dict[str, Any]) -> dict[str, Any]:
-    name = (args or {}).get("concept", "")
-    if not isinstance(name, str) or not name.strip():
-        raise _ToolError("'concept' must be a non-empty string")
-    include_self = bool((args or {}).get("include_self", False))
-    match = reasoner.resolve(name)
-    if not match.is_unique:
-        cands = [{"id": c.id, "label": c.label} for c in match.candidates]
-        if not cands:
-            return {
-                "resolved": False,
-                "reason": f"No ontology term matches '{name}'.",
-                "candidates": [],
-            }
-        return {
-            "resolved": False,
-            "reason": (
-                f"'{name}' is ambiguous; {len(cands)} candidate term(s). "
-                "Call ontology_subtypes again with an exact label or id."
-            ),
-            "candidates": cands,
-        }
-    res = reasoner.descendants(match.resolved, include_self=include_self)
-    return {
-        "resolved": True,
-        "concept": {"id": match.resolved.id, "label": match.resolved.label},
-        "subtype_count": res.count,
-        "subtypes": [{"id": c.id, "label": c.label} for c in res.descendants],
-        "provenance": (
-            "Complete transitive is-a descendant set from the ontology DL "
-            "hierarchy (sound + complete; no LLM in the reasoning path)."
-        ),
-    }
-
-
-def _format_resolve(reasoner: SubsumptionReasoner, args: dict[str, Any]) -> dict[str, Any]:
-    name = (args or {}).get("concept", "")
-    if not isinstance(name, str) or not name.strip():
-        raise _ToolError("'concept' must be a non-empty string")
-    match = reasoner.resolve(name)
-    if match.is_unique:
-        return {
-            "resolved": True,
-            "concept": {"id": match.resolved.id, "label": match.resolved.label},
-        }
-    return {
-        "resolved": False,
-        "candidates": [{"id": c.id, "label": c.label} for c in match.candidates],
-    }
 
 
 def _format_answer(answerer: "OntologyAnswerer", args: dict[str, Any]) -> dict[str, Any]:
@@ -226,20 +110,13 @@ def _format_answer(answerer: "OntologyAnswerer", args: dict[str, Any]) -> dict[s
         "answer": text,
         "provenance": (
             "Answered by the evolved GO query program (the same logic the web "
-            "chatbot runs). This path may use an LLM; use ontology_subtypes for "
-            "provable subtype sets."
+            "chatbot runs). This path may use an LLM."
         ),
     }
 
 
 class _ToolError(Exception):
     """A tool-level error returned as an MCP tool result with isError=true."""
-
-
-_TOOL_HANDLERS = {
-    "ontology_subtypes": _format_subtypes,
-    "ontology_resolve": _format_resolve,
-}
 
 
 def create_mcp_app(
@@ -257,18 +134,10 @@ def create_mcp_app(
         os.environ.get("ONTOLOGY_RUNS_DIR", "runs/")
     ).expanduser()
     state: dict[str, Any] = {
-        "reasoner": None,
         "answerer": None,
         "ontology": ontology,
         "runs_dir": runs_dir,
     }
-
-    def _get_reasoner() -> SubsumptionReasoner:
-        if state["reasoner"] is None:
-            cfg = load_config(config_path)
-            entry = resolve_ontology(cfg, ontology)  # materializes S3 -> local cache
-            state["reasoner"] = SubsumptionReasoner(entry.owl_file)
-        return state["reasoner"]
 
     def _get_answerer() -> "OntologyAnswerer":
         """Load (once) the evolved query program + ontology for free-form QA.
@@ -347,25 +216,7 @@ def create_mcp_app(
                         "content": [{"type": "text", "text": f"Internal tool error: {exc}"}],
                         "isError": True,
                     })
-            handler = _TOOL_HANDLERS.get(tool)
-            if handler is None:
-                return _error(id_, _INVALID_PARAMS, f"Unknown tool '{tool}'")
-            try:
-                payload = handler(_get_reasoner(), args)
-                return _result(id_, {
-                    "content": [{"type": "text", "text": _json.dumps(payload, indent=2)}],
-                    "isError": False,
-                })
-            except _ToolError as te:
-                return _result(id_, {
-                    "content": [{"type": "text", "text": str(te)}],
-                    "isError": True,
-                })
-            except Exception as exc:  # noqa: BLE001 - surface as tool error, not 500
-                return _result(id_, {
-                    "content": [{"type": "text", "text": f"Internal tool error: {exc}"}],
-                    "isError": True,
-                })
+            return _error(id_, _INVALID_PARAMS, f"Unknown tool '{tool}'")
         if is_notification:
             return None
         return _error(id_, _METHOD_NOT_FOUND, f"Method not found: {method}")
@@ -397,7 +248,7 @@ def main() -> None:  # pragma: no cover - thin uvicorn launcher
     import argparse
     import uvicorn
 
-    parser = argparse.ArgumentParser(description="Ontology subsumption MCP server")
+    parser = argparse.ArgumentParser(description="GO question-answering MCP server")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8080")))
     parser.add_argument("--ontology", default=os.environ.get("MCP_ONTOLOGY", "GO"))
