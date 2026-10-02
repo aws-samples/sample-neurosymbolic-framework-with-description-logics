@@ -140,7 +140,7 @@ def _tool_definitions() -> list[dict[str, Any]]:
                 "properties": {
                     "question": {
                         "type": "string",
-                        "description": "The natural-language question to answer about GO.",
+                        "description": "The natural-language question to answer about the functions, locations, and biological roles of genes and proteins across different organisms",
                     },
                 },
                 "required": ["question"],
