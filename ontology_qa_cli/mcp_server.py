@@ -58,17 +58,13 @@ def _tool_definitions() -> list[dict[str, Any]]:
         {
             "name": "answer_question_with_GO",
             "description": (
-                "Answer a free-form natural-language question about the Gene "
-                "Ontology (GO) using the project's evolved query program -- the "
-                "same logic the web chatbot runs. Give a full question in plain "
-                "English (e.g. 'A GO enrichment analysis shows significant "
-                "enrichment for microtubule cytoskeleton organization in "
-                "upregulated genes -- what does this mean practically?') and a "
-                "prose answer is returned. The query program is built offline "
-                "and loaded once; this call runs it against the pre-loaded "
-                "ontology. This path runs the evolved program (which may use an "
-                "LLM), so it is a conversational QA path rather than a "
-                "provable-reasoning one."
+                "Answer a free-form natural-language question about the "
+                "functions, locations, and biological roles of genes and "
+                "proteins across different organisms. Give a full question in "
+                "plain English (e.g. 'A GO enrichment analysis shows "
+                "significant enrichment for microtubule cytoskeleton "
+                "organization in upregulated genes -- what does this mean "
+                "practically?') and a prose answer is returned."
             ),
             "inputSchema": {
                 "type": "object",
