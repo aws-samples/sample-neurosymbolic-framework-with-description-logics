@@ -73,6 +73,27 @@ export class EdgeStack extends cdk.Stack {
           // SSE streams must not be buffered by CloudFront.
           responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS,
         },
+        // Remote MCP server (Streamable HTTP, POST /mcp + GET /mcp/health):
+        // route to the ALB origin exactly like the API, otherwise /mcp* falls
+        // through to the S3 default behavior and gets served the SPA index.html.
+        // NB: 'mcp/*' matches /mcp/health but NOT the bare POST /mcp, so an
+        // exact 'mcp' behavior is required alongside it.
+        'mcp': {
+          origin: albOrigin,
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+          allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+          cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+          originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER,
+          responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS,
+        },
+        'mcp/*': {
+          origin: albOrigin,
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+          allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+          cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+          originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER,
+          responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS,
+        },
       },
       // SPA client-side routing: serve index.html for unknown paths.
       errorResponses: [
