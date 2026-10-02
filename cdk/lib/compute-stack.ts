@@ -283,10 +283,14 @@ export class ComputeStack extends cdk.Stack {
         operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
       },
     });
-    // S3 read for the ontology OWL; EFS for the owlready2 sqlite cache. No
-    // Bedrock — the reasoning path is pure DL, no model invocation.
+    // S3 read for the ontology OWL; EFS for the owlready2 sqlite cache.
+    // Bedrock InvokeModel is required at RUNTIME: the two reasoner tools are
+    // pure DL (no model), but answer_question_with_GO runs the evolved query
+    // program, which calls Bedrock per question. Without this grant that tool
+    // degrades to "could not determine an answer" on an AccessDenied.
     props.ontologyBucket.grantRead(mcpTaskDef.taskRole);
     props.fileSystem.grantReadWrite(mcpTaskDef.taskRole);
+    mcpTaskDef.addToTaskRolePolicy(bedrockInvoke);
 
     const mcpContainer = mcpTaskDef.addContainer('mcp', {
       image: mcpImage,
