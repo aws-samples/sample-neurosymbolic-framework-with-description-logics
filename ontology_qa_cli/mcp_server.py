@@ -22,6 +22,15 @@ Tools
   return candidate terms for the agent to disambiguate rather than a guess.
 * ``ontology_resolve`` -- resolve a term name to its canonical id + label (or
   candidates), useful for disambiguation before a subtypes call.
+* ``answer_question_with_GO`` -- answer a free-form natural-language question
+  using the SAME evolved query program the web app runs. The program is built
+  offline by the builder (``ontology-qa-build``) and persisted to the shared
+  runs/ mount; this server loads the best GO program once (lazily, on first
+  call) via :class:`ontology_qa_cli.serve.OntologyAnswerer` and runs it per
+  question -- mirroring the web app's "build at startup, run per question" flow.
+  Unlike the two subsumption tools, the answer path here DOES involve the
+  evolved program (which may call an LLM); it is the conversational QA path,
+  not the provable-reasoning path.
 
 Config: ``MCP_ONTOLOGY`` selects which configured ontology to serve (default
 "GO"); the ontology is loaded once at startup from the same
@@ -35,6 +44,8 @@ from typing import Any, Optional
 
 from ontology_qa_cli.config import load_config, resolve_ontology
 from ontology_qa_cli.subsumption import SubsumptionReasoner
+from ontology_qa_cli.query import find_best_program
+from ontology_qa_cli.serve import OntologyAnswerer
 
 try:
     from fastapi import FastAPI, Request
@@ -107,6 +118,34 @@ def _tool_definitions() -> list[dict[str, Any]]:
                 "required": ["concept"],
             },
         },
+        {
+            "name": "answer_question_with_GO",
+            "description": (
+                "Answer a free-form natural-language question about the Gene "
+                "Ontology (GO) using the project's evolved query program -- the "
+                "same logic the web chatbot runs. Give a full question in plain "
+                "English (e.g. 'A GO enrichment analysis shows significant "
+                "enrichment for microtubule cytoskeleton organization in "
+                "upregulated genes -- what does this mean practically?') and a "
+                "prose answer is returned. The query program is built offline "
+                "and loaded once; this call runs it against the pre-loaded "
+                "ontology. Note: unlike ontology_subtypes/ontology_resolve, this "
+                "path runs the evolved program (which may use an LLM), so it is "
+                "the conversational QA path, not the provable-reasoning path. "
+                "Use ontology_subtypes when you need a provably complete subtype "
+                "set rather than an explanatory answer."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "question": {
+                        "type": "string",
+                        "description": "The natural-language question to answer about GO.",
+                    },
+                },
+                "required": ["question"],
+            },
+        },
     ]
 
 
@@ -161,6 +200,38 @@ def _format_resolve(reasoner: SubsumptionReasoner, args: dict[str, Any]) -> dict
     }
 
 
+def _format_answer(answerer: "OntologyAnswerer", args: dict[str, Any]) -> dict[str, Any]:
+    """Answer a free-form question by running the evolved query program.
+
+    Mirrors the web app: the OntologyAnswerer has loaded the ontology + the best
+    evolved program once; here we run it for this one question and return the
+    extracted ``Answer:`` text. A program that produces no ``Answer:`` line
+    yields ``answered: false`` rather than a fabricated reply.
+    """
+    question = (args or {}).get("question", "")
+    if not isinstance(question, str) or not question.strip():
+        raise _ToolError("'question' must be a non-empty string")
+    text = answerer.answer(question)
+    if text is None:
+        return {
+            "answered": False,
+            "reason": (
+                "The query program ran but produced no answer in the expected "
+                "format. The question may be outside what the program handles."
+            ),
+        }
+    return {
+        "answered": True,
+        "question": question,
+        "answer": text,
+        "provenance": (
+            "Answered by the evolved GO query program (the same logic the web "
+            "chatbot runs). This path may use an LLM; use ontology_subtypes for "
+            "provable subtype sets."
+        ),
+    }
+
+
 class _ToolError(Exception):
     """A tool-level error returned as an MCP tool result with isError=true."""
 
@@ -182,7 +253,15 @@ def create_mcp_app(
     ontology = ontology or os.environ.get("MCP_ONTOLOGY", "GO")
 
     app = FastAPI(title=SERVER_NAME, version=SERVER_VERSION)
-    state: dict[str, Any] = {"reasoner": None, "ontology": ontology}
+    runs_dir = Path(
+        os.environ.get("ONTOLOGY_RUNS_DIR", "runs/")
+    ).expanduser()
+    state: dict[str, Any] = {
+        "reasoner": None,
+        "answerer": None,
+        "ontology": ontology,
+        "runs_dir": runs_dir,
+    }
 
     def _get_reasoner() -> SubsumptionReasoner:
         if state["reasoner"] is None:
@@ -190,6 +269,22 @@ def create_mcp_app(
             entry = resolve_ontology(cfg, ontology)  # materializes S3 -> local cache
             state["reasoner"] = SubsumptionReasoner(entry.owl_file)
         return state["reasoner"]
+
+    def _get_answerer() -> "OntologyAnswerer":
+        """Load (once) the evolved query program + ontology for free-form QA.
+
+        Mirrors the web app: resolve the ontology's OWL (materializing it from
+        S3 if needed) and the best already-built query program from runs/, then
+        construct an OntologyAnswerer that loads both once. The costly builder
+        is NOT run here -- it writes query_program.py offline to the shared
+        runs/ mount; this just loads its output. Raises if no program exists.
+        """
+        if state["answerer"] is None:
+            cfg = load_config(config_path)
+            entry = resolve_ontology(cfg, ontology)  # materializes S3 -> local cache
+            program_path = find_best_program(ontology, state["runs_dir"])
+            state["answerer"] = OntologyAnswerer.from_program(program_path, entry.owl_file)
+        return state["answerer"]
 
     import json as _json
 
@@ -223,6 +318,35 @@ def create_mcp_app(
             params = msg.get("params") or {}
             tool = params.get("name")
             args = params.get("arguments") or {}
+            if tool == "answer_question_with_GO":
+                try:
+                    payload = _format_answer(_get_answerer(), args)
+                    return _result(id_, {
+                        "content": [{"type": "text", "text": _json.dumps(payload, indent=2)}],
+                        "isError": False,
+                    })
+                except _ToolError as te:
+                    return _result(id_, {
+                        "content": [{"type": "text", "text": str(te)}],
+                        "isError": True,
+                    })
+                except SystemExit as se:
+                    # find_best_program calls sys.exit(1) when no built program
+                    # exists for the ontology. Surface it as a tool error rather
+                    # than letting it propagate and kill the worker.
+                    return _result(id_, {
+                        "content": [{"type": "text", "text": (
+                            f"No query program has been built for '{ontology}' yet "
+                            f"(looked in {state['runs_dir']}). Build one offline with "
+                            f"the builder before this tool can answer. ({se})"
+                        )}],
+                        "isError": True,
+                    })
+                except Exception as exc:  # noqa: BLE001 - surface as tool error, not 500
+                    return _result(id_, {
+                        "content": [{"type": "text", "text": f"Internal tool error: {exc}"}],
+                        "isError": True,
+                    })
             handler = _TOOL_HANDLERS.get(tool)
             if handler is None:
                 return _error(id_, _INVALID_PARAMS, f"Unknown tool '{tool}'")

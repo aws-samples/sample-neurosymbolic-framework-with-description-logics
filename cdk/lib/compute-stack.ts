@@ -11,6 +11,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as cr from 'aws-cdk-lib/custom-resources';
 
 export interface ComputeStackProps extends cdk.StackProps {
   vpc: ec2.IVpc;
@@ -297,6 +298,10 @@ export class ComputeStack extends cdk.Stack {
         ONTOLOGY_QA_CACHE_DIR: EFS_MOUNT,
         ONTOLOGY_CONFIG: 'ontology_config.yaml',
         MCP_ONTOLOGY: mcpOntology,
+        // answer_question_with_GO loads the best evolved query program from the
+        // shared runs/ mount (where the builder Fargate task writes it). Without
+        // this the server defaults to container-local ./runs and never finds it.
+        ONTOLOGY_RUNS_DIR: EFS_MOUNT,
         PORT: String(MCP_PORT),
       },
       portMappings: [{ containerPort: MCP_PORT }],
@@ -460,6 +465,98 @@ export class ComputeStack extends cdk.Stack {
     // The web app tails the builder's CloudWatch logs for the live build stream.
     builderLogGroup.grantRead(webTaskDef.taskRole);
 
+    // ============== DEPLOY-TIME ONE-SHOT EVOLVE (GO) =======================
+    // Fire the builder ONCE per `cdk deploy` to evolve a fresh query program
+    // for the MCP server's ontology, written to the shared EFS runs/ mount that
+    // the MCP service loads from. This is the "evolve a query program when the
+    // MCP server is deployed" behaviour.
+    //
+    // Design — deliberately NON-BLOCKING on the build outcome:
+    //   * The custom resource only LAUNCHES the build (ecs:RunTask) and returns
+    //     as soon as the task is accepted. It does NOT wait for the (10-30 min,
+    //     LLM-driven, costly) evolve to finish — CloudFormation custom resources
+    //     cannot block a deploy that long, and we explicitly want the stack to
+    //     ship regardless of build outcome.
+    //   * ignoreErrorCodesMatching swallows RunTask API failures too (capacity,
+    //     throttling), so even a failed LAUNCH never fails the deploy. Worst
+    //     case: no fresh program is produced and answer_question_with_GO
+    //     degrades to its honest "no query program built yet" tool error until
+    //     a later build lands.
+    //   * A timestamp physicalResourceId forces a re-run on EVERY deploy, so a
+    //     fresh evolve is kicked off each time — matching "when deployed".
+    //
+    // Prerequisite: the builder reads KIRO_API_KEY (headless auth) from the
+    // Secrets Manager secret below. If that secret is empty the launched build
+    // will start and then fail — harmless here (deploy still succeeds, tool
+    // degrades), but the program won't refresh until the key is set.
+    const evolveSubnets = props.vpc.selectSubnets({
+      subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+    });
+    const runEvolveTask: cr.AwsSdkCall = {
+      service: 'ECS',
+      action: 'runTask',
+      parameters: {
+        cluster: cluster.clusterArn,
+        taskDefinition: this.builderTaskDefinition.taskDefinitionArn,
+        launchType: 'FARGATE',
+        count: 1,
+        networkConfiguration: {
+          awsvpcConfiguration: {
+            subnets: evolveSubnets.subnetIds,
+            securityGroups: [props.serviceSecurityGroup.securityGroupId],
+            assignPublicIp: 'DISABLED',
+          },
+        },
+        overrides: {
+          containerOverrides: [
+            {
+              name: 'builder',
+              // The builder image ENTRYPOINT is ["uv","run","python","-m"], so
+              // the override is just the module + args (do NOT repeat the
+              // entrypoint). Mirrors the Task 6 run_task contract.
+              command: [
+                'ontology_qa_cli.builder',
+                mcpOntology,
+                '--plain',
+                '--ontology-config', 'ontology_config.yaml',
+                '--output-dir', EFS_MOUNT,
+              ],
+            },
+          ],
+        },
+      },
+      // New id each deploy -> the custom resource re-runs RunTask every time.
+      physicalResourceId: cr.PhysicalResourceId.of(`evolve-${mcpOntology}-${Date.now()}`),
+      // Any RunTask failure (capacity, throttling, etc.) is swallowed so the
+      // deploy still succeeds — the evolve is strictly best-effort.
+      ignoreErrorCodesMatching: '.*',
+    };
+
+    const evolveOnDeploy = new cr.AwsCustomResource(this, 'EvolveQueryProgramOnDeploy', {
+      onCreate: runEvolveTask,
+      onUpdate: runEvolveTask,
+      // No onDelete: tearing down the stack should not launch a build.
+      policy: cr.AwsCustomResourcePolicy.fromStatements([
+        new iam.PolicyStatement({
+          actions: ['ecs:RunTask'],
+          resources: [this.builderTaskDefinition.taskDefinitionArn],
+          conditions: { ArnEquals: { 'ecs:cluster': cluster.clusterArn } },
+        }),
+        // RunTask with a task role requires PassRole for the builder's roles.
+        new iam.PolicyStatement({
+          actions: ['iam:PassRole'],
+          resources: [
+            this.builderTaskDefinition.taskRole.roleArn,
+            this.builderTaskDefinition.obtainExecutionRole().roleArn,
+          ],
+        }),
+      ]),
+      // The build runs long after this returns; the CR itself is quick.
+      timeout: cdk.Duration.minutes(2),
+    });
+    // Ensure the builder task def (and its roles) exist before we launch it.
+    evolveOnDeploy.node.addDependency(this.builderTaskDefinition);
+
     new cdk.CfnOutput(this, 'ClusterName', { value: cluster.clusterName });
     new cdk.CfnOutput(this, 'KiroApiKeySecretArn', {
       value: kiroApiKeySecret.secretArn,
@@ -474,6 +571,15 @@ export class ComputeStack extends cdk.Stack {
       description:
         'MCP Streamable-HTTP endpoint (POST /mcp), behind Cognito auth on the ALB HTTPS listener. ' +
         `Serving ontology: ${mcpOntology}.`,
+    });
+    new cdk.CfnOutput(this, 'EvolveOnDeploy', {
+      value: `${mcpOntology} (best-effort, non-blocking)`,
+      description:
+        'Each deploy launches a one-shot builder Fargate task to evolve a fresh ' +
+        'query program for this ontology into the EFS runs/ mount. It is ' +
+        'best-effort: a failed launch or build never fails the deploy, and ' +
+        'answer_question_with_GO degrades to "no program built yet" until one ' +
+        'lands. Requires the KiroApiKey secret to be set for the build to succeed.',
     });
   }
 }
