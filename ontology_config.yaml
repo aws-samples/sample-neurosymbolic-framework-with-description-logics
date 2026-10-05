@@ -254,7 +254,131 @@ ontologies:
           large amounts of protein, or coping with misfolded proteins. The
           practical read is a stressed proteostasis state engaging the
           chaperone/quality-control machinery.
-  
+
+  - name: "CTO"
+    owl_file: "s3://neurosymbolicdl-storage-ontologybucket795a3498-gjp5avevev34/ontologies/cto.owl"
+    # Clinical Trial Ontology (CTO, OBO Foundry / BFO-based). The eval set has
+    # two complementary kinds of question so the evolved program stays competent
+    # at BOTH:
+    #   (a) factual lookups of trial-design concepts CTO actually defines
+    #       (phases, masking/blinding, allocation, eligibility, outcomes,
+    #       registries), and
+    #   (b) interpretive "what does this trial design mean / imply" questions.
+    # Every expected_answer stays grounded in CTO's real class hierarchy and
+    # definitions so the neurosymbolic retrieval drives the answer rather than
+    # free speculation.
+    questions:
+      # --- (a) Factual trial-design concept lookups ---
+      - question: "What clinical trial phases does the ontology define?"
+        expected_answer: |
+          The Clinical Trial Ontology defines the trial-phase concepts: early
+          phase 1, phase 1, phase 1/2, phase 2, phase 2/3, phase 3, phase 4,
+          and "phase not applicable" (for trials, such as many device or
+          behavioral studies, where the drug-development phase model does not
+          apply). These are subclasses of "clinical trial phase".
+      - question: "What is a phase 1 clinical trial?"
+        expected_answer: |
+          A phase 1 clinical trial is the earliest human-testing phase, focused
+          on evaluating the safety, tolerability, and pharmacokinetics of an
+          intervention in a small group of participants, and on identifying
+          side effects and a safe dosage range rather than proving efficacy.
+      - question: "What kinds of masking (blinding) design does CTO describe?"
+        expected_answer: |
+          CTO represents masking design concepts including a double blinded
+          design (neither the participants nor the investigators know the
+          treatment assignment) and an open (open-label) design (the assignment
+          is known to both). Masking design is how a trial controls for bias in
+          how outcomes are reported and assessed.
+      - question: "What is the difference between random and non-random allocation in a trial?"
+        expected_answer: |
+          Allocation is how participants are assigned to study arms. CTO
+          distinguishes random allocation -- assignment by chance, which balances
+          known and unknown confounders across arms and underpins causal
+          inference -- from non-random allocation, where assignment follows a
+          non-chance rule and is more susceptible to selection bias.
+      - question: "What eligibility criteria concepts does the ontology represent?"
+        expected_answer: |
+          CTO represents eligibility concepts such as age-range criteria
+          (birth-17 years, 18-64 years, older than 64), a healthy-volunteer
+          criterion, and the notion of a healthy enrollee versus an enrolled
+          patient. These define who may be recruited into a trial.
+      - question: "What is a primary outcome measure?"
+        expected_answer: |
+          A primary outcome measure is the pre-specified result the trial is
+          principally designed and powered to detect. CTO models primary outcome
+          measure information and primary outcome measurement (with its outcome
+          measurement datum) separately from other/secondary outcome measures,
+          because the primary outcome is what the trial's success is judged on.
+      - question: "What is a clinical trial sponsor role?"
+        expected_answer: |
+          The clinical trial sponsor role is the role borne by the organization
+          or individual that takes responsibility for initiating, managing, and
+          financing a clinical trial. In CTO it is a role (a realizable entity)
+          rather than the organization itself.
+      - question: "Name some clinical trial registries the ontology knows about."
+        expected_answer: |
+          CTO catalogs numerous national and regional trial registries, each with
+          its identifier concept, including ClinicalTrials.gov, the EU Clinical
+          Trials Register, the German clinical trials register, the Chinese,
+          Indian, Japanese (JAPIC/JMACCT/jRCT), Korean, Iranian, Brazilian,
+          Cuban, Peruvian, Lebanese, Pan African, and Australian New Zealand
+          clinical trial registries, plus the ISRCTN register.
+
+      # --- (b) Interpretive "what does this design imply" questions ---
+      - question: |
+          A trial is registered as a randomized, double-blind, placebo-controlled
+          phase 3 study. What does that design mean practically, and what is it
+          able to establish?
+        expected_answer: |
+          Practically this is a late-stage confirmatory efficacy trial. Phase 3
+          means it tests the intervention in a large participant population to
+          confirm effectiveness and monitor adverse reactions after safety was
+          established earlier. Randomized allocation distributes known and unknown
+          confounders evenly across arms, and double blinding keeps both
+          participants and investigators unaware of assignment, controlling
+          placebo effects and assessment bias. Placebo control gives the
+          comparison baseline. Together these make it the strongest ordinary
+          design for establishing a causal efficacy claim -- the kind of pivotal
+          evidence regulators expect for approval.
+      - question: |
+          A study uses an open-label, non-randomized, single-arm design in a
+          small number of participants and is labeled early phase 1. What are the
+          practical implications and limitations of reading its results?
+        expected_answer: |
+          This is an early exploratory study, not a confirmatory one. Early
+          phase 1 (and phase 1 generally) prioritizes safety, tolerability, and
+          dosing over proving efficacy. A single arm with no randomized control
+          and open-label (unmasked) assessment means there is no concurrent
+          comparator and a high risk of selection and expectation bias, so any
+          apparent benefit cannot be attributed causally to the intervention.
+          Practically, its results are hypothesis-generating -- useful for
+          deciding whether to advance to larger controlled trials -- rather than
+          evidence of effectiveness.
+      - question: |
+          Why does it matter whether a trial pre-specifies its primary outcome
+          measure versus reporting several outcomes after the fact?
+        expected_answer: |
+          Pre-specifying the primary outcome fixes, before data are seen, the
+          single result the trial is powered to detect and judged on. CTO
+          separates the primary outcome measurement from other outcome measures
+          precisely because this hierarchy guards against outcome-switching and
+          multiple-comparison bias: picking the best-looking result after the
+          fact inflates false-positive risk. Practically, a trial that meets a
+          pre-registered primary outcome provides far more trustworthy evidence
+          than one that highlights a favorable secondary or post-hoc outcome.
+      - question: |
+          A trial record lists a healthy-volunteer eligibility criterion and an
+          18-64 age range. What does that tell me about the study?
+        expected_answer: |
+          It tells you the study recruits healthy enrollees rather than patients
+          with the target condition, within a working-age adult band (18-64,
+          excluding children and the elderly). Practically this is characteristic
+          of an early safety/pharmacokinetic study (typical of phase 1), where
+          the goal is to observe how the intervention behaves in people without
+          confounding disease, and where excluding pediatric and older
+          populations limits variability and risk. It also means the results may
+          not generalize to the eventual patient population.
+
   - name: "SNOMED"
     owl_file: "~/ontology-2026-05-08_20-47-35.owl"
     questions:
