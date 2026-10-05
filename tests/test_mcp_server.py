@@ -2,7 +2,9 @@
 
 The OntologyAnswerer is stubbed so these tests exercise the MCP JSON-RPC
 protocol + tool wiring WITHOUT loading any ontology or evolved program (fast,
-no owlready2 parse).
+no owlready2 parse). The server now exposes one tool per configured ontology
+(answer_question_with_<NAME>), so the fixtures build a server over an explicit
+ontology list and back every ontology's answerer with the same stub.
 """
 from __future__ import annotations
 
@@ -26,9 +28,8 @@ class _StubAnswerer:
         return self._reply
 
 
-@pytest.fixture
-def answer_client(monkeypatch):
-    """Client whose answer_question_with_GO is backed by a stub answerer."""
+def _make_client(monkeypatch, ontologies, reply=None):
+    """Build a TestClient over `ontologies`, every answerer backed by one stub."""
     monkeypatch.setattr(mcp, "load_config", lambda p: object())
 
     class _StubEntry:
@@ -36,14 +37,26 @@ def answer_client(monkeypatch):
 
     monkeypatch.setattr(mcp, "resolve_ontology", lambda cfg, name: _StubEntry())
     monkeypatch.setattr(mcp, "find_best_program", lambda onto, runs: "unused/query_program.py")
-    stub = _StubAnswerer()
+    stub = _StubAnswerer() if reply is None else _StubAnswerer(reply)
     monkeypatch.setattr(
         mcp.OntologyAnswerer, "from_program",
         classmethod(lambda cls, program_path, onto_file: stub),
     )
-    client = TestClient(mcp.create_mcp_app(config_path="unused.yaml", ontology="GO"))
+    client = TestClient(mcp.create_mcp_app(config_path="unused.yaml", ontologies=ontologies))
     client._stub_answerer = stub  # type: ignore[attr-defined]
     return client
+
+
+@pytest.fixture
+def answer_client(monkeypatch):
+    """Single-ontology (GO) client, answer tool backed by a stub answerer."""
+    return _make_client(monkeypatch, "GO")
+
+
+@pytest.fixture
+def multi_client(monkeypatch):
+    """Two-ontology (GO + CTO) client; both tools share one stub answerer."""
+    return _make_client(monkeypatch, "GO,CTO")
 
 
 def _rpc(client, method, params=None, id_=1):
@@ -66,7 +79,7 @@ class TestProtocol:
         r = answer_client.post("/mcp", json={"jsonrpc": "2.0", "method": "notifications/initialized"})
         assert r.status_code == 202
 
-    def test_tools_list(self, answer_client):
+    def test_tools_list_single(self, answer_client):
         r = _rpc(answer_client, "tools/list")
         names = {t["name"] for t in r.json()["result"]["tools"]}
         assert names == {"answer_question_with_GO"}
@@ -83,6 +96,38 @@ class TestProtocol:
     def test_unknown_tool(self, answer_client):
         r = _rpc(answer_client, "tools/call", {"name": "nope", "arguments": {}})
         assert r.json()["error"]["code"] == mcp._INVALID_PARAMS
+
+
+class TestMultiTool:
+    def test_tools_list_exposes_one_tool_per_ontology(self, multi_client):
+        r = _rpc(multi_client, "tools/list")
+        names = {t["name"] for t in r.json()["result"]["tools"]}
+        assert names == {"answer_question_with_GO", "answer_question_with_CTO"}
+
+    def test_each_tool_descriptions_are_distinct_and_on_topic(self, multi_client):
+        tools = {t["name"]: t for t in _rpc(multi_client, "tools/list").json()["result"]["tools"]}
+        go_desc = tools["answer_question_with_GO"]["description"].lower()
+        cto_desc = tools["answer_question_with_CTO"]["description"].lower()
+        assert "gene" in go_desc or "protein" in go_desc
+        assert "clinical trial" in cto_desc
+        assert go_desc != cto_desc
+
+    def test_cto_tool_answers(self, multi_client):
+        import json
+        q = "What does a randomized double-blind phase 3 design establish?"
+        r = _rpc(multi_client, "tools/call", {
+            "name": "answer_question_with_CTO", "arguments": {"question": q},
+        })
+        result = r.json()["result"]
+        assert result["isError"] is False
+        payload = json.loads(result["content"][0]["text"])
+        assert payload["answered"] is True
+        assert payload["question"] == q
+        assert "CTO" in payload["provenance"]
+
+    def test_health_lists_all_ontologies(self, multi_client):
+        r = multi_client.get("/mcp/health")
+        assert r.json()["ontologies"] == ["GO", "CTO"]
 
 
 class TestAnswerQuestionTool:
@@ -102,6 +147,7 @@ class TestAnswerQuestionTool:
         assert payload["answered"] is True
         assert payload["question"] == q
         assert "microtubule" in payload["answer"].lower()
+        assert "GO" in payload["provenance"]
         # The evolved program (stubbed) was actually invoked with the question.
         assert answer_client._stub_answerer.calls == [q]
 
@@ -135,10 +181,24 @@ class TestAnswerQuestionTool:
             raise SystemExit(1)
 
         monkeypatch.setattr(mcp, "find_best_program", _no_program)
-        client = TestClient(mcp.create_mcp_app(config_path="unused.yaml", ontology="GO"))
+        client = TestClient(mcp.create_mcp_app(config_path="unused.yaml", ontologies="GO"))
         r = _rpc(client, "tools/call", {
             "name": "answer_question_with_GO", "arguments": {"question": "q"},
         })
         result = r.json()["result"]
         assert result["isError"] is True
         assert "no query program has been built" in result["content"][0]["text"].lower()
+
+
+class TestOntologyParsing:
+    def test_defaults_to_go(self):
+        assert mcp._parse_ontologies(None) == ["GO"] or "GO" in mcp._parse_ontologies(None)
+
+    def test_comma_separated(self):
+        assert mcp._parse_ontologies("GO,CTO") == ["GO", "CTO"]
+
+    def test_strips_blanks_and_dupes(self):
+        assert mcp._parse_ontologies(" GO , CTO , GO ,") == ["GO", "CTO"]
+
+    def test_tool_name_for(self):
+        assert mcp.tool_name_for("CTO") == "answer_question_with_CTO"

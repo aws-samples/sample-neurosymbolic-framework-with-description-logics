@@ -26,8 +26,8 @@ export interface ComputeStackProps extends cdk.StackProps {
   builderImageAsset?: string;
   /** Path to the MCP image build context, or undefined to use a repo asset. */
   mcpImageAsset?: string;
-  /** Which configured ontology the MCP server serves (default "GO"). */
-  mcpOntology?: string;
+  /** Which configured ontologies the MCP server serves (default ["GO","CTO"]). */
+  mcpOntologies?: string[];
   bedrockRegion: string;
   bedrockModel: string;
   /**
@@ -267,12 +267,14 @@ export class ComputeStack extends cdk.Stack {
 
     // ======================= MCP SERVICE ===================================
     // A long-lived Fargate service running the remote MCP server (Dockerfile.mcp)
-    // which exposes PROVABLE ontology subsumption tools over MCP Streamable HTTP
-    // at POST /mcp. Loads the Gene Ontology (MCP_ONTOLOGY=GO) once at startup
-    // from the shared S3 ontology bucket. Reaches the ALB through a path-based
-    // (`/mcp*`) rule on the SAME Cognito-authenticated HTTPS listener as the web
-    // service, so every MCP request is authenticated before it hits the service.
-    const mcpOntology = props.mcpOntology ?? 'GO';
+    // which exposes one free-form question-answering tool PER configured ontology
+    // over MCP Streamable HTTP at POST /mcp. Loads each ontology (MCP_ONTOLOGIES,
+    // e.g. "GO,CTO") lazily on first call from the shared S3 ontology bucket.
+    // Reaches the ALB through a path-based (`/mcp*`) rule on the SAME
+    // Cognito-authenticated HTTPS listener as the web service, so every MCP
+    // request is authenticated before it hits the service.
+    const mcpOntologies = props.mcpOntologies ?? ['GO', 'CTO'];
+    const mcpOntologiesCsv = mcpOntologies.join(',');
 
     const mcpTaskDef = new ecs.FargateTaskDefinition(this, 'McpTaskDef', {
       cpu: 512,
@@ -301,10 +303,11 @@ export class ComputeStack extends cdk.Stack {
       environment: {
         ONTOLOGY_QA_CACHE_DIR: EFS_MOUNT,
         ONTOLOGY_CONFIG: 'ontology_config.yaml',
-        MCP_ONTOLOGY: mcpOntology,
-        // answer_question_with_GO loads the best evolved query program from the
-        // shared runs/ mount (where the builder Fargate task writes it). Without
-        // this the server defaults to container-local ./runs and never finds it.
+        MCP_ONTOLOGIES: mcpOntologiesCsv,
+        // Each answer_question_with_<NAME> tool loads the best evolved query
+        // program for its ontology from the shared runs/ mount (where the
+        // builder Fargate task writes it). Without this the server defaults to
+        // container-local ./runs and never finds it.
         ONTOLOGY_RUNS_DIR: EFS_MOUNT,
         PORT: String(MCP_PORT),
       },
@@ -496,70 +499,78 @@ export class ComputeStack extends cdk.Stack {
     const evolveSubnets = props.vpc.selectSubnets({
       subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
     });
-    const runEvolveTask: cr.AwsSdkCall = {
-      service: 'ECS',
-      action: 'runTask',
-      parameters: {
-        cluster: cluster.clusterArn,
-        taskDefinition: this.builderTaskDefinition.taskDefinitionArn,
-        launchType: 'FARGATE',
-        count: 1,
-        networkConfiguration: {
-          awsvpcConfiguration: {
-            subnets: evolveSubnets.subnetIds,
-            securityGroups: [props.serviceSecurityGroup.securityGroupId],
-            assignPublicIp: 'DISABLED',
+
+    // One best-effort evolve launch PER served ontology. Each deploy fires a
+    // fresh builder Fargate task for every ontology the MCP server serves, so
+    // every answer_question_with_<NAME> tool gets a freshly-evolved program on
+    // the EFS runs/ mount. Separate custom resources keep the launches
+    // independent: one ontology's RunTask failure never blocks another's.
+    for (const onto of mcpOntologies) {
+      const runEvolveTask: cr.AwsSdkCall = {
+        service: 'ECS',
+        action: 'runTask',
+        parameters: {
+          cluster: cluster.clusterArn,
+          taskDefinition: this.builderTaskDefinition.taskDefinitionArn,
+          launchType: 'FARGATE',
+          count: 1,
+          networkConfiguration: {
+            awsvpcConfiguration: {
+              subnets: evolveSubnets.subnetIds,
+              securityGroups: [props.serviceSecurityGroup.securityGroupId],
+              assignPublicIp: 'DISABLED',
+            },
+          },
+          overrides: {
+            containerOverrides: [
+              {
+                name: 'builder',
+                // The builder image ENTRYPOINT is ["uv","run","python","-m"], so
+                // the override is just the module + args (do NOT repeat the
+                // entrypoint). Mirrors the Task 6 run_task contract.
+                command: [
+                  'ontology_qa_cli.builder',
+                  onto,
+                  '--plain',
+                  '--ontology-config', 'ontology_config.yaml',
+                  '--output-dir', EFS_MOUNT,
+                ],
+              },
+            ],
           },
         },
-        overrides: {
-          containerOverrides: [
-            {
-              name: 'builder',
-              // The builder image ENTRYPOINT is ["uv","run","python","-m"], so
-              // the override is just the module + args (do NOT repeat the
-              // entrypoint). Mirrors the Task 6 run_task contract.
-              command: [
-                'ontology_qa_cli.builder',
-                mcpOntology,
-                '--plain',
-                '--ontology-config', 'ontology_config.yaml',
-                '--output-dir', EFS_MOUNT,
-              ],
-            },
-          ],
-        },
-      },
-      // New id each deploy -> the custom resource re-runs RunTask every time.
-      physicalResourceId: cr.PhysicalResourceId.of(`evolve-${mcpOntology}-${Date.now()}`),
-      // Any RunTask failure (capacity, throttling, etc.) is swallowed so the
-      // deploy still succeeds — the evolve is strictly best-effort.
-      ignoreErrorCodesMatching: '.*',
-    };
+        // New id each deploy -> the custom resource re-runs RunTask every time.
+        physicalResourceId: cr.PhysicalResourceId.of(`evolve-${onto}-${Date.now()}`),
+        // Any RunTask failure (capacity, throttling, etc.) is swallowed so the
+        // deploy still succeeds — the evolve is strictly best-effort.
+        ignoreErrorCodesMatching: '.*',
+      };
 
-    const evolveOnDeploy = new cr.AwsCustomResource(this, 'EvolveQueryProgramOnDeploy', {
-      onCreate: runEvolveTask,
-      onUpdate: runEvolveTask,
-      // No onDelete: tearing down the stack should not launch a build.
-      policy: cr.AwsCustomResourcePolicy.fromStatements([
-        new iam.PolicyStatement({
-          actions: ['ecs:RunTask'],
-          resources: [this.builderTaskDefinition.taskDefinitionArn],
-          conditions: { ArnEquals: { 'ecs:cluster': cluster.clusterArn } },
-        }),
-        // RunTask with a task role requires PassRole for the builder's roles.
-        new iam.PolicyStatement({
-          actions: ['iam:PassRole'],
-          resources: [
-            this.builderTaskDefinition.taskRole.roleArn,
-            this.builderTaskDefinition.obtainExecutionRole().roleArn,
-          ],
-        }),
-      ]),
-      // The build runs long after this returns; the CR itself is quick.
-      timeout: cdk.Duration.minutes(2),
-    });
-    // Ensure the builder task def (and its roles) exist before we launch it.
-    evolveOnDeploy.node.addDependency(this.builderTaskDefinition);
+      const evolveOnDeploy = new cr.AwsCustomResource(this, `EvolveQueryProgramOnDeploy${onto}`, {
+        onCreate: runEvolveTask,
+        onUpdate: runEvolveTask,
+        // No onDelete: tearing down the stack should not launch a build.
+        policy: cr.AwsCustomResourcePolicy.fromStatements([
+          new iam.PolicyStatement({
+            actions: ['ecs:RunTask'],
+            resources: [this.builderTaskDefinition.taskDefinitionArn],
+            conditions: { ArnEquals: { 'ecs:cluster': cluster.clusterArn } },
+          }),
+          // RunTask with a task role requires PassRole for the builder's roles.
+          new iam.PolicyStatement({
+            actions: ['iam:PassRole'],
+            resources: [
+              this.builderTaskDefinition.taskRole.roleArn,
+              this.builderTaskDefinition.obtainExecutionRole().roleArn,
+            ],
+          }),
+        ]),
+        // The build runs long after this returns; the CR itself is quick.
+        timeout: cdk.Duration.minutes(2),
+      });
+      // Ensure the builder task def (and its roles) exist before we launch it.
+      evolveOnDeploy.node.addDependency(this.builderTaskDefinition);
+    }
 
     new cdk.CfnOutput(this, 'ClusterName', { value: cluster.clusterName });
     new cdk.CfnOutput(this, 'KiroApiKeySecretArn', {
@@ -574,16 +585,16 @@ export class ComputeStack extends cdk.Stack {
       value: '/mcp',
       description:
         'MCP Streamable-HTTP endpoint (POST /mcp), behind Cognito auth on the ALB HTTPS listener. ' +
-        `Serving ontology: ${mcpOntology}.`,
+        `Serving ontologies: ${mcpOntologiesCsv} (one answer_question_with_<NAME> tool each).`,
     });
     new cdk.CfnOutput(this, 'EvolveOnDeploy', {
-      value: `${mcpOntology} (best-effort, non-blocking)`,
+      value: `${mcpOntologiesCsv} (best-effort, non-blocking)`,
       description:
-        'Each deploy launches a one-shot builder Fargate task to evolve a fresh ' +
-        'query program for this ontology into the EFS runs/ mount. It is ' +
-        'best-effort: a failed launch or build never fails the deploy, and ' +
-        'answer_question_with_GO degrades to "no program built yet" until one ' +
-        'lands. Requires the KiroApiKey secret to be set for the build to succeed.',
+        'Each deploy launches a one-shot builder Fargate task PER served ontology ' +
+        'to evolve a fresh query program into the EFS runs/ mount. It is ' +
+        'best-effort: a failed launch or build never fails the deploy, and the ' +
+        'affected answer_question_with_<NAME> tool degrades to "no program built ' +
+        'yet" until one lands. Requires the KiroApiKey secret to be set for the build to succeed.',
     });
   }
 }
