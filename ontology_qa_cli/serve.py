@@ -194,10 +194,39 @@ class OntologyAnswerer:
     def _run_once(
         self, question: str, on_line: "Optional[Callable[[str], None]]" = None
     ) -> Optional[str]:
-        # Intercept the ontology (re)load so main() reuses the world we already
-        # loaded, instead of re-parsing the OWL or reopening the backend.
+        # Make the evolved program see OUR already-loaded ontology instead of
+        # re-parsing the OWL or reopening the backend.
+        #
+        # The evolved programs (descended from seed_program.py) consume the
+        # ontology through ``owlready2.default_world`` directly:
+        #
+        #     owlready2.default_world.set_backend(filename=cache_file)
+        #     if not cache_exists or not list(owlready2.default_world.ontologies):
+        #         onto = owlready2.get_ontology(...).load()
+        #     else:
+        #         onto = next(iter(owlready2.default_world.ontologies.values()))
+        #     ... world = owlready2.default_world; world.search(label=...) ...
+        #
+        # So the data has to live in ``owlready2.default_world`` at call time.
+        # We loaded it into a PRIVATE ``self._world`` (to keep one answerer per
+        # ontology isolated in a single long-lived process), so for the duration
+        # of this locked call we TEMPORARILY point the module-global
+        # ``owlready2.default_world`` at ``self._world``. owlready2 reads that
+        # global live on each ``owlready2.default_world.X`` access, so the
+        # program's set_backend / .ontologies / .search all resolve against the
+        # populated world. (A previous version patched set_backend to a no-op
+        # on the ORIGINAL default_world and loaded into a private world, which
+        # left ``owlready2.default_world`` empty -> search returned nothing ->
+        # "I don't know".)
+        #
+        # ``owlready2.get_ontology`` is a SEPARATE module global bound to the
+        # original world, so we repoint it too (to self._world's, returning the
+        # pre-loaded ontology from .load()); and we neutralize set_backend on
+        # self._world so the program's set_backend() call does not try to reopen
+        # or relock the backend we already hold open.
+        real_default_world = owlready2.default_world
         real_get_ontology = owlready2.get_ontology
-        real_set_backend = owlready2.default_world.set_backend
+        real_world_set_backend = self._world.set_backend
         loaded_onto = self._onto
 
         class _CachedOntology:
@@ -224,8 +253,9 @@ class OntologyAnswerer:
         buf = io.StringIO()
         sink: "io.TextIOBase" = _LineTee(buf, on_line) if on_line else buf
 
+        owlready2.default_world = self._world
         owlready2.get_ontology = _patched_get_ontology
-        owlready2.default_world.set_backend = _patched_set_backend  # type: ignore[method-assign]
+        self._world.set_backend = _patched_set_backend  # type: ignore[method-assign]
         try:
             if on_line is not None:
                 # Stream stderr too (stacktraces, progress) but keep it out of
@@ -240,8 +270,9 @@ class OntologyAnswerer:
         finally:
             if isinstance(sink, _LineTee):
                 sink.flush()
+            owlready2.default_world = real_default_world
             owlready2.get_ontology = real_get_ontology
-            owlready2.default_world.set_backend = real_set_backend  # type: ignore[method-assign]
+            self._world.set_backend = real_world_set_backend  # type: ignore[method-assign]
 
         return extract_answer(buf.getvalue())
 
