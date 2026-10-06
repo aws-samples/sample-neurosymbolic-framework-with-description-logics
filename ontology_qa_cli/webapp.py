@@ -59,6 +59,7 @@ from ontology_qa_cli.build_backend import (
     make_job_store,
 )
 from ontology_qa_cli import s3_cache
+from ontology_qa_cli import program_store
 
 try:
     from fastapi import FastAPI, HTTPException
@@ -156,6 +157,20 @@ def create_app(
                 return e.owl_file
         raise HTTPException(status_code=404, detail=f"Unknown ontology '{ontology}'")
 
+    def _hydrate(ontology: str) -> None:
+        """Pull the latest run for ``ontology`` from the durable S3 store into
+        ``runs_dir`` when nothing exists locally.
+
+        No-op unless PROGRAM_STORE_S3 is configured, and a no-op when a local
+        run already exists (local always wins -- the fast path). Best-effort:
+        any failure is swallowed so a missing/unreachable store degrades to the
+        prior "no program -> build it" behavior rather than erroring.
+        """
+        try:
+            program_store.hydrate_ontology(ontology, runs_dir)
+        except Exception:  # noqa: BLE001 - durable store is best-effort
+            pass
+
     def _has_program(ontology: str) -> bool:
         """True only if a run folder for this ontology exists AND it contains a
         built query program (``iteration_*/query_program.py``).
@@ -164,6 +179,7 @@ def create_app(
         an empty ``<name>_<timestamp>/`` directory with no usable program, which
         would otherwise falsely show as ready in the dropdown.
         """
+        _hydrate(ontology)
         prefix = f"{ontology}_"
         if not runs_dir.exists():
             return False
@@ -179,6 +195,7 @@ def create_app(
         with state_lock:
             if ontology in answerers:
                 return answerers[ontology]
+        _hydrate(ontology)
         program_path = find_best_program(ontology, runs_dir)
         owl = _owl_for(ontology)
         answerer = OntologyAnswerer.from_program(program_path, owl)
@@ -203,6 +220,7 @@ def create_app(
         best_iteration from summary.json, else highest iteration_N) but returns
         None instead of exiting, so it is safe to call from a request handler.
         """
+        _hydrate(ontology)
         prefix = f"{ontology}_"
         if not runs_dir.exists():
             return None
