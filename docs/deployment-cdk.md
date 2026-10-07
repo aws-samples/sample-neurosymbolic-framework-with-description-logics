@@ -94,6 +94,7 @@ Two workloads with opposite shapes:
 | ECS **Fargate** for the web server, not Lambda | Stateful in-memory caches + long-lived SSE + reused SQLite backend |
 | Fargate **RunTask** for the builder, not Lambda | Long runtime, parallel subprocesses, needs `kiro-cli` binary |
 | **EFS** shared volume | `runs/` and `*.sqlite3` must be visible to both the web service (reads best program) and the builder (writes it), and survive task restarts |
+| **S3 durable program store** | EFS persistence is deployment-scoped — an EFS/stack teardown (fresh account, VPC rebuild) loses every evolved program. The builder also uploads each successful run to `s3://<ontology-bucket>/programs/<ontology>/<run>/`; the web/MCP tasks hydrate from there when local `runs/` is empty. So programs survive teardowns and are shared across machines/deployments. Gated by `PROGRAM_STORE_S3`; unset = pure-local, no S3 calls. |
 | **S3 + CloudFront** for the SPA | Cheapest, fully serverless static hosting; `/api/*` behavior routed to the ALB |
 | **Bedrock** stays in `us-east-1` | Code hardcodes region/model; keep it or parameterize (see Task 2) |
 | Rework the web→build handoff | Today `webapp.py` does `subprocess.Popen([... builder ...])` **in the same container**. In the split model the web service must instead call ECS `RunTask` and poll task status. This is the one non-trivial code change. |
