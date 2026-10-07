@@ -54,6 +54,17 @@ def parse_args() -> argparse.Namespace:
 
 def find_best_program(ontology_name: str, runs_dir: Path) -> Path:
     """Find the best query program from the most recent run for an ontology."""
+    # Pull the latest run from the durable S3 store if nothing exists locally
+    # (no-op unless PROGRAM_STORE_S3 is set, and a no-op when a local run already
+    # exists -- local always wins). Lets a fresh machine / rebuilt deployment
+    # reuse a previously-built program instead of rebuilding from scratch.
+    try:
+        from ontology_qa_cli import program_store
+
+        program_store.hydrate_ontology(ontology_name, runs_dir)
+    except Exception:  # noqa: BLE001 - durable store is best-effort
+        pass
+
     if not runs_dir.exists():
         print(f"Error: Runs directory not found at '{runs_dir}'", file=sys.stderr)
         sys.exit(1)

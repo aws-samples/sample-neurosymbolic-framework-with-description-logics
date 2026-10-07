@@ -20,6 +20,7 @@ from ontology_qa_cli.judge import judge_answer, compute_accuracy, JudgmentResult
 logger = logging.getLogger(__name__)
 from ontology_qa_cli.fixer import fix_program, generate_task_file
 from ontology_qa_cli.run_manager import create_run_directory, save_iteration, write_summary
+from ontology_qa_cli import program_store
 from ontology_qa_cli.ui import UI
 
 
@@ -514,6 +515,19 @@ def run_build(args: argparse.Namespace) -> None:
     # Render the run summary table, then point at the best program
     ui.summary_table(iteration_stats)
     ui.best_program(best_iteration_path)
+
+    # Persist the completed run to the durable S3 program store (if configured
+    # via PROGRAM_STORE_S3) so it survives an EFS/stack teardown and is shared
+    # across machines/deployments. Only on a non-interrupted run that produced a
+    # usable program; best-effort, so an upload failure never fails the build.
+    if not interrupted and best_iteration_path is not None:
+        try:
+            program_store.upload_run(run_ctx.base_dir, run_ctx.ontology_name)
+        except Exception as exc:  # noqa: BLE001 - durable copy is best-effort
+            print(
+                f"Warning: durable program-store upload failed: {exc}",
+                file=sys.stderr,
+            )
 
     # Store state for report generation (also used by KeyboardInterrupt handler)
     _run_state.update({
