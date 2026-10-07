@@ -379,7 +379,7 @@ ontologies:
           populations limits variability and risk. It also means the results may
           not generalize to the eventual patient population.
   - name: "CL"
-    owl_file: "~/cl.owl"
+    owl_file: "s3://neurosymbolicdl-storage-ontologybucket795a3498-gjp5avevev34/ontologies/cl.owl"
     questions:
       - question: "What are all the subtypes of 'T cell'?"
         expected_answer: |
@@ -419,7 +419,7 @@ ontologies:
           sinusoidal endothelial cells.
 
   - name: "HPO"
-    owl_file: "~/hp-full.owl"
+    owl_file: "s3://neurosymbolicdl-storage-ontologybucket795a3498-gjp5avevev34/ontologies/hp-full.owl"
     questions:
       - question: "What is the official medical definition and primary term for a patient with webbed fingers or toes?"
         expected_answer: |
