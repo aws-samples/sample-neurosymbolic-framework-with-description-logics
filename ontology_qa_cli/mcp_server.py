@@ -40,6 +40,7 @@ from typing import Any, Optional
 from ontology_qa_cli.config import load_config, resolve_ontology
 from ontology_qa_cli.query import find_best_program
 from ontology_qa_cli.serve import OntologyAnswerer
+from ontology_qa_cli.auth import install_cognito_auth
 
 try:
     from fastapi import FastAPI, Request
@@ -211,6 +212,12 @@ def create_mcp_app(
     onto_list = _parse_ontologies(ontologies if ontologies is not None else ontology)
 
     app = FastAPI(title=SERVER_NAME, version=SERVER_VERSION)
+
+    # Application-level Cognito JWT auth gating POST /mcp (tools/list, tools/call,
+    # initialize). No-op unless COGNITO_USER_POOL_ID is configured; the CDK
+    # compute stack injects it so the MCP endpoint sits behind Cognito without an
+    # ALB cert. GET /mcp/health stays public for the ALB target-group probe.
+    install_cognito_auth(app)
     runs_dir = Path(
         os.environ.get("ONTOLOGY_RUNS_DIR", "runs/")
     ).expanduser()

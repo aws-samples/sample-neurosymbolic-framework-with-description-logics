@@ -104,6 +104,23 @@ export class ComputeStack extends cdk.Stack {
       ONTOLOGY_QA_BEDROCK_MODEL: props.bedrockModel,
     };
 
+    // Application-level Cognito JWT auth (ontology_qa_cli/auth.py). Injected
+    // into the web AND mcp containers so BOTH enforce a valid Cognito token on
+    // every request -- "behind Cognito" done in the app, needing no ACM cert
+    // (CloudFront terminates TLS at the edge; the ALB stays plain HTTP behind
+    // it). The app reads COGNITO_USER_POOL_ID (enables auth; absent = open) and
+    // COGNITO_CLIENT_ID (token audience must match). Region is derived from the
+    // pool id. Only wired when the Cognito identity props are supplied, which
+    // bin/app.ts always does -- so this does not depend on `certificateArn`.
+    const cognitoEnv: Record<string, string> =
+      props.userPool && props.userPoolClient
+        ? {
+            COGNITO_USER_POOL_ID: props.userPool.userPoolId,
+            COGNITO_CLIENT_ID: props.userPoolClient.userPoolClientId,
+            COGNITO_REGION: cdk.Stack.of(this).region,
+          }
+        : {};
+
     // ---- shared IAM: Bedrock invoke (scope to the model ARN in Task 8) -----
     const bedrockInvoke = new iam.PolicyStatement({
       actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
@@ -133,7 +150,7 @@ export class ComputeStack extends cdk.Stack {
         streamPrefix: 'web',
         logRetention: logs.RetentionDays.ONE_MONTH,
       }),
-      environment: { ...commonEnv, PORT: String(APP_PORT) },
+      environment: { ...commonEnv, ...cognitoEnv, PORT: String(APP_PORT) },
       portMappings: [{ containerPort: APP_PORT }],
     });
     webContainer.addMountPoints({
@@ -309,6 +326,7 @@ export class ComputeStack extends cdk.Stack {
         // builder Fargate task writes it). Without this the server defaults to
         // container-local ./runs and never finds it.
         ONTOLOGY_RUNS_DIR: EFS_MOUNT,
+        ...cognitoEnv,
         PORT: String(MCP_PORT),
       },
       portMappings: [{ containerPort: MCP_PORT }],
