@@ -6,6 +6,8 @@ the BUILD_BACKEND selection logic.
 """
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from ontology_qa_cli import build_backend as bb
@@ -25,10 +27,15 @@ class _FakeEcs:
         self._active_pending = active_pending
         self._last_status = "RUNNING"
         self._exit_code = None
+        self._empty_describe = False
 
     def set_stopped(self, exit_code):
         self._last_status = "STOPPED"
         self._exit_code = exit_code
+
+    def set_describe_empty(self):
+        """Simulate a task ARN ECS no longer knows about (aged out / vanished)."""
+        self._empty_describe = True
 
     def list_tasks(self, **kwargs):
         self.list_tasks_calls.append(kwargs)
@@ -42,6 +49,8 @@ class _FakeEcs:
         return {"tasks": [{"taskArn": self.task_arn}], "failures": []}
 
     def describe_tasks(self, cluster, tasks):
+        if self._empty_describe:
+            return {"tasks": []}
         return {
             "tasks": [
                 {
@@ -167,6 +176,38 @@ class TestEcsBackend:
         ecs._last_status = "RUNNING"
         assert b.poll(job) == "finished"
 
+    def test_poll_vanished_task_within_grace_stays_running(self, ecs_env):
+        # describe_tasks returns no tasks right after launch -> not yet visible;
+        # within the grace window the job must keep polling as "running".
+        ecs = _FakeEcs()
+        ecs.set_describe_empty()
+        b = _backend(ecs)
+        job = b.start("FMA")  # started_at = now, age ~0
+        assert b.poll(job) == "running"
+
+    def test_poll_vanished_task_past_grace_is_terminal(self, ecs_env):
+        # A task ARN ECS no longer knows about, past the grace window, means the
+        # task stopped and aged out -- it must resolve terminal, not "running"
+        # forever (the ghost-job bug that shadowed a seeded program).
+        ecs = _FakeEcs()
+        ecs.set_describe_empty()
+        b = _backend(ecs)
+        job = b.start("FMA")
+        job.started_at = time.time() - (bb._ECS_VISIBILITY_GRACE_SECS + 60)
+        assert b.poll(job) == "failed"
+
+    def test_poll_legacy_record_vanished_is_terminal(self, ecs_env):
+        # A rebuilt legacy record (started_at defaulted to 0.0) with a vanished
+        # ARN is immediately past grace -> terminal, so a pre-fix ghost ages out.
+        ecs = _FakeEcs()
+        ecs.set_describe_empty()
+        b = _backend(ecs)
+        job = bb.BuildJob.from_record(
+            {"job_id": "ghost", "ontology": "GO", "status": "running",
+             "task_arn": "arn/dead"}
+        )
+        assert b.poll(job) == "failed"
+
     def test_log_tail_reads_cloudwatch(self, ecs_env):
         ecs = _FakeEcs()
         logs = _FakeLogs(["line one", "line two"])
@@ -218,12 +259,23 @@ class TestBuildJobRecord:
         assert rebuilt.ontology == "GO"
         assert rebuilt.status == "running"
         assert rebuilt.task_arn == "arn:aws:ecs:us-east-1:1:task/c/t1"
+        assert rebuilt.started_at == job.started_at
 
     def test_record_omits_process_local_fields(self):
-        # proc/log_path are process-local and must not appear in the record.
+        # proc/log_path are process-local and must not appear in the record;
+        # started_at IS serialized (needed to age out ghost jobs).
         job = bb.BuildJob(job_id="x", ontology="GO")
         rec = job.to_record()
-        assert set(rec) == {"job_id", "ontology", "status", "task_arn"}
+        assert set(rec) == {"job_id", "ontology", "status", "task_arn", "started_at"}
+
+    def test_legacy_record_without_started_at_defaults_old(self):
+        # Records written before started_at existed must deserialize as "very
+        # old" (0.0) so a legacy ghost ages out immediately.
+        rebuilt = bb.BuildJob.from_record(
+            {"job_id": "x", "ontology": "GO", "status": "running",
+             "task_arn": "arn/old"}
+        )
+        assert rebuilt.started_at == 0.0
 
 
 class TestMemoryJobStore:
@@ -276,6 +328,47 @@ class TestFileJobStore:
             raise AssertionError("poll should not be called for a terminal record")
 
         assert bb.FileJobStore(shared).running_for("GO", _boom) is None
+
+    def test_running_for_skips_aged_out_ghost_without_polling(self, tmp_path):
+        # A non-terminal record older than the ECS retention window points at a
+        # vanished task; running_for must skip it WITHOUT a describe_tasks poll
+        # (the ghost-job guard). This is the exact Oct-1 GO record shape.
+        shared = tmp_path / ".jobs"
+        ghost = bb.BuildJob(job_id="ghost", ontology="GO", task_arn="arn/dead")
+        ghost.started_at = time.time() - (bb._JOB_RECORD_MAX_AGE_SECS + 60)
+        bb.FileJobStore(shared).put(ghost)
+
+        def _boom(job):  # must not be called for an aged-out ghost
+            raise AssertionError("poll should not be called for an aged-out record")
+
+        assert bb.FileJobStore(shared).running_for("GO", _boom) is None
+
+    def test_running_for_legacy_record_treated_as_ghost(self, tmp_path):
+        # A record predating started_at (no field) defaults to age 0.0 and is
+        # therefore always past the max-age cut -> skipped as a ghost.
+        import json
+
+        shared = tmp_path / ".jobs"
+        shared.mkdir(parents=True)
+        (shared / "legacy.json").write_text(
+            json.dumps({"job_id": "legacy", "ontology": "GO",
+                        "status": "running", "task_arn": "arn/old"}),
+            encoding="utf-8",
+        )
+
+        def _boom(job):
+            raise AssertionError("poll should not be called for a legacy ghost")
+
+        assert bb.FileJobStore(shared).running_for("GO", _boom) is None
+
+    def test_running_for_finds_fresh_record(self, tmp_path):
+        # A recently-created non-terminal record is within the age window, so it
+        # IS polled and returned when still running.
+        shared = tmp_path / ".jobs"
+        bb.FileJobStore(shared).put(
+            bb.BuildJob(job_id="fresh", ontology="GO", task_arn="arn/live")
+        )
+        assert bb.FileJobStore(shared).running_for("GO", _always_running).job_id == "fresh"
 
     def test_get_unknown_returns_none(self, tmp_path):
         assert bb.FileJobStore(tmp_path / ".jobs").get("nope") is None
