@@ -160,14 +160,17 @@ export class ComputeStack extends cdk.Stack {
     });
 
     const service = new ecs.FargateService(this, 'WebService', {
-      cluster,
-      taskDefinition: webTaskDef,
-      desiredCount: 1,
-      securityGroups: [props.serviceSecurityGroup],
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      // SSE streams are long-lived; give in-flight requests time to drain.
-      minHealthyPercent: 100,
-    });
+          cluster,
+          taskDefinition: webTaskDef,
+          desiredCount: 1,
+          securityGroups: [props.serviceSecurityGroup],
+          vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+          // SSE streams are long-lived; give in-flight requests time to drain.
+          minHealthyPercent: 100,
+          // Fail a bad rollout in minutes (and auto-revert) instead of letting
+          // CloudFormation wait up to ~3h for a crash-looping task to stabilize.
+          circuitBreaker: { rollback: true },
+        });
 
     this.loadBalancer = new elbv2.ApplicationLoadBalancer(this, 'Alb', {
       vpc: props.vpc,
@@ -338,13 +341,16 @@ export class ComputeStack extends cdk.Stack {
     });
 
     const mcpService = new ecs.FargateService(this, 'McpService', {
-      cluster,
-      taskDefinition: mcpTaskDef,
-      desiredCount: 1,
-      securityGroups: [props.serviceSecurityGroup],
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      minHealthyPercent: 100,
-    });
+          cluster,
+          taskDefinition: mcpTaskDef,
+          desiredCount: 1,
+          securityGroups: [props.serviceSecurityGroup],
+          vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+          minHealthyPercent: 100,
+          // Fail a bad rollout in minutes (and auto-revert) instead of letting
+          // CloudFormation wait up to ~3h for a crash-looping task to stabilize.
+          circuitBreaker: { rollback: true },
+        });
 
     const mcpTargetGroup = new elbv2.ApplicationTargetGroup(this, 'McpTargets', {
       vpc: props.vpc,
