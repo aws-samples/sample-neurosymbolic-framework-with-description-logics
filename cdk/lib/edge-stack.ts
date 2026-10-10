@@ -54,15 +54,50 @@ export class EdgeStack extends cdk.Stack {
       protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY, // ALB is HTTP; front it with HTTPS at CloudFront
     });
 
+    // Force the SPA shell (index.html) to be revalidated on every load so a
+    // browser or CloudFront edge can never keep serving a stale pre-auth
+    // bundle after a frontend redeploy. The content-hashed /assets/* keep the
+    // long-lived CACHING_OPTIMIZED default (their names change on rebuild, so
+    // they are safe to cache forever). This overrides whatever Cache-Control
+    // the S3 object carries, so it holds regardless of how dist/ was uploaded.
+    const noStoreHeaders = new cloudfront.ResponseHeadersPolicy(this, 'IndexNoStore', {
+      customHeadersBehavior: {
+        customHeaders: [
+          {
+            header: 'Cache-Control',
+            value: 'no-cache, no-store, must-revalidate',
+            override: true,
+          },
+        ],
+      },
+    });
+
     this.distribution = new cloudfront.Distribution(this, 'Distribution', {
       defaultRootObject: 'index.html',
-      // Default behavior: the SPA from S3 (OAC configured automatically by S3BucketOrigin).
+      // Default behavior: the SPA shell from S3 (OAC configured automatically
+      // by S3BucketOrigin). This serves `/` (defaultRootObject -> index.html),
+      // every client-side route, AND the 403/404 error-page index.html below,
+      // so NO-STORE lives here: the shell is always revalidated and a stale
+      // pre-auth bundle can never be served after a frontend redeploy. The
+      // content-hashed /assets/* get the long-lived cache via their own
+      // behavior below (their names change on rebuild, so caching them forever
+      // is safe). no-store here overrides whatever Cache-Control the S3 object
+      // carries, so it holds regardless of how dist/ was uploaded.
       defaultBehavior: {
         origin: origins.S3BucketOrigin.withOriginAccessControl(this.frontendBucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-        cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+        responseHeadersPolicy: noStoreHeaders,
       },
       additionalBehaviors: {
+        // Content-hashed, immutable build assets: cache aggressively at the
+        // edge and in the browser. Safe because every rebuild emits new hashed
+        // filenames, so a changed bundle is a new URL, never a stale hit.
+        'assets/*': {
+          origin: origins.S3BucketOrigin.withOriginAccessControl(this.frontendBucket),
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+          cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        },
         // API + SSE: no caching, forward everything, allow all methods.
         'api/*': {
           origin: albOrigin,
