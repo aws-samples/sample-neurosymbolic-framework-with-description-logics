@@ -46,9 +46,25 @@ VITE_COGNITO_DOMAIN="https://neurosymbolic-dl-<ACCOUNT>.auth.us-east-1.amazoncog
 VITE_COGNITO_CLIENT_ID="<SpaClientId output>" \
 VITE_COGNITO_REDIRECT="https://<DistributionDomain>/" \
   npm run build
-aws s3 sync dist/ "s3://<FrontendBucketName output>/" --delete
+# Two-pass upload so the SPA shell is never cached while the content-hashed
+# assets are cached forever:
+#   1. assets first, long-lived immutable cache (safe — hashed filenames);
+#   2. everything else (index.html) with no-store so a redeploy is seen at once.
+aws s3 sync dist/ "s3://<FrontendBucketName output>/" --delete \
+  --exclude index.html \
+  --cache-control "public, max-age=31536000, immutable"
+aws s3 sync dist/ "s3://<FrontendBucketName output>/" \
+  --exclude "*" --include index.html \
+  --cache-control "no-cache, no-store, must-revalidate"
 aws cloudfront create-invalidation --distribution-id <DistId> --paths '/*'
 ```
+
+> CloudFront also enforces `no-store` on the SPA shell at the edge (an
+> `index.html`/default-behavior `ResponseHeadersPolicy` in `EdgeStack`), so a
+> stale pre-auth bundle cannot be served even if the S3 object's
+> `Cache-Control` is wrong. The two-pass `s3 sync` above makes the S3 metadata
+> agree with that policy; the hashed `assets/*` keep their own long-lived cache
+> behavior.
 
 When the `VITE_COGNITO_*` vars are omitted the SPA builds with auth **disabled**
 (for local `npm run dev` against an open backend).
