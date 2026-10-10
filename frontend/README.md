@@ -37,9 +37,34 @@ serves it directly: `ontology-qa-web` serves `frontend/dist/` at `/` (build it
 first with `npm run build`, or the page shows a short "not built" instruction).
 Point at a different build with `ontology-qa-web --frontend-dist <path>`.
 
+## Authentication (Cognito hosted-UI login)
+
+The deployed app is behind Cognito. The SPA (`src/auth.ts`) runs the OAuth
+**authorization-code grant with PKCE** against the Cognito hosted UI using a
+**public** app client (no secret): on load it redirects to the hosted UI,
+exchanges the returned `?code=` for tokens, stores the id token, and attaches it
+as `Authorization: Bearer` on API calls (and as an `?access_token=` query param
+on EventSource/SSE streams, which can't set headers). A 401 clears the token and
+re-triggers login.
+
+Auth is driven entirely by **build-time env vars** — set them to enable the
+login flow, omit them to build with auth **disabled** (local dev):
+
+```bash
+VITE_COGNITO_DOMAIN="https://neurosymbolic-dl-<ACCOUNT>.auth.us-east-1.amazoncognito.com"
+VITE_COGNITO_CLIENT_ID="<SpaClientId from NeurosymbolicDL-Auth outputs>"
+VITE_COGNITO_REDIRECT="https://<cloudfront-domain>/"
+```
+
+So `npm run dev` (no vars) talks to an open local backend with no login, while
+the production build is run with all three set (see `cdk/README.md` → Frontend
+deploy).
+
 ## Structure
 
 - `src/api.ts` — typed client, one function per backend endpoint.
+- `src/auth.ts` — Cognito hosted-UI login (authorization-code + PKCE), token
+  storage/refresh, and the fetch/EventSource token decorators.
 - `src/useChat.ts` — the conversation state machine (idle → building → ready),
   ontology selection, build polling, and message sending.
 - `src/App.tsx` — composes `Banner` (ontology dropdown + status), `Transcript`

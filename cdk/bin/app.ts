@@ -66,6 +66,7 @@ const compute = new ComputeStack(app, `${prefix}-Compute`, {
   userPool: auth.userPool,
   userPoolClient: auth.userPoolClient,
   userPoolDomain: auth.userPoolDomain,
+  spaClient: auth.spaClient,
   certificateArn: app.node.tryGetContext('albCertificateArn'),
   // Web autoscaling bounds — override via `-c webMinCapacity=` / `-c webMaxCapacity=`.
   webMinCapacity: numContext(app, 'webMinCapacity'),

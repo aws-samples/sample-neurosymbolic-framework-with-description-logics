@@ -40,6 +40,12 @@ export interface ComputeStackProps extends cdk.StackProps {
   userPoolClient?: cognito.IUserPoolClient;
   userPoolDomain?: cognito.IUserPoolDomain;
   /**
+   * Public SPA app client (from AuthStack). Its id is added to the container's
+   * accepted-audience list so browser id tokens (whose `aud` is this client)
+   * validate alongside the confidential client's tokens.
+   */
+  spaClient?: cognito.IUserPoolClient;
+  /**
    * ARN of an ACM certificate for the ALB HTTPS (443) listener. Must be in the
    * SAME region as the ALB (unlike the CloudFront cert, which lives in
    * us-east-1). When set, the ALB serves an HTTPS listener that authenticates
@@ -116,7 +122,13 @@ export class ComputeStack extends cdk.Stack {
       props.userPool && props.userPoolClient
         ? {
             COGNITO_USER_POOL_ID: props.userPool.userPoolId,
-            COGNITO_CLIENT_ID: props.userPoolClient.userPoolClientId,
+            // Accept tokens from BOTH the confidential client and the public
+            // SPA client (comma-separated; the app parses the list). The SPA's
+            // browser id token carries the SPA client id as its audience.
+            COGNITO_CLIENT_ID: [
+              props.userPoolClient.userPoolClientId,
+              ...(props.spaClient ? [props.spaClient.userPoolClientId] : []),
+            ].join(','),
             COGNITO_REGION: cdk.Stack.of(this).region,
           }
         : {};
