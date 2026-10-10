@@ -46,6 +46,13 @@ export interface ComputeStackProps extends cdk.StackProps {
    */
   spaClient?: cognito.IUserPoolClient;
   /**
+   * M2M (client-credentials) app client (from AuthStack). Its id is added to
+   * the container's accepted-audience list so a headless MCP caller's access
+   * token (whose `client_id` is this client) validates. Omit when no headless
+   * access is wanted.
+   */
+  m2mClient?: cognito.IUserPoolClient;
+  /**
    * ARN of an ACM certificate for the ALB HTTPS (443) listener. Must be in the
    * SAME region as the ALB (unlike the CloudFront cert, which lives in
    * us-east-1). When set, the ALB serves an HTTPS listener that authenticates
@@ -128,6 +135,7 @@ export class ComputeStack extends cdk.Stack {
             COGNITO_CLIENT_ID: [
               props.userPoolClient.userPoolClientId,
               ...(props.spaClient ? [props.spaClient.userPoolClientId] : []),
+              ...(props.m2mClient ? [props.m2mClient.userPoolClientId] : []),
             ].join(','),
             COGNITO_REGION: cdk.Stack.of(this).region,
           }

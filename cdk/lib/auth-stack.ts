@@ -38,6 +38,21 @@ export class AuthStack extends cdk.Stack {
    * browser client must not hold a client secret.
    */
   public readonly spaClient: cognito.UserPoolClient;
+  /**
+   * Machine-to-machine (M2M) confidential app client for headless callers (the
+   * MCP server's programmatic clients). Uses the OAuth **client-credentials**
+   * grant: the caller POSTs its client id + secret to the hosted-UI token
+   * endpoint and gets back an *access* token (no user, no browser). That token
+   * carries this client's id in its `client_id` claim, which the app-level
+   * Cognito middleware accepts the same way it accepts the SPA/ALB clients.
+   *
+   * Client-credentials requires a custom OAuth scope on a resource server --
+   * Cognito forbids the standard `openid`/`email` scopes with that grant -- so
+   * this client is scoped to {@link resourceServer}'s `mcp.invoke` scope.
+   */
+  public readonly m2mClient: cognito.UserPoolClient;
+  /** Resource server that owns the custom M2M scope (`<identifier>/mcp.invoke`). */
+  public readonly resourceServer: cognito.UserPoolResourceServer;
   public readonly userPoolDomain: cognito.UserPoolDomain;
 
   constructor(scope: Construct, id: string, props: AuthStackProps = {}) {
@@ -102,12 +117,53 @@ export class AuthStack extends cdk.Stack {
       preventUserExistenceErrors: true,
     });
 
+    // ---- Machine-to-machine (headless MCP) client ------------------------
+    // The client-credentials grant cannot use the standard openid/email
+    // scopes, so define a resource server that owns a custom scope and grant
+    // it to a confidential M2M client. A headless caller then does:
+    //   curl -u <m2mClientId>:<secret> \
+    //     -d 'grant_type=client_credentials&scope=<identifier>/mcp.invoke' \
+    //     https://<hostedUiDomain>/oauth2/token
+    // and sends the returned access token as `Authorization: Bearer` to /mcp.
+    const mcpScopeName = 'mcp.invoke';
+    this.resourceServer = this.userPool.addResourceServer('McpResourceServer', {
+      identifier: 'neurosymbolic-mcp',
+      scopes: [
+        new cognito.ResourceServerScope({
+          scopeName: mcpScopeName,
+          scopeDescription: 'Invoke the Neurosymbolic MCP API headlessly',
+        }),
+      ],
+    });
+
+    this.m2mClient = this.userPool.addClient('M2mClient', {
+      generateSecret: true, // confidential: the caller holds id + secret
+      authFlows: {}, // no user-facing flows; client-credentials only
+      oAuth: {
+        flows: { clientCredentials: true },
+        scopes: [
+          cognito.OAuthScope.resourceServer(this.resourceServer, {
+            scopeName: mcpScopeName,
+            scopeDescription: 'Invoke the Neurosymbolic MCP API headlessly',
+          }),
+        ],
+      },
+    });
+
     new cdk.CfnOutput(this, 'UserPoolId', { value: this.userPool.userPoolId });
     new cdk.CfnOutput(this, 'UserPoolClientId', {
       value: this.userPoolClient.userPoolClientId,
     });
     new cdk.CfnOutput(this, 'SpaClientId', {
       value: this.spaClient.userPoolClientId,
+    });
+    new cdk.CfnOutput(this, 'M2mClientId', {
+      value: this.m2mClient.userPoolClientId,
+    });
+    new cdk.CfnOutput(this, 'M2mScope', {
+      value: `${this.resourceServer.userPoolResourceServerId}/${mcpScopeName}`,
+      description:
+        'OAuth scope a headless client requests in the client-credentials grant',
     });
     new cdk.CfnOutput(this, 'HostedUiDomain', {
       value: this.userPoolDomain.domainName,
