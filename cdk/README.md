@@ -81,23 +81,33 @@ stays plain HTTP behind it.
   scope (Cognito forbids `openid`/`email` with client-credentials), so a
   resource server `neurosymbolic-mcp` owns the `mcp.invoke` scope the M2M client
   is granted. The `NeurosymbolicDL-Auth` stack prints the client id
-  (`M2mClientId`) and the scope (`M2mScope`); fetch the secret with
-  `aws cognito-idp describe-user-pool-client --user-pool-id <pool> --client-id <m2mClientId>`:
+  (`M2mClientId`) and the scope (`M2mScope`). The client id + secret are stored
+  in Secrets Manager at **`neurosymbolic-mcp/m2m-client`** (JSON: `client_id`,
+  `client_secret`, `token_url`, `scope`, `user_pool_id`); the Compute stack
+  imports that secret and grants the **MCP task role** read access to it. Fetch
+  the credentials from the secret:
 
   ```bash
-  # one-time: read the client secret (not stored anywhere else)
-  SECRET=$(aws cognito-idp describe-user-pool-client \
-    --user-pool-id us-east-1_d9KfAPrid --client-id <M2mClientId> \
-    --query 'UserPoolClient.ClientSecret' --output text)
+  # read the stored M2M credentials
+  CREDS=$(aws secretsmanager get-secret-value --region us-east-1 \
+    --secret-id neurosymbolic-mcp/m2m-client --query SecretString --output text)
+  CID=$(echo "$CREDS"    | python -c 'import sys,json;print(json.load(sys.stdin)["client_id"])')
+  SECRET=$(echo "$CREDS" | python -c 'import sys,json;print(json.load(sys.stdin)["client_secret"])')
 
   # get an access token (valid ~1h), then call the MCP endpoint
-  TOKEN=$(curl -s -u "<M2mClientId>:$SECRET" \
+  TOKEN=$(curl -s -u "$CID:$SECRET" \
     -d 'grant_type=client_credentials&scope=neurosymbolic-mcp/mcp.invoke' \
     https://neurosymbolic-dl-347181052905.auth.us-east-1.amazoncognito.com/oauth2/token \
     | python -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
 
   curl -H "Authorization: Bearer $TOKEN" https://d15j8kb5manvuj.cloudfront.net/mcp ...
   ```
+
+  > The secret VALUE is a Cognito-generated client secret, so CDK cannot
+  > populate it — the AuthStack mints the client, the value is written to the
+  > secret out-of-band, and the Compute stack `fromSecretNameV2`-imports it to
+  > attach the task-role grant. If you rotate the client secret in Cognito,
+  > re-write the Secrets Manager value (`put-secret-value`).
 
 **The user pool is invite-only** (`selfSignUpEnabled: false`). Create a user with
 `aws cognito-idp admin-create-user` + `admin-set-user-password --permanent`

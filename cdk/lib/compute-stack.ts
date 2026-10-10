@@ -334,6 +334,20 @@ export class ComputeStack extends cdk.Stack {
     props.fileSystem.grantReadWrite(mcpTaskDef.taskRole);
     mcpTaskDef.addToTaskRolePolicy(bedrockInvoke);
 
+    // Cognito M2M (client-credentials) secret for headless MCP access. The
+    // secret value is a Cognito-GENERATED client secret, so CDK cannot populate
+    // it (it is written out-of-band after the AuthStack mints the M2M client);
+    // we therefore IMPORT the existing secret by its stable name rather than
+    // recreate it, and grant the task role read so the service can mint its own
+    // M2M token at runtime if needed. `fromSecretNameV2` scopes the IAM grant
+    // to `<name>-??????`, which matches Secrets Manager's random 6-char suffix.
+    const m2mSecret = secretsmanager.Secret.fromSecretNameV2(
+      this,
+      'M2mClientSecret',
+      'neurosymbolic-mcp/m2m-client',
+    );
+    m2mSecret.grantRead(mcpTaskDef.taskRole);
+
     const mcpContainer = mcpTaskDef.addContainer('mcp', {
       image: mcpImage,
       logging: ecs.LogDrivers.awsLogs({
