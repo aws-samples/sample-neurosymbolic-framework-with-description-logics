@@ -50,6 +50,31 @@ from ontology_qa_cli.executor import extract_answer
 from ontology_qa_cli.query import find_best_program
 
 
+def _is_cache_write_error(exc: BaseException) -> bool:
+    """True if ``exc`` is (or wraps) a SQLite cache write/open failure.
+
+    owlready2's backend attach -- even ``read_only=True`` -- issues maintenance
+    writes against the SQLite cache file. When that file (or its journal) is not
+    writable by this process, SQLite raises one of:
+      * ``attempt to write a readonly database`` (the file opened but a write
+        failed -- the CL case, an existing cache on the shared EFS mount), or
+      * ``unable to open database file`` (the file/journal could not be opened
+        for writing at all).
+    Match on the message so the fix is independent of the exact
+    owlready2/sqlite exception type across versions.
+    """
+    needles = ("readonly database", "unable to open database file")
+    seen: set[int] = set()
+    cur: Optional[BaseException] = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        msg = str(cur).lower()
+        if any(n in msg for n in needles):
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False
+
+
 class OntologyAnswerer:
     """Loads an evolved query program + its ontology once, answers many questions.
 
@@ -108,19 +133,50 @@ class OntologyAnswerer:
         If the cache does not exist yet, it is created in a throwaway writable
         world (parse the OWL, persist, then close to drop the exclusive lock)
         before the read-only reader is opened over the freshly written file.
+
+        If the on-disk cache cannot be written -- e.g. it already exists on the
+        shared EFS cache dir (``ONTOLOGY_QA_CACHE_DIR``) with a file/journal this
+        process may not write -- owlready2's backend attach (even ``read_only``)
+        raises a SQLite write/open error. In that case we fall back to a FRESH
+        IN-MEMORY load straight from the OWL: no on-disk backend, no write, no
+        shared-file lock contention. That is exactly what the evolved query
+        programs do at answer time, so it is a proven-safe path; the only cost
+        is re-parsing the OWL once per answerer (then cached for the process).
+        This fixes the CL symptom "Failed to load program: attempt to write a
+        readonly database" seen only for ontologies whose cache already existed.
         """
         if not cache_file.exists():
-            writer = owlready2.World()
-            writer.set_backend(filename=str(cache_file))
-            writer.get_ontology(f"file://{self.onto_file}").load()
-            writer.save()
-            writer.close()  # release the EXCLUSIVE write lock before reopening
+            try:
+                writer = owlready2.World()
+                writer.set_backend(filename=str(cache_file))
+                writer.get_ontology(f"file://{self.onto_file}").load()
+                writer.save()
+                writer.close()  # release the EXCLUSIVE write lock before reopening
+            except Exception as exc:  # noqa: BLE001
+                if _is_cache_write_error(exc):
+                    return self._in_memory_world()
+                raise
 
         reader = owlready2.World()
-        reader.set_backend(
-            filename=str(cache_file), exclusive=False, read_only=True
-        )
+        try:
+            reader.set_backend(
+                filename=str(cache_file), exclusive=False, read_only=True
+            )
+        except Exception as exc:  # noqa: BLE001
+            try:
+                reader.close()
+            except Exception:  # noqa: BLE001
+                pass
+            if _is_cache_write_error(exc):
+                return self._in_memory_world()
+            raise
         return reader
+
+    def _in_memory_world(self) -> "owlready2.World":
+        """Load the ontology into a fresh in-memory quadstore (no on-disk backend)."""
+        mem = owlready2.World()  # no filename -> in-memory
+        mem.get_ontology(f"file://{self.onto_file}").load()
+        return mem
 
     @classmethod
     def from_ontology(
