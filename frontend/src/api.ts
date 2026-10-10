@@ -1,5 +1,6 @@
 // Typed client for the Ontology QA backend (ontology_qa_cli.webapp).
 // Every call maps 1:1 to a FastAPI route; in dev, Vite proxies /api to :8000.
+import { authHeaders, withAuthParam, handleUnauthorized } from "./auth";
 
 export interface OntologyInfo {
   name: string;
@@ -32,9 +33,13 @@ export interface ProgramInfo {
 async function post<T>(url: string, body: unknown): Promise<T> {
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(body),
   });
+  if (res.status === 401) {
+    handleUnauthorized();
+    throw new Error("Session expired. Redirecting to sign in…");
+  }
   if (!res.ok) {
     const detail = await res
       .json()
@@ -46,7 +51,11 @@ async function post<T>(url: string, body: unknown): Promise<T> {
 }
 
 async function get<T>(url: string): Promise<T> {
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: { ...authHeaders() } });
+  if (res.status === 401) {
+    handleUnauthorized();
+    throw new Error("Session expired. Redirecting to sign in…");
+  }
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   // CloudFront's SPA error-page fallback can rewrite an API 4xx into a 200 that
   // serves index.html (text/html) from the S3 origin. Parsing that as JSON throws
@@ -93,7 +102,7 @@ export function streamBuild(
   onDone: (done: BuildDone) => void,
   onError: (message: string) => void,
 ): () => void {
-  const es = new EventSource(`/api/stream/${jobId}`);
+  const es = new EventSource(withAuthParam(`/api/stream/${jobId}`));
   es.onmessage = (e) => onLine(e.data);
   es.addEventListener("done", (e) => {
     es.close();
@@ -131,7 +140,7 @@ export function streamChat(
   onError: (message: string) => void,
 ): () => void {
   const qs = new URLSearchParams({ conversation_id: conversationId, message });
-  const es = new EventSource(`/api/chat/stream?${qs.toString()}`);
+  const es = new EventSource(withAuthParam(`/api/chat/stream?${qs.toString()}`));
   es.onmessage = (e) => onLine(e.data);
   es.addEventListener("done", (e) => {
     es.close();

@@ -89,13 +89,27 @@ class CognitoConfig:
         self,
         pool_id: str,
         region: str,
-        client_id: Optional[str],
+        client_id: Optional[str] = None,
+        client_ids: "Optional[Iterable[str]]" = None,
     ) -> None:
         self.pool_id = pool_id
         self.region = region
-        self.client_id = client_id
+        # Accept one or more allowed app client ids. The deployment runs two
+        # clients against the same pool -- a public SPA client (browser id
+        # token) and a confidential client (ALB / M2M) -- and a token from
+        # either must validate. Stored as a set; empty means "do not check
+        # audience" (any client in this pool is accepted).
+        ids = set(client_ids or ())
+        if client_id:
+            ids.add(client_id)
+        self.client_ids = frozenset(i for i in ids if i)
         self.issuer = f"https://cognito-idp.{region}.amazonaws.com/{pool_id}"
         self.jwks_url = f"{self.issuer}/.well-known/jwks.json"
+
+    @property
+    def client_id(self) -> Optional[str]:
+        # Backwards-compatible single-id accessor (first configured id, if any).
+        return next(iter(sorted(self.client_ids)), None)
 
     @classmethod
     def from_env(cls) -> "Optional[CognitoConfig]":
@@ -115,8 +129,9 @@ class CognitoConfig:
                 "COGNITO_USER_POOL_ID is set but the region could not be "
                 "determined. Set COGNITO_REGION explicitly."
             )
-        client_id = (os.environ.get("COGNITO_CLIENT_ID") or "").strip() or None
-        return cls(pool_id=pool_id, region=region, client_id=client_id)
+        raw_ids = os.environ.get("COGNITO_CLIENT_ID") or ""
+        client_ids = [p.strip() for p in raw_ids.replace(",", " ").split() if p.strip()]
+        return cls(pool_id=pool_id, region=region, client_ids=client_ids)
 
 
 class _JwksCache:
@@ -192,10 +207,10 @@ def _verify_token(token: str, cfg: CognitoConfig, jwks: _JwksCache) -> None:
     if token_use not in ("access", "id"):
         raise _AuthError(f"unexpected token_use '{token_use}'")
 
-    if cfg.client_id:
-        # id token -> aud; access token -> client_id.
+    if cfg.client_ids:
+        # id token -> aud; access token -> client_id. Accept any configured id.
         audience = claims.get("aud") or claims.get("client_id")
-        if audience != cfg.client_id:
+        if audience not in cfg.client_ids:
             raise _AuthError("token audience does not match the app client")
 
 
@@ -210,12 +225,21 @@ class _AuthError(Exception):
 
 def _extract_bearer(request: "Request") -> Optional[str]:
     header = request.headers.get("authorization") or request.headers.get("Authorization")
-    if not header:
-        return None
-    parts = header.split(" ", 1)
-    if len(parts) != 2 or parts[0].lower() != "bearer" or not parts[1].strip():
-        return None
-    return parts[1].strip()
+    if header:
+        parts = header.split(" ", 1)
+        if len(parts) == 2 and parts[0].lower() == "bearer" and parts[1].strip():
+            return parts[1].strip()
+    # SSE fallback: the browser EventSource API cannot set request headers, so
+    # the streaming endpoints (`/api/stream/*`, `/api/chat/stream`) pass the JWT
+    # as an `access_token` query parameter instead. The token is verified the
+    # same way regardless of how it arrived. Only GET requests may carry it this
+    # way (SSE is always GET); this keeps tokens out of query strings for the
+    # mutating POST endpoints, which can and do use the Authorization header.
+    if request.method == "GET":
+        qp = request.query_params.get("access_token")
+        if qp and qp.strip():
+            return qp.strip()
+    return None
 
 
 def install_cognito_auth(

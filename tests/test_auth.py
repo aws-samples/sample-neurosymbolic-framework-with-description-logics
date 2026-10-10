@@ -287,3 +287,50 @@ def test_from_env_none_when_unconfigured(monkeypatch):
     monkeypatch.delenv("COGNITO_USER_POOL_ID", raising=False)
     monkeypatch.delenv("COGNITO_AUTH_DISABLED", raising=False)
     assert auth.CognitoConfig.from_env() is None
+
+
+# --------------------------------------------------------------------------- #
+# Multiple allowed client ids (SPA + confidential) — COGNITO_CLIENT_ID is a list.
+# --------------------------------------------------------------------------- #
+def test_multiple_client_ids_parsed(monkeypatch):
+    monkeypatch.setenv("COGNITO_USER_POOL_ID", POOL_ID)
+    monkeypatch.setenv("COGNITO_REGION", REGION)
+    monkeypatch.setenv("COGNITO_CLIENT_ID", "aaa,bbb ccc")  # comma AND whitespace
+    monkeypatch.delenv("COGNITO_AUTH_DISABLED", raising=False)
+    cfg = auth.CognitoConfig.from_env()
+    assert cfg is not None
+    assert cfg.client_ids == frozenset({"aaa", "bbb", "ccc"})
+
+
+def test_token_from_second_client_id_accepted(tmp_path, monkeypatch, rsa_key):
+    """A token whose audience is the SECOND configured client id validates."""
+    monkeypatch.setenv("COGNITO_USER_POOL_ID", POOL_ID)
+    monkeypatch.setenv("COGNITO_REGION", REGION)
+    monkeypatch.setenv("COGNITO_CLIENT_ID", f"{CLIENT_ID},spa-client-xyz")
+    monkeypatch.delenv("COGNITO_AUTH_DISABLED", raising=False)
+    pub = rsa_key.public_key()
+    monkeypatch.setattr(auth, "jwts_get", lambda _j, kid: pub if kid == KID else None)
+    client = _mcp_client(tmp_path)
+    token = _mint(rsa_key, token_use="id", aud="spa-client-xyz")
+    r = client.post("/mcp", headers={"Authorization": f"Bearer {token}"}, json={})
+    assert r.status_code != 401
+
+
+# --------------------------------------------------------------------------- #
+# SSE token via query param — EventSource cannot set an Authorization header.
+# --------------------------------------------------------------------------- #
+def test_token_via_query_param_on_get(tmp_path, cognito_env):
+    """A GET carrying `?access_token=` validates (the EventSource/SSE path)."""
+    client = _web_client(tmp_path)
+    token = _mint(cognito_env, token_use="id", aud=CLIENT_ID)
+    # A gated GET with no header but a valid query-param token must NOT 401.
+    r = client.get(f"/api/program/TINY?access_token={token}")
+    assert r.status_code != 401
+
+
+def test_query_param_token_ignored_on_post(tmp_path, cognito_env):
+    """A POST may not authenticate via the query param (header-only for POST)."""
+    client = _web_client(tmp_path)
+    token = _mint(cognito_env, token_use="id", aud=CLIENT_ID)
+    r = client.post(f"/api/select?access_token={token}", json={"ontology": "TINY"})
+    assert r.status_code == 401

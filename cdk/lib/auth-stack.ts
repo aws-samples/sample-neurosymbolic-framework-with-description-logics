@@ -29,6 +29,15 @@ export interface AuthStackProps extends cdk.StackProps {
 export class AuthStack extends cdk.Stack {
   public readonly userPool: cognito.UserPool;
   public readonly userPoolClient: cognito.UserPoolClient;
+  /**
+   * Public (no-secret) app client for the browser SPA. Uses the
+   * authorization-code grant with PKCE against the hosted UI; the SPA attaches
+   * the resulting id token as `Authorization: Bearer` on its API/MCP calls,
+   * which the app-level Cognito middleware verifies. Separate from
+   * `userPoolClient` (confidential, for the ALB auth action / M2M) because a
+   * browser client must not hold a client secret.
+   */
+  public readonly spaClient: cognito.UserPoolClient;
   public readonly userPoolDomain: cognito.UserPoolDomain;
 
   constructor(scope: Construct, id: string, props: AuthStackProps = {}) {
@@ -70,9 +79,35 @@ export class AuthStack extends cdk.Stack {
       cognitoDomain: { domainPrefix: `neurosymbolic-dl-${this.account}` },
     });
 
+    // Public SPA client (no secret) for the browser login flow. The SPA runs
+    // the authorization-code + PKCE grant against the hosted UI and sends the
+    // id token to the API. Callback/logout URLs point at the app origin's SPA
+    // root (not the ALB's /oauth2/idpresponse path, which is only for the ALB
+    // authenticate-cognito action). Only wired when the domain is known.
+    this.spaClient = this.userPool.addClient('SpaClient', {
+      generateSecret: false,
+      authFlows: {}, // hosted-UI OAuth only; no direct USER_PASSWORD/SRP flows
+      oAuth: {
+        flows: { authorizationCodeGrant: true },
+        scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL],
+        ...(appDomain
+          ? {
+              // The SPA handles the redirect at its own root; it reads the
+              // `?code=` param there and exchanges it for tokens via PKCE.
+              callbackUrls: [appDomain, `${appDomain}/`],
+              logoutUrls: [appDomain, `${appDomain}/`],
+            }
+          : {}),
+      },
+      preventUserExistenceErrors: true,
+    });
+
     new cdk.CfnOutput(this, 'UserPoolId', { value: this.userPool.userPoolId });
     new cdk.CfnOutput(this, 'UserPoolClientId', {
       value: this.userPoolClient.userPoolClientId,
+    });
+    new cdk.CfnOutput(this, 'SpaClientId', {
+      value: this.spaClient.userPoolClientId,
     });
     new cdk.CfnOutput(this, 'HostedUiDomain', {
       value: this.userPoolDomain.domainName,
