@@ -160,6 +160,41 @@ class TestOntologyAnswerer:
         with pytest.raises(ValueError, match="boom"):
             answerer.answer("anything")
 
+    def test_readonly_cache_falls_back_to_in_memory(self, tmp_path, tiny_owl):
+        """Regression (CL): an EXISTING on-disk sqlite cache that cannot be
+        written to must not crash construction.
+
+        owlready2's read-only backend attach still issues maintenance writes;
+        when the cache file is not writable this raises SQLite's "attempt to
+        write a readonly database", which previously surfaced to the user as
+        "Failed to load program: attempt to write a readonly database" for the
+        ontologies whose cache already existed. The answerer must detect that
+        and fall back to a fresh in-memory load so answering still works.
+        """
+        import os
+        import stat
+
+        prog = _write_program(tmp_path, FAKE_PROGRAM)
+
+        # First construction materializes <onto>.sqlite3 next to the OWL.
+        OntologyAnswerer.from_program(prog, tiny_owl)
+        cache = tiny_owl.with_suffix(".sqlite3")
+        assert cache.exists(), "expected the warm cache to be created on first load"
+
+        # Make the cache file read-only so owlready2's open-time write fails,
+        # reproducing the shared-EFS cache condition that broke CL.
+        cache.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+        try:
+            answerer = OntologyAnswerer.from_program(prog, tiny_owl)
+            # Construction succeeded via the in-memory fallback (no on-disk
+            # backend) and answering still works end to end.
+            ans = answerer.answer("still works?")
+            assert ans is not None and "classes=['Heart', 'Liver']" in ans
+        finally:
+            # Restore write perms so tmp_path cleanup can remove it.
+            cache.chmod(stat.S_IRUSR | stat.S_IWUSR)
+            os.chmod(cache, stat.S_IRUSR | stat.S_IWUSR)
+
 
 # The API tests require the optional FastAPI stack + httpx TestClient.
 fastapi_testclient = pytest.importorskip("fastapi.testclient")
