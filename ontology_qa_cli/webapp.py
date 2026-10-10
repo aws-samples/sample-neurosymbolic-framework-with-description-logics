@@ -10,7 +10,7 @@ history).
 Endpoints
 ---------
     GET  /                        the single-page chat UI
-    GET  /api/ontologies          [{name, has_program}] for the dropdown
+    GET  /api/ontologies          [{name, has_program, questions}] for the dropdown
     GET  /api/program/{ontology}  {path, source} of the current best program
     POST /api/select              {ontology} -> ready | building(job_id)
     POST /api/rebuild             {ontology} -> building(job_id) (force rebuild)
@@ -133,6 +133,15 @@ def create_app(
     def _ontology_names() -> list[str]:
         return [e.name for e in load_config(config_path).ontologies]
 
+    def _questions_for(ontology: str) -> list[str]:
+        """The canned question texts configured for an ontology (for the
+        "I'm feeling lazy!" quick-pick dropdown). Expected answers are config-
+        only grading data and are deliberately NOT exposed to the client."""
+        for e in load_config(config_path).ontologies:
+            if e.name.lower() == ontology.lower():
+                return [qa.question.strip() for qa in e.questions if qa.question.strip()]
+        return []
+
     def _owl_for(ontology: str) -> Path:
         for e in load_config(config_path).ontologies:
             if e.name.lower() == ontology.lower():
@@ -214,7 +223,11 @@ def create_app(
     async def api_ontologies() -> dict:
         return {
             "ontologies": [
-                {"name": name, "has_program": _has_program(name)}
+                {
+                    "name": name,
+                    "has_program": _has_program(name),
+                    "questions": _questions_for(name),
+                }
                 for name in _ontology_names()
             ]
         }

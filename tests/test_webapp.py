@@ -63,7 +63,7 @@ def env(tmp_path: Path):
               - name: "TINY"
                 owl_file: "{owl}"
                 questions:
-                  - question: "q?"
+                  - question: "What is the heart?"
                     expected_answer: "a"
               - name: "NOPROG"
                 owl_file: "{owl}"
@@ -108,6 +108,17 @@ class TestWebApp:
             onts = c.get("/api/ontologies").json()["ontologies"]
             by_name = {o["name"]: o["has_program"] for o in onts}
             assert by_name == {"TINY": True, "NOPROG": False, "EMPTY": False}
+
+    def test_ontologies_expose_canned_questions(self, env):
+        # The "I'm feeling lazy!" dropdown is fed by the per-ontology question
+        # texts; expected answers (grading data) must NOT be exposed.
+        with _client(env) as c:
+            onts = c.get("/api/ontologies").json()["ontologies"]
+            tiny = next(o for o in onts if o["name"] == "TINY")
+            assert tiny["questions"] == ["What is the heart?"]
+            assert "expected_answer" not in tiny
+            # Every ontology carries a questions list (possibly empty).
+            assert all(isinstance(o.get("questions"), list) for o in onts)
 
     def test_select_ready_when_program_exists(self, env):
         with _client(env) as c:
