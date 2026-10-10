@@ -27,6 +27,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -52,6 +53,11 @@ class BuildJob:
     ontology: str
     status: str = "running"  # running | finished | failed
     lock: threading.Lock = field(default_factory=threading.Lock)
+    # Epoch seconds at job creation. Lets poll/running_for tell a just-launched
+    # task (ECS describe miss = "not visible yet", seconds) apart from a
+    # stopped-and-aged-out one (ECS forgets STOPPED tasks after ~1h), so a dead
+    # task can never read as "running" forever and shadow a seeded program.
+    started_at: float = field(default_factory=time.time)
 
     # subprocess backend
     proc: Optional[subprocess.Popen] = None
@@ -75,6 +81,7 @@ class BuildJob:
             "ontology": self.ontology,
             "status": self.status,
             "task_arn": self.task_arn,
+            "started_at": self.started_at,
         }
 
     @classmethod
@@ -85,6 +92,10 @@ class BuildJob:
             ontology=record["ontology"],
             status=record.get("status", "running"),
             task_arn=record.get("task_arn"),
+            # Records written before started_at existed have no timestamp.
+            # Treat a missing value as "very old" (0.0) so a legacy ghost ages
+            # out immediately rather than being trusted as freshly launched.
+            started_at=record.get("started_at", 0.0),
         )
 
 
@@ -196,6 +207,12 @@ class SubprocessBuildBackend:
 # --------------------------------------------------------------------------- #
 # ECS RunTask backend (split architecture)
 # --------------------------------------------------------------------------- #
+# ECS forgets STOPPED tasks after ~1h. A describe_tasks miss within a few
+# minutes of launch means "not visible yet"; past that it means the task
+# stopped and aged out -- which must resolve terminal, never "running" forever.
+_ECS_VISIBILITY_GRACE_SECS = 300  # 5 min
+
+
 class EcsBuildBackend:
     """Launch the builder as an on-demand Fargate task.
 
@@ -321,7 +338,16 @@ class EcsBuildBackend:
             desc = ecs.describe_tasks(cluster=self._cluster, tasks=[job.task_arn])
             tasks = desc.get("tasks") or []
             if not tasks:
-                return "running"  # not visible yet; keep polling
+                # Ambiguous: either not-yet-visible (seconds after launch) or
+                # stopped-and-aged-out (>~1h). Distinguish by job age so a dead
+                # task can't read as "running" forever and shadow a good
+                # program. Within the grace window, keep polling; past it, a
+                # vanished ARN can only mean the task stopped -> terminal.
+                age = time.time() - (job.started_at or 0.0)
+                if age <= _ECS_VISIBILITY_GRACE_SECS:
+                    return "running"  # genuinely not visible yet
+                job.status = "failed"
+                return job.status
             task = tasks[0]
             if task.get("lastStatus") != "STOPPED":
                 return "running"
@@ -478,9 +504,14 @@ class MemoryJobStore:
         return None
 
 
+# ECS retains STOPPED tasks for ~1h; a non-terminal job record older than this
+# can only point at a vanished task, never the live build, so running_for skips
+# it without even a describe_tasks round-trip (defense in depth for poll()).
+_JOB_RECORD_MAX_AGE_SECS = 3600  # 1h
+
+
 class FileJobStore:
     """Job registry persisted as one JSON file per job under a shared directory.
-
     Used for the ECS deployment: the directory lives on the EFS access point
     that every web task (and the builder) already mounts, so a job started on
     one task is visible to all. Writes are atomic (temp file + ``os.replace``)
@@ -531,6 +562,7 @@ class FileJobStore:
             entries = list(self._dir.glob("*.json"))
         except OSError:
             return None
+        now = time.time()
         for entry in entries:
             try:
                 record = json.loads(entry.read_text(encoding="utf-8"))
@@ -540,6 +572,12 @@ class FileJobStore:
                 continue
             # Skip records already recorded terminal without a backend poll.
             if record.get("status") in ("finished", "failed"):
+                continue
+            # Ghost guard: a non-terminal record older than ECS task retention
+            # can only point at a vanished task -- skip it rather than re-poll a
+            # dead ARN. Legacy records (no started_at) default to 0.0 and so are
+            # always treated as ghosts, which is correct for pre-fix cruft.
+            if now - record.get("started_at", 0.0) > _JOB_RECORD_MAX_AGE_SECS:
                 continue
             job = BuildJob.from_record(record)
             if poll(job) == "running":

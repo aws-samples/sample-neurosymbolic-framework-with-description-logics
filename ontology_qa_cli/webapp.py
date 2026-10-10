@@ -60,6 +60,7 @@ from ontology_qa_cli.build_backend import (
 )
 from ontology_qa_cli import s3_cache
 from ontology_qa_cli import program_store
+from ontology_qa_cli.auth import install_cognito_auth
 
 try:
     from fastapi import FastAPI, HTTPException
@@ -109,6 +110,11 @@ def create_app(
     frontend_dist = Path(frontend_dist).expanduser() if frontend_dist else _default_frontend_dist()
 
     app = FastAPI(title="Ontology QA — Web Chatbot", version="0.1.0")
+
+    # Application-level Cognito JWT auth. No-op (serves unauthenticated) unless
+    # COGNITO_USER_POOL_ID is configured; the CDK compute stack injects it so
+    # the whole SPA + API sits behind Cognito without an ALB cert. See auth.py.
+    install_cognito_auth(app)
 
     # In-memory state (single process).
     answerers: dict[str, OntologyAnswerer] = {}          # ontology -> answerer

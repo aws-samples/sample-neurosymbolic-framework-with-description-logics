@@ -28,6 +28,9 @@ dev = [
 api = [
     "fastapi>=0.110.0",
     "uvicorn[standard]>=0.27.0",
+    # Cognito JWT verification (RS256) for application-level auth (auth.py).
+    # The `crypto` extra pulls in `cryptography` for RSA signature checks.
+    "pyjwt[crypto]>=2.8.0",
 ]
 
 # uv's native dev dependency group. Installed by default with `uv sync`
