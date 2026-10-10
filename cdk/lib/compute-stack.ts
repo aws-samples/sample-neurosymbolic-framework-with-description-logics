@@ -46,6 +46,13 @@ export interface ComputeStackProps extends cdk.StackProps {
    */
   spaClient?: cognito.IUserPoolClient;
   /**
+   * M2M (client-credentials) app client (from AuthStack). Its id is added to
+   * the container's accepted-audience list so a headless MCP caller's access
+   * token (whose `client_id` is this client) validates. Omit when no headless
+   * access is wanted.
+   */
+  m2mClient?: cognito.IUserPoolClient;
+  /**
    * ARN of an ACM certificate for the ALB HTTPS (443) listener. Must be in the
    * SAME region as the ALB (unlike the CloudFront cert, which lives in
    * us-east-1). When set, the ALB serves an HTTPS listener that authenticates
@@ -128,6 +135,7 @@ export class ComputeStack extends cdk.Stack {
             COGNITO_CLIENT_ID: [
               props.userPoolClient.userPoolClientId,
               ...(props.spaClient ? [props.spaClient.userPoolClientId] : []),
+              ...(props.m2mClient ? [props.m2mClient.userPoolClientId] : []),
             ].join(','),
             COGNITO_REGION: cdk.Stack.of(this).region,
           }
@@ -325,6 +333,20 @@ export class ComputeStack extends cdk.Stack {
     props.ontologyBucket.grantRead(mcpTaskDef.taskRole);
     props.fileSystem.grantReadWrite(mcpTaskDef.taskRole);
     mcpTaskDef.addToTaskRolePolicy(bedrockInvoke);
+
+    // Cognito M2M (client-credentials) secret for headless MCP access. The
+    // secret value is a Cognito-GENERATED client secret, so CDK cannot populate
+    // it (it is written out-of-band after the AuthStack mints the M2M client);
+    // we therefore IMPORT the existing secret by its stable name rather than
+    // recreate it, and grant the task role read so the service can mint its own
+    // M2M token at runtime if needed. `fromSecretNameV2` scopes the IAM grant
+    // to `<name>-??????`, which matches Secrets Manager's random 6-char suffix.
+    const m2mSecret = secretsmanager.Secret.fromSecretNameV2(
+      this,
+      'M2mClientSecret',
+      'neurosymbolic-mcp/m2m-client',
+    );
+    m2mSecret.grantRead(mcpTaskDef.taskRole);
 
     const mcpContainer = mcpTaskDef.addContainer('mcp', {
       image: mcpImage,
