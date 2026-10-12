@@ -46,6 +46,21 @@ def _seed_run(runs: Path, ontology: str) -> None:
     it = runs / f"{ontology}_20260101_000000" / "iteration_1"
     it.mkdir(parents=True, exist_ok=True)
     (it / "query_program.py").write_text(FAKE_PROGRAM)
+    # The evaluation set the builder scored this iteration against — surfaced by
+    # /api/program as `test_set`. Include a non-dict and a question-less entry
+    # to exercise the endpoint's filtering.
+    (it / "evaluation.json").write_text(
+        json.dumps(
+            {
+                "results": [
+                    {"question": "What is a dog?", "expected_answer": "An animal."},
+                    {"question": "What is a cat?", "expected_answer": ""},
+                    {"expected_answer": "no question — skipped"},
+                    "not-a-dict — skipped",
+                ]
+            }
+        )
+    )
     (runs / f"{ontology}_20260101_000000" / "summary.json").write_text(
         json.dumps({"best_iteration": 1})
     )
@@ -155,6 +170,16 @@ class TestWebApp:
             assert body["ontology"] == "TINY"
             assert body["path"].endswith("iteration_1/query_program.py")
             assert "def main(" in body["source"]
+
+    def test_program_returns_test_set(self, env):
+        with _client(env) as c:
+            body = c.get("/api/program/TINY").json()
+            # Only well-formed, question-bearing entries survive; a missing
+            # expected answer is kept as "".
+            assert body["test_set"] == [
+                {"question": "What is a dog?", "expected_answer": "An animal."},
+                {"question": "What is a cat?", "expected_answer": ""},
+            ]
 
     def test_program_404_when_no_program(self, env):
         with _client(env) as c:

@@ -145,6 +145,52 @@ select {
   white-space: pre;
   tab-size: 4;
 }
+
+/* Test set used to direct the program's evolution: a top-level disclosure
+   holding one nested disclosure per question; each expands to the expected
+   answer. */
+.test-set {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel, transparent);
+}
+.test-set > summary {
+  cursor: pointer;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  list-style-position: inside;
+}
+.test-set > summary:hover { color: var(--accent, var(--text)); }
+.test-set-list {
+  margin: 0;
+  padding: 0 14px 10px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.test-set-item > summary {
+  cursor: pointer;
+  padding: 6px 0;
+  font-size: 13px;
+  color: var(--text);
+}
+.test-set-item > summary:hover { color: var(--accent, var(--text)); }
+.test-set-answer {
+  margin: 4px 0 8px;
+  padding: 10px 12px;
+  border-left: 2px solid var(--border);
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  border-radius: 0 8px 8px 0;
+}
+.test-set-answer-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
 button {
   background: var(--accent);
   color: white;
