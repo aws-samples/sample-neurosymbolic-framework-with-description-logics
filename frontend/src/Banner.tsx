@@ -32,9 +32,9 @@ export function Banner({
   return (
     <header className="banner">
       <h1>Ontology QA</h1>
-      <label htmlFor="ontology">Ontology</label>
       <select
         id="ontology"
+        aria-label="Ontology"
         value={ontology}
         onChange={(e) => onSelect(e.target.value)}
       >
