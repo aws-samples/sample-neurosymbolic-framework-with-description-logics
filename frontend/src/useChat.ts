@@ -27,6 +27,23 @@ export interface ChatState {
 
 const uid = () => Math.random().toString(36).slice(2);
 
+// Remember the last-selected ontology across page reloads.
+const LAST_ONTOLOGY_KEY = "ndl.lastOntology";
+const loadLastOntology = (): string | null => {
+  try {
+    return localStorage.getItem(LAST_ONTOLOGY_KEY);
+  } catch {
+    return null;
+  }
+};
+const saveLastOntology = (ontology: string) => {
+  try {
+    localStorage.setItem(LAST_ONTOLOGY_KEY, ontology);
+  } catch {
+    // localStorage unavailable (private mode / disabled) — persistence is best-effort.
+  }
+};
+
 export function useChat() {
   const [state, setState] = useState<ChatState>({
     ontologies: [],
@@ -42,6 +59,7 @@ export function useChat() {
 
   const conversationId = useRef<string | null>(null);
   const closeStream = useRef<(() => void) | null>(null);
+  const restored = useRef(false);
 
   const patch = useCallback(
     (p: Partial<ChatState>) => setState((s) => ({ ...s, ...p })),
@@ -114,6 +132,7 @@ export function useChat() {
   const selectOntology = useCallback(
     (ontology: string) => {
       if (!ontology) return;
+      saveLastOntology(ontology);
       conversationId.current = null;
       if (closeStream.current) {
         closeStream.current();
@@ -164,6 +183,17 @@ export function useChat() {
     },
     [patch, addMessage, startConversation, streamBuildOutput],
   );
+
+  // Restore the last-selected ontology once the list has loaded (one-shot).
+  useEffect(() => {
+    if (restored.current) return;
+    if (state.ontologies.length === 0) return;
+    restored.current = true;
+    const last = loadLastOntology();
+    if (last && state.ontologies.some((o) => o.name === last)) {
+      selectOntology(last);
+    }
+  }, [state.ontologies, selectOntology]);
 
   const send = useCallback(
     async (text: string) => {
