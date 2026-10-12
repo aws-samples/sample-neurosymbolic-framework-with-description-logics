@@ -158,7 +158,7 @@ class TestWebApp:
                 body = "".join(resp.iter_text())
             # Each load phase is streamed as a data frame...
             assert "data: Finding best program…" in body
-            assert "data: Loading ontology…" in body
+            assert "data: Loading OWL file…" in body
             # ...then a terminal done frame reports the ontology is ready.
             assert "event: done" in body
             done_line = next(

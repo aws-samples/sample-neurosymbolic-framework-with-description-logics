@@ -197,7 +197,7 @@ export type SelectDone =
 /**
  * Select an ontology while streaming each load phase via Server-Sent Events.
  * Calls `onPhase` with a human-readable label per phase ("Fetching program…",
- * "Finding best program…", "Loading ontology…"), then `onDone` with the final
+ * "Finding best program…", "Loading OWL file…"), then `onDone` with the final
  * status (ready | building | failed). Returns a cleanup function.
  */
 export function streamSelect(

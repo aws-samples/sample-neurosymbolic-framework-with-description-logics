@@ -236,7 +236,7 @@ def create_app(
         program_path = find_best_program(ontology, runs_dir)
         owl = _owl_for(ontology)
         if progress is not None:
-            progress("Loading ontology…")
+            progress("Loading OWL file…")
         answerer = OntologyAnswerer.from_program(program_path, owl)
         with state_lock:
             answerers[ontology] = answerer
@@ -399,7 +399,7 @@ def create_app(
 
         Server-Sent Events: one ``data:`` frame per phase label
         (``Fetching program…`` -> ``Finding best program…`` ->
-        ``Loading ontology…``), then a terminal ``event: done`` frame carrying
+        ``Loading OWL file…``), then a terminal ``event: done`` frame carrying
         the final status. Mirrors ``POST /api/select`` for the
         already-has-a-program fast path; when a build is needed it hands the
         UI the job id to stream via ``/api/stream/{job_id}`` instead.
