@@ -20,6 +20,7 @@ export interface ChatState {
   messages: ChatMessage[];
   buildLog: string;
   buildFailed: boolean; // keep the build log visible after a failure
+  rebuilding: boolean; // true when the current build is a forced rebuild (a program already exists)
   error: string | null;
   sending: boolean;
 }
@@ -34,6 +35,7 @@ export function useChat() {
     messages: [],
     buildLog: "",
     buildFailed: false,
+    rebuilding: false,
     error: null,
     sending: false,
   });
@@ -145,7 +147,7 @@ export function useChat() {
             setStatus(`Switched to ${ontology}.`);
             void startConversation(ontology);
           } else if (done.status === "building") {
-            patch({ phase: "building" });
+            patch({ phase: "building", rebuilding: false });
             streamBuildOutput(done.job_id, ontology);
           } else {
             patch({ phase: "error", error: done.error ?? "Failed to load program." });
@@ -247,7 +249,7 @@ export function useChat() {
       closeStream.current();
       closeStream.current = null;
     }
-    patch({ phase: "building", messages: [], buildLog: "", buildFailed: false, error: null });
+    patch({ phase: "building", messages: [], buildLog: "", buildFailed: false, rebuilding: true, error: null });
     addMessage({ role: "system", text: `Forcing a rebuild of the query program for ${ontology}…` });
     try {
       const res = await api.rebuild(ontology);

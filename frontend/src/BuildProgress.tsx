@@ -4,13 +4,14 @@ interface Props {
   ontology: string;
   log: string;
   failed?: boolean;
+  rebuilding?: boolean;
 }
 
 // Treat the view as "at the bottom" when within this many pixels of the end,
 // so a nearly-bottomed user still gets pinned to new output.
 const BOTTOM_THRESHOLD_PX = 40;
 
-export function BuildProgress({ ontology, log, failed }: Props) {
+export function BuildProgress({ ontology, log, failed, rebuilding }: Props) {
   const preRef = useRef<HTMLPreElement>(null);
   // Whether the user is currently pinned to the bottom. Starts true so a fresh
   // build follows the latest lines; flips to false if the user scrolls up.
@@ -50,7 +51,8 @@ export function BuildProgress({ ontology, log, failed }: Props) {
           </>
         ) : (
           <>
-            Building a query program for <b>{ontology}</b>
+            {rebuilding ? "Rebuilding the query program for " : "Building a query program for "}
+            <b>{ontology}</b>
             <span className="dots" />
           </>
         )}
@@ -58,7 +60,9 @@ export function BuildProgress({ ontology, log, failed }: Props) {
       <div className="build-note">
         {failed
           ? "The builder exited with an error. The full output is below — a common cause is a missing OWL file for this ontology."
-          : "No program exists yet for this ontology. Running the builder — this can take a while (it evolves and evaluates a program iteratively). It's normal to see errors and stacktraces below: the builder tries new approaches, runs them, and self-corrects from the failures — errors don't mean the run has failed."}
+          : rebuilding
+            ? "Rebuilding the query program from scratch (you forced a rebuild). The existing program stays in use until the new one succeeds, so a failed rebuild won't take it away. This can take a while — it evolves and evaluates a program iteratively, and errors and stacktraces below are normal: the builder tries new approaches, runs them, and self-corrects from the failures."
+            : "No program exists yet for this ontology. Running the builder — this can take a while (it evolves and evaluates a program iteratively). It's normal to see errors and stacktraces below: the builder tries new approaches, runs them, and self-corrects from the failures — errors don't mean the run has failed."}
       </div>
       <pre ref={preRef} onScroll={onScroll}>
         {log || (failed ? "(no output captured)" : "starting…")}

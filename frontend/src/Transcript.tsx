@@ -7,6 +7,7 @@ interface Props {
   messages: ChatMessage[];
   building: boolean;
   buildFailed: boolean;
+  rebuilding: boolean;
   ontology: string;
   buildLog: string;
   onToggleWork: (messageId: string) => void;
@@ -16,6 +17,7 @@ export function Transcript({
   messages,
   building,
   buildFailed,
+  rebuilding,
   ontology,
   buildLog,
   onToggleWork,
@@ -67,7 +69,7 @@ export function Transcript({
         );
       })}
       {(building || buildFailed) && (
-        <BuildProgress ontology={ontology} log={buildLog} failed={buildFailed} />
+        <BuildProgress ontology={ontology} log={buildLog} failed={buildFailed} rebuilding={rebuilding} />
       )}
       <div ref={endRef} />
     </main>
