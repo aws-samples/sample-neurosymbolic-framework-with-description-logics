@@ -19,6 +19,43 @@ class TestExtractAnswer:
         stdout = "Answer: First attempt\nSome debug output\nAnswer: Final answer"
         assert extract_answer(stdout) == "Final answer"
 
+    def test_multiline_markdown_answer_captured_to_eof(self):
+        """A Markdown answer spanning several lines is captured whole."""
+        stdout = (
+            "Loading ontology...\n"
+            "Answer: The heart has:\n"
+            "- left ventricle\n"
+            "- right ventricle\n"
+            "\n"
+            "| Chamber | Side |\n"
+            "| --- | --- |\n"
+            "| Atrium | left |"
+        )
+        assert extract_answer(stdout) == (
+            "The heart has:\n"
+            "- left ventricle\n"
+            "- right ventricle\n"
+            "\n"
+            "| Chamber | Side |\n"
+            "| --- | --- |\n"
+            "| Atrium | left |"
+        )
+
+    def test_multiline_answer_takes_last_marker(self):
+        """Debug chatter before the real multi-line answer is ignored."""
+        stdout = (
+            "Answer: discarded early guess\n"
+            "more debug\n"
+            "Answer: Real answer\n"
+            "- bullet one\n"
+            "- bullet two"
+        )
+        assert extract_answer(stdout) == "Real answer\n- bullet one\n- bullet two"
+
+    def test_multiline_answer_trailing_blank_lines_stripped(self):
+        stdout = "Answer: Done\n\n\n"
+        assert extract_answer(stdout) == "Done"
+
     def test_no_answer_line_returns_none(self):
         stdout = "Loading ontology...\nProcessing...\nDone."
         assert extract_answer(stdout) is None

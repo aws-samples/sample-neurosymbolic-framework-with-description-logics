@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { ChatMessage } from "./types";
 import { BuildProgress } from "./BuildProgress";
+import { Markdown } from "./Markdown";
 
 interface Props {
   messages: ChatMessage[];
@@ -53,7 +54,11 @@ export function Transcript({
                 {m.workExpanded && (
                   <pre className="work-log">{m.workLog || "starting…"}</pre>
                 )}
-                {!m.pending && <div className="work-answer">{m.text}</div>}
+                {!m.pending && (
+                  <div className="work-answer">
+                    <Markdown text={m.text} />
+                  </div>
+                )}
               </>
             ) : (
               m.text

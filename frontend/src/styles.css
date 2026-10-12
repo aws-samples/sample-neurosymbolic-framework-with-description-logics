@@ -241,6 +241,38 @@ button.rebuild-btn:hover:not(:disabled) { background: var(--accent-2); }
 }
 .msg .work-answer { margin-top: 8px; }
 
+/* Rendered Markdown inside bot answers. Themed via the shared CSS vars so it
+   reads correctly in both light and dark. */
+.markdown > :first-child { margin-top: 0; }
+.markdown > :last-child { margin-bottom: 0; }
+.markdown p { margin: 0 0 8px; }
+.markdown h1, .markdown h2, .markdown h3,
+.markdown h4, .markdown h5, .markdown h6 {
+  margin: 10px 0 6px;
+  line-height: 1.25;
+}
+.markdown ul, .markdown ol { margin: 0 0 8px; padding-left: 20px; }
+.markdown li { margin: 2px 0; }
+.markdown a { color: var(--accent); text-decoration: underline; }
+.markdown code {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 4px;
+  font-size: 0.9em;
+}
+.markdown table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  width: auto;
+}
+.markdown th, .markdown td {
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  text-align: left;
+}
+.markdown th { background: var(--panel-2); }
+
 /* Build progress */
 .build {
   align-self: center;
@@ -312,15 +344,13 @@ button.rebuild-btn:hover:not(:disabled) { background: var(--accent-2); }
 .lazy-picker:disabled { opacity: 0.5; cursor: not-allowed; }
 .lazy-picker:focus-visible { outline: 2px solid var(--border); outline-offset: 1px; }
 
-textarea {
+.composer input[type="text"] {
   flex: 1;
-  resize: none;
   background: var(--panel-2);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 12px;
+  padding: 0 12px;
   font: inherit;
-  min-height: 44px;
-  max-height: 160px;
+  height: 44px;
 }

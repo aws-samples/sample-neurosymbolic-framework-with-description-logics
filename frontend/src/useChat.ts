@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, streamBuild, streamChat, type OntologyInfo } from "./api";
+import { api, streamBuild, streamChat, streamSelect, type OntologyInfo } from "./api";
 
 export type Phase = "idle" | "building" | "ready" | "error";
 
@@ -110,7 +110,7 @@ export function useChat() {
   );
 
   const selectOntology = useCallback(
-    async (ontology: string) => {
+    (ontology: string) => {
       if (!ontology) return;
       conversationId.current = null;
       if (closeStream.current) {
@@ -125,19 +125,40 @@ export function useChat() {
         buildFailed: false,
         error: null,
       });
-      addMessage({ role: "system", text: `Switching to ${ontology}…` });
-      try {
-        const res = await api.select(ontology);
-        if (res.status === "ready") {
-          await startConversation(ontology);
-        } else {
-          patch({ phase: "building" });
-          streamBuildOutput(res.job_id, ontology);
-        }
-      } catch (e) {
-        patch({ phase: "error", error: (e as Error).message });
-        addMessage({ role: "system", text: `Error selecting ontology: ${(e as Error).message}` });
-      }
+      const statusId = addMessage({ role: "system", text: `Switching to ${ontology}…` });
+
+      // Update the switching message's text in place as each phase arrives.
+      const setStatus = (text: string) =>
+        setState((s) => ({
+          ...s,
+          messages: s.messages.map((m) => (m.id === statusId ? { ...m, text } : m)),
+        }));
+
+      closeStream.current = streamSelect(
+        ontology,
+        // onPhase: show what the load is doing right now.
+        (label) => setStatus(`${ontology}: ${label}`),
+        // onDone: ready -> open the chat; building -> stream the build; failed -> error.
+        (done) => {
+          closeStream.current = null;
+          if (done.status === "ready") {
+            setStatus(`Switched to ${ontology}.`);
+            void startConversation(ontology);
+          } else if (done.status === "building") {
+            patch({ phase: "building" });
+            streamBuildOutput(done.job_id, ontology);
+          } else {
+            patch({ phase: "error", error: done.error ?? "Failed to load program." });
+            setStatus(`Error selecting ontology: ${done.error ?? "Failed to load program."}`);
+          }
+        },
+        // onError: connection/transport failure on the select stream.
+        (message) => {
+          closeStream.current = null;
+          patch({ phase: "error", error: message });
+          setStatus(`Error selecting ontology: ${message}`);
+        },
+      );
     },
     [patch, addMessage, startConversation, streamBuildOutput],
   );
