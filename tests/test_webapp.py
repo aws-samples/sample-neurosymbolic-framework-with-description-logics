@@ -76,6 +76,7 @@ def env(tmp_path: Path):
             f"""\
             ontologies:
               - name: "TINY"
+                display_name: "Tiny Test Ontology"
                 owl_file: "{owl}"
                 questions:
                   - question: "What is the heart?"
@@ -134,6 +135,16 @@ class TestWebApp:
             assert "expected_answer" not in tiny
             # Every ontology carries a questions list (possibly empty).
             assert all(isinstance(o.get("questions"), list) for o in onts)
+
+    def test_ontologies_expose_display_name(self, env):
+        # The dropdown shows the human-readable full name when configured;
+        # entries without a display_name report None (UI falls back to the code).
+        with _client(env) as c:
+            onts = c.get("/api/ontologies").json()["ontologies"]
+            by_name = {o["name"]: o.get("display_name") for o in onts}
+            assert by_name["TINY"] == "Tiny Test Ontology"
+            assert by_name["NOPROG"] is None
+            assert by_name["EMPTY"] is None
 
     def test_select_ready_when_program_exists(self, env):
         with _client(env) as c:

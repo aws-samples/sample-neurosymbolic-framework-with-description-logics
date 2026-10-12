@@ -4,6 +4,8 @@ import { authHeaders, withAuthParam, handleUnauthorized } from "./auth";
 
 export interface OntologyInfo {
   name: string;
+  /** Human-readable full name (e.g. "Gene Ontology"); may be absent. */
+  display_name?: string | null;
   has_program: boolean;
   /** Canned question texts for the "I'm feeling lazy!" quick-pick dropdown. */
   questions?: string[];

@@ -39,11 +39,14 @@ export function Banner({
         onChange={(e) => onSelect(e.target.value)}
       >
         <option value="">Choose an ontology…</option>
-        {ontologies.map((o) => (
-          <option key={o.name} value={o.name}>
-            {o.has_program ? o.name : `${o.name} (needs build)`}
-          </option>
-        ))}
+        {ontologies.map((o) => {
+          const full = o.display_name ? `${o.display_name} (${o.name})` : o.name;
+          return (
+            <option key={o.name} value={o.name}>
+              {o.has_program ? full : `${full} (needs build)`}
+            </option>
+          );
+        })}
       </select>
 
       <div
