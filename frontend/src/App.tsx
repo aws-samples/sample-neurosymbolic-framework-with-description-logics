@@ -38,7 +38,14 @@ export function App() {
             onToggleWork={toggleWork}
           />
           {state.phase !== "building" && (
-            <Composer disabled={!chatReady} sending={state.sending} onSend={send} />
+            <Composer
+              disabled={!chatReady}
+              sending={state.sending}
+              onSend={send}
+              questions={
+                state.ontologies.find((o) => o.name === state.ontology)?.questions
+              }
+            />
           )}
         </>
       ) : (
