@@ -35,10 +35,11 @@ npx cdk deploy --all -c region=us-east-1
 
 ### Frontend (SPA) deploy
 
-The frontend `dist/` is **not** uploaded by CDK (no `BucketDeployment`); build
-it and sync to the Edge frontend bucket, then invalidate CloudFront. The build
-needs the Cognito config so the SPA can run the hosted-UI login (values come
-from the `NeurosymbolicDL-Auth` outputs and the CloudFront domain):
+The frontend `dist/` is shipped by CDK: `EdgeStack` has a `BucketDeployment`
+that uploads `../frontend/dist` to the SPA bucket and invalidates CloudFront on
+every `cdk deploy`. You still **build** the SPA yourself first, because the
+Cognito config is baked in at build time (the CloudFront redirect URL is
+build-time config); CDK only ships whatever is in `frontend/dist`.
 
 ```bash
 cd frontend
@@ -46,25 +47,16 @@ VITE_COGNITO_DOMAIN="https://neurosymbolic-dl-<ACCOUNT>.auth.us-east-1.amazoncog
 VITE_COGNITO_CLIENT_ID="<SpaClientId output>" \
 VITE_COGNITO_REDIRECT="https://<DistributionDomain>/" \
   npm run build
-# Two-pass upload so the SPA shell is never cached while the content-hashed
-# assets are cached forever:
-#   1. assets first, long-lived immutable cache (safe — hashed filenames);
-#   2. everything else (index.html) with no-store so a redeploy is seen at once.
-aws s3 sync dist/ "s3://<FrontendBucketName output>/" --delete \
-  --exclude index.html \
-  --cache-control "public, max-age=31536000, immutable"
-aws s3 sync dist/ "s3://<FrontendBucketName output>/" \
-  --exclude "*" --include index.html \
-  --cache-control "no-cache, no-store, must-revalidate"
-aws cloudfront create-invalidation --distribution-id <DistId> --paths '/*'
+cd ../cdk
+# Ships the container AND the freshly-built SPA, then invalidates CloudFront:
+npx cdk deploy NeurosymbolicDL-Edge NeurosymbolicDL-Compute --require-approval never
 ```
 
-> CloudFront also enforces `no-store` on the SPA shell at the edge (an
-> `index.html`/default-behavior `ResponseHeadersPolicy` in `EdgeStack`), so a
-> stale pre-auth bundle cannot be served even if the S3 object's
-> `Cache-Control` is wrong. The two-pass `s3 sync` above makes the S3 metadata
-> agree with that policy; the hashed `assets/*` keep their own long-lived cache
-> behavior.
+> The SPA shell (`index.html`) is forced `no-store` at the edge by a
+> `ResponseHeadersPolicy` on the distribution's default behavior, and the
+> content-hashed `assets/*` get the long-lived `CACHING_OPTIMIZED` behavior.
+> Those edge policies override the S3 object `Cache-Control`, so the single
+> cache-control the `BucketDeployment` writes does not matter — the edge wins.
 
 When the `VITE_COGNITO_*` vars are omitted the SPA builds with auth **disabled**
 (for local `npm run dev` against an open backend).
