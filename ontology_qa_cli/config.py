@@ -20,6 +20,10 @@ class OntologyEntry:
     name: str
     owl_file: Path
     questions: list[QuestionAnswer]
+    # Human-readable full name shown in the UI, e.g. "Gene Ontology" for the
+    # ``name`` code "GO". Optional in the config; falls back to ``name`` when
+    # absent so the short code still renders.
+    display_name: Optional[str] = None
     # Original ``s3://bucket/key`` URI when the ontology is sourced from S3,
     # otherwise ``None``. ``owl_file`` is the deterministic local cache path in
     # that case; the object is not downloaded until the entry is resolved.
@@ -98,6 +102,15 @@ def load_config(config_path: Path) -> AppConfig:
         if not isinstance(name, str):
             print(
                 f"Error: Ontology entry at index {i} field 'name' must be a string",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        # Optional 'display_name' field (human-readable full name for the UI).
+        display_name = entry.get("display_name")
+        if display_name is not None and not isinstance(display_name, str):
+            print(
+                f"Error: Ontology entry '{name}' field 'display_name' must be a string",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -206,6 +219,7 @@ def load_config(config_path: Path) -> AppConfig:
                 name=name,
                 owl_file=owl_path,
                 questions=questions,
+                display_name=display_name,
                 s3_uri=s3_uri,
             )
         )

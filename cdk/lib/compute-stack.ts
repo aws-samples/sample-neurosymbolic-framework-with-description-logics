@@ -149,8 +149,15 @@ export class ComputeStack extends cdk.Stack {
 
     // ======================= WEB SERVICE ===================================
     const webTaskDef = new ecs.FargateTaskDefinition(this, 'WebTaskDef', {
-      cpu: 512,
-      memoryLimitMiB: 1024,
+      // 2 vCPU / 8 GB. Selecting a large ontology (e.g. GO at ~226 MB, FMA at
+      // ~254 MB) loads it through owlready2; without a prebuilt .sqlite3 cache
+      // this parses the whole OWL into an in-memory quadstore, whose resident
+      // size far exceeds the file. At the previous 1 GB the GO load was
+      // OOM-killed mid-select, dropping the SSE stream (the UI showed "Lost
+      // connection while selecting the ontology"). 8 GB fits the in-memory
+      // load with headroom.
+      cpu: 2048,
+      memoryLimitMiB: 8192,
       volumes: [efsVolume],
       // Run on Graviton/arm64 so the natively-built (Apple Silicon) image runs
       // without emulation. Both task defs must match the image architecture.

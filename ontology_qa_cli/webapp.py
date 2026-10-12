@@ -10,7 +10,7 @@ history).
 Endpoints
 ---------
     GET  /                        the single-page chat UI
-    GET  /api/ontologies          [{name, has_program, questions}] for the dropdown
+    GET  /api/ontologies          [{name, display_name, has_program, questions}] for the dropdown
     GET  /api/program/{ontology}  {path, source, test_set} of the best program
     POST /api/select              {ontology} -> ready | building(job_id)
     POST /api/rebuild             {ontology} -> building(job_id) (force rebuild)
@@ -142,6 +142,14 @@ def create_app(
                 return [qa.question.strip() for qa in e.questions if qa.question.strip()]
         return []
 
+    def _display_name_for(ontology: str) -> Optional[str]:
+        """The human-readable full name configured for an ontology (e.g.
+        "Gene Ontology" for "GO"), or None when the config omits it."""
+        for e in load_config(config_path).ontologies:
+            if e.name.lower() == ontology.lower():
+                return e.display_name
+        return None
+
     def _owl_for(ontology: str) -> Path:
         for e in load_config(config_path).ontologies:
             if e.name.lower() == ontology.lower():
@@ -241,6 +249,7 @@ def create_app(
             "ontologies": [
                 {
                     "name": name,
+                    "display_name": _display_name_for(name),
                     "has_program": _has_program(name),
                     "questions": _questions_for(name),
                 }

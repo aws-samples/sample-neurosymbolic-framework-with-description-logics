@@ -7,6 +7,7 @@
 #         Requires AWS credentials with s3:GetObject on the object.
 ontologies:
   - name: "FMA"
+    display_name: "Foundational Model of Anatomy"
     owl_file: "s3://neurosymbolicdl-storage-ontologybucket795a3498-gjp5avevev34/ontologies/fma.owl"
     questions:
       - question: "What are the parts of the heart?"
@@ -89,6 +90,7 @@ ontologies:
           They are major blood vessels in the neck that supply oxygen-rich
           blood directly to the brain, neck, and face.
   - name: "GO"
+    display_name: "Gene Ontology"
     owl_file: "s3://neurosymbolicdl-storage-ontologybucket795a3498-gjp5avevev34/ontologies/go-plus.owl"
     # The GO eval set has TWO complementary kinds of question so the evolved
     # program stays competent at BOTH:
@@ -256,6 +258,7 @@ ontologies:
           chaperone/quality-control machinery.
 
   - name: "CTO"
+    display_name: "Clinical Trial Ontology"
     owl_file: "s3://neurosymbolicdl-storage-ontologybucket795a3498-gjp5avevev34/ontologies/cto.owl"
     # Clinical Trial Ontology (CTO, OBO Foundry / BFO-based). The eval set has
     # two complementary kinds of question so the evolved program stays competent
@@ -379,6 +382,7 @@ ontologies:
           populations limits variability and risk. It also means the results may
           not generalize to the eventual patient population.
   - name: "CL"
+    display_name: "Cell Ontology"
     owl_file: "s3://neurosymbolicdl-storage-ontologybucket795a3498-gjp5avevev34/ontologies/cl.owl"
     questions:
       - question: "What are all the subtypes of 'T cell'?"
@@ -419,6 +423,7 @@ ontologies:
           sinusoidal endothelial cells.
 
   - name: "HPO"
+    display_name: "Human Phenotype Ontology"
     owl_file: "s3://neurosymbolicdl-storage-ontologybucket795a3498-gjp5avevev34/ontologies/hp-full.owl"
     questions:
       - question: "What is the official medical definition and primary term for a patient with webbed fingers or toes?"
@@ -454,3 +459,148 @@ ontologies:
         expected_answer: |
           Brachydactyly is rare in this specific disease, documented with an
           explicit baseline ratio of 3/56 cases.
+
+  - name: "NCIt"
+    display_name: "NCI Thesaurus"
+    owl_file: "s3://neurosymbolicdl-storage-ontologybucket795a3498-gjp5avevev34/ontologies/ncit.owl"
+    # NCI Thesaurus (NCIt) -- NCI's reference terminology and core biomedical
+    # ontology, covering ~120,000 concepts across cancer-related diseases,
+    # findings, drugs, anatomy, genes, and biological processes, with ~115,000
+    # textual definitions and 400,000+ inter-concept relationships. The eval
+    # set has two complementary kinds of question so the evolved program stays
+    # competent at BOTH:
+    #   (a) factual lookups of concepts NCIt actually defines (disease
+    #       classifications, drug/agent roles, anatomic sites, gene/biomarker
+    #       concepts, their definitions and parent/child relationships), and
+    #   (b) interpretive "what does this concept/finding mean clinically"
+    #       questions.
+    # Every expected_answer stays grounded in NCIt's real class hierarchy and
+    # definitions so the neurosymbolic retrieval drives the answer rather than
+    # free speculation.
+    questions:
+      # --- (a) Factual concept lookups ---
+      - question: "What is 'Melanoma' classified as in NCIt?"
+        expected_answer: |
+          NCIt classifies melanoma as a malignant neoplasm arising from
+          melanocytes, the pigment-producing cells. It is a subtype of
+          melanocytic neoplasm and, more broadly, of malignant neoplasm, most
+          commonly affecting the skin but also occurring at mucosal and uveal
+          (eye) sites.
+      - question: "How does NCIt define 'Carcinoma'?"
+        expected_answer: |
+          In NCIt a carcinoma is a malignant neoplasm derived from epithelial
+          cells (epithelial tissue). It is distinguished from sarcomas (which
+          arise from mesenchymal/connective tissue) and from leukemias and
+          lymphomas (hematopoietic origin), and it is the largest category of
+          human cancers.
+      - question: "What kind of entity is 'Trastuzumab' in NCIt?"
+        expected_answer: |
+          NCIt represents trastuzumab as a therapeutic agent -- specifically a
+          humanized anti-HER2 (ERBB2) monoclonal antibody. It is a subtype of
+          monoclonal antibody and antineoplastic agent, used to treat
+          HER2-overexpressing cancers such as certain breast and gastric
+          carcinomas.
+      - question: "What is the relationship between 'Adenocarcinoma' and 'Carcinoma' in NCIt?"
+        expected_answer: |
+          Adenocarcinoma is a subtype (subclass) of carcinoma in NCIt --
+          specifically a carcinoma with glandular (gland-forming) or secretory
+          differentiation. So every adenocarcinoma is a carcinoma, which is in
+          turn a malignant epithelial neoplasm.
+      - question: "What is the 'EGFR gene' in NCIt and why is it clinically important?"
+        expected_answer: |
+          NCIt defines EGFR as the gene encoding the epidermal growth factor
+          receptor, a receptor tyrosine kinase. It is cataloged as a gene concept
+          with associated protein and mutation concepts; clinically it matters
+          because activating EGFR mutations drive certain cancers (notably
+          non-small cell lung carcinoma) and are the target of EGFR tyrosine
+          kinase inhibitors.
+      - question: "What does NCIt mean by 'Stage IV' in cancer staging?"
+        expected_answer: |
+          Stage IV in NCIt denotes the most advanced tumor stage, in which the
+          cancer has spread (metastasized) from its primary site to distant
+          organs or tissues. It is the highest category in the stage-grouping
+          hierarchy derived from the TNM (tumor-node-metastasis) system NCIt
+          represents.
+      - question: "What is an 'antineoplastic agent' in NCIt?"
+        expected_answer: |
+          An antineoplastic agent in NCIt is a substance or drug whose role is to
+          inhibit or halt the growth and spread of neoplasms (tumors). It is a
+          parent category covering diverse subtypes such as chemotherapeutic
+          agents, targeted therapies, monoclonal antibodies, and immunotherapies,
+          grouped by their therapeutic role rather than chemical class.
+      - question: "What is 'Apoptosis' as defined in NCIt?"
+        expected_answer: |
+          NCIt defines apoptosis as programmed cell death -- a regulated,
+          energy-dependent process by which a cell undergoes orderly
+          self-destruction. It is a biological-process concept, distinguished
+          from necrosis (uncontrolled death), and its dysregulation is central to
+          cancer biology because evading apoptosis is a hallmark of malignant
+          cells.
+
+      # --- (b) Interpretive "what does this mean clinically" questions ---
+      - question: |
+          A tumor is reported as a "HER2-positive invasive ductal carcinoma of
+          the breast". Using NCIt's concepts, what does that classification mean
+          and what does it imply for treatment?
+        expected_answer: |
+          Breaking it down through NCIt: invasive ductal carcinoma is a
+          carcinoma (malignant epithelial neoplasm) of the breast that has
+          invaded beyond the duct, and "HER2-positive" means the tumor
+          overexpresses the HER2 (ERBB2) receptor. Practically, the HER2
+          biomarker status is predictive: it identifies the tumor as a candidate
+          for anti-HER2 targeted agents such as trastuzumab, which NCIt
+          represents as an anti-HER2 monoclonal antibody. So the classification
+          is not just descriptive -- it links the tumor's molecular feature to a
+          specific class of antineoplastic therapy.
+      - question: |
+          A pathology report describes a neoplasm as "sarcoma" rather than
+          "carcinoma". Based on how NCIt distinguishes these, what does that tell
+          me about the tumor's origin?
+        expected_answer: |
+          In NCIt both are malignant neoplasms, but they are separated by tissue
+          of origin: a carcinoma arises from epithelial cells, whereas a sarcoma
+          arises from mesenchymal (connective-tissue) cells -- bone, cartilage,
+          muscle, fat, or vascular tissue. So calling a tumor a sarcoma tells you
+          it originates in connective/supporting tissue rather than in the
+          epithelial linings and glands that give rise to the far more common
+          carcinomas, which in turn shapes expected behavior and treatment.
+      - question: |
+          A targeted-therapy drug is annotated in NCIt as an "EGFR tyrosine
+          kinase inhibitor". What does that concept practically tell me about how
+          the drug works and which patients it suits?
+        expected_answer: |
+          The concept decomposes into the drug's mechanism and its target. An
+          EGFR tyrosine kinase inhibitor blocks the kinase activity of the
+          epidermal growth factor receptor, shutting down the growth-signaling
+          cascade that activating EGFR mutations drive. Practically, NCIt's
+          linkage of the EGFR gene, its mutations, and this inhibitor class
+          implies the drug is a targeted therapy best suited to patients whose
+          tumors carry activating EGFR mutations (classically EGFR-mutant
+          non-small cell lung carcinoma), rather than a broadly cytotoxic
+          chemotherapy given regardless of molecular status.
+      - question: |
+          A cancer is documented as having progressed from "Stage II" to
+          "Stage IV". Using NCIt's staging concepts, what does that progression
+          practically signify?
+        expected_answer: |
+          NCIt's stage grouping, derived from TNM, orders disease extent from
+          localized to disseminated. Stage II is relatively localized/regional
+          disease, whereas Stage IV is distant metastatic spread to other organs.
+          So progression from II to IV practically signifies the cancer has
+          metastasized beyond its primary site and regional nodes to distant
+          tissue -- a shift that generally moves treatment intent from
+          potentially curative (surgery/local therapy) toward systemic,
+          often palliative, management and carries a markedly worse prognosis.
+      - question: |
+          A tumor's molecular profile shows "loss of apoptosis regulation". Given
+          how NCIt defines apoptosis, what is the practical significance of this
+          finding for the cancer?
+        expected_answer: |
+          Apoptosis in NCIt is programmed, regulated cell death that normally
+          removes damaged or abnormal cells. Loss of its regulation practically
+          means the tumor cells can evade this built-in self-destruct program, so
+          cells that should have been eliminated survive and accumulate. This is
+          a recognized hallmark of cancer: it supports uncontrolled growth,
+          contributes to treatment resistance (since many chemotherapies work by
+          triggering apoptosis), and flags apoptosis-restoring or pro-apoptotic
+          strategies as a therapeutic angle.
