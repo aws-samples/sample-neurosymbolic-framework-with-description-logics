@@ -123,6 +123,42 @@ export function streamBuild(
   return () => es.close();
 }
 
+export type SelectDone =
+  | { status: "ready"; ready: boolean; ontology: string }
+  | { status: "building"; job_id: string; ontology: string }
+  | { status: "failed"; ready: boolean; ontology: string; error?: string };
+
+/**
+ * Select an ontology while streaming each load phase via Server-Sent Events.
+ * Calls `onPhase` with a human-readable label per phase ("Fetching program…",
+ * "Finding best program…", "Loading ontology…"), then `onDone` with the final
+ * status (ready | building | failed). Returns a cleanup function.
+ */
+export function streamSelect(
+  ontology: string,
+  onPhase: (label: string) => void,
+  onDone: (done: SelectDone) => void,
+  onError: (message: string) => void,
+): () => void {
+  const qs = new URLSearchParams({ ontology });
+  const es = new EventSource(withAuthParam(`/api/select/stream?${qs.toString()}`));
+  es.onmessage = (e) => onPhase(e.data);
+  es.addEventListener("done", (e) => {
+    es.close();
+    try {
+      onDone(JSON.parse((e as MessageEvent).data) as SelectDone);
+    } catch {
+      onError("Malformed select-complete event.");
+    }
+  });
+  es.onerror = () => {
+    if (es.readyState === EventSource.CLOSED) {
+      onError("Lost connection while selecting the ontology.");
+    }
+  };
+  return () => es.close();
+}
+
 export interface ChatDone {
   answer: string | null;
   resolved_question: string;

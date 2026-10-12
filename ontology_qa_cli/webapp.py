@@ -46,7 +46,7 @@ import sys
 import threading
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from ontology_qa_cli.chat import ChatSession
 from ontology_qa_cli.config import load_config
@@ -205,14 +205,30 @@ def create_app(
                 return True
         return False
 
-    def _load_answerer(ontology: str) -> OntologyAnswerer:
-        """Load (and cache) the answerer for an ontology from its best run."""
+    def _load_answerer(
+        ontology: str,
+        progress: "Callable[[str], None] | None" = None,
+    ) -> OntologyAnswerer:
+        """Load (and cache) the answerer for an ontology from its best run.
+
+        When ``progress`` is given it is called with a short human-readable
+        label at the start of each phase, so a streaming caller can surface
+        what the (potentially multi-second) load is doing.
+        """
         with state_lock:
             if ontology in answerers:
+                if progress is not None:
+                    progress("Ready")
                 return answerers[ontology]
+        if progress is not None:
+            progress("Fetching program…")
         _hydrate(ontology)
+        if progress is not None:
+            progress("Finding best program…")
         program_path = find_best_program(ontology, runs_dir)
         owl = _owl_for(ontology)
+        if progress is not None:
+            progress("Loading ontology…")
         answerer = OntologyAnswerer.from_program(program_path, owl)
         with state_lock:
             answerers[ontology] = answerer
@@ -332,6 +348,81 @@ def create_app(
 
         # No program yet -> start a build as a background subprocess.
         return {"status": "building", "job_id": _start_build(ontology)}
+
+    @app.get("/api/select/stream")
+    async def api_select_stream(ontology: str):
+        """Select an ontology while streaming each load phase to the UI.
+
+        Server-Sent Events: one ``data:`` frame per phase label
+        (``Fetching program…`` -> ``Finding best program…`` ->
+        ``Loading ontology…``), then a terminal ``event: done`` frame carrying
+        the final status. Mirrors ``POST /api/select`` for the
+        already-has-a-program fast path; when a build is needed it hands the
+        UI the job id to stream via ``/api/stream/{job_id}`` instead.
+        """
+        import asyncio
+        import json as _json
+
+        if ontology not in _ontology_names():
+            raise HTTPException(status_code=404, detail=f"Unknown ontology '{ontology}'")
+
+        async def event_stream():
+            # Already-running build? Point the UI at the build stream.
+            running = jobs.running_for(ontology, build_backend.poll)
+            if running is not None:
+                payload = _json.dumps(
+                    {"status": "building", "job_id": running.job_id, "ontology": ontology}
+                )
+                yield f"event: done\ndata: {payload}\n\n"
+                return
+
+            if not _has_program(ontology):
+                job_id = _start_build(ontology)
+                payload = _json.dumps(
+                    {"status": "building", "job_id": job_id, "ontology": ontology}
+                )
+                yield f"event: done\ndata: {payload}\n\n"
+                return
+
+            # Fast path: a program exists. Load the answerer in a worker thread
+            # while forwarding its phase labels to the client as they happen.
+            loop = asyncio.get_running_loop()
+            queue: "asyncio.Queue[str | None]" = asyncio.Queue()
+
+            def _progress(label: str) -> None:
+                loop.call_soon_threadsafe(queue.put_nowait, label)
+
+            def _work() -> None:
+                try:
+                    _load_answerer(ontology, _progress)
+                finally:
+                    loop.call_soon_threadsafe(queue.put_nowait, None)
+
+            task = loop.run_in_executor(None, _work)
+
+            while True:
+                label = await queue.get()
+                if label is None:
+                    break
+                yield f"data: {label}\n\n"
+
+            try:
+                await task  # surface any load exception
+                payload = _json.dumps(
+                    {"status": "ready", "ready": True, "ontology": ontology}
+                )
+            except Exception as exc:  # noqa: BLE001
+                payload = _json.dumps(
+                    {"status": "failed", "ready": False, "ontology": ontology,
+                     "error": f"Failed to load program: {exc}"}
+                )
+            yield f"event: done\ndata: {payload}\n\n"
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     @app.post("/api/rebuild")
     async def api_rebuild(req: SelectRequest) -> dict:

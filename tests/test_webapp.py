@@ -125,6 +125,28 @@ class TestWebApp:
             res = c.post("/api/select", json={"ontology": "TINY"}).json()
             assert res["status"] == "ready"
 
+    def test_select_stream_emits_phases_then_ready(self, env):
+        with _client(env) as c:
+            with c.stream("GET", "/api/select/stream", params={"ontology": "TINY"}) as resp:
+                assert resp.status_code == 200
+                body = "".join(resp.iter_text())
+            # Each load phase is streamed as a data frame...
+            assert "data: Finding best program…" in body
+            assert "data: Loading ontology…" in body
+            # ...then a terminal done frame reports the ontology is ready.
+            assert "event: done" in body
+            done_line = next(
+                ln for ln in body.splitlines()
+                if ln.startswith("data: {") and "status" in ln
+            )
+            payload = json.loads(done_line[len("data: "):])
+            assert payload["status"] == "ready"
+            assert payload["ontology"] == "TINY"
+
+    def test_select_stream_404_for_unknown_ontology(self, env):
+        with _client(env) as c:
+            assert c.get("/api/select/stream", params={"ontology": "ZZZ"}).status_code == 404
+
     def test_program_returns_source(self, env):
         with _client(env) as c:
             r = c.get("/api/program/TINY")
