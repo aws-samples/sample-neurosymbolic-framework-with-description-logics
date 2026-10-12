@@ -165,10 +165,14 @@ select {
 .test-set > summary:hover { color: var(--accent, var(--text)); }
 .test-set-list {
   margin: 0;
-  padding: 0 14px 10px 32px;
+  padding: 0 14px 10px 14px;
+  list-style: none;
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+.test-set-list > li {
+  list-style: none;
 }
 .test-set-item > summary {
   cursor: pointer;
