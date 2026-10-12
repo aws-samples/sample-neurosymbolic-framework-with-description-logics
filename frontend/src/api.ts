@@ -26,10 +26,20 @@ export interface ChatResult {
   was_rewritten: boolean;
 }
 
+export interface TestSetItem {
+  question: string;
+  expected_answer: string;
+}
+
 export interface ProgramInfo {
   ontology: string;
   path: string;
   source: string;
+  /**
+   * The question/expected-answer pairs that directed this program's evolution
+   * (the builder's fixed evaluation set). Empty when none could be recovered.
+   */
+  test_set?: TestSetItem[];
 }
 
 async function post<T>(url: string, body: unknown): Promise<T> {

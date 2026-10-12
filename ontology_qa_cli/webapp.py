@@ -11,7 +11,7 @@ Endpoints
 ---------
     GET  /                        the single-page chat UI
     GET  /api/ontologies          [{name, has_program, questions}] for the dropdown
-    GET  /api/program/{ontology}  {path, source} of the current best program
+    GET  /api/program/{ontology}  {path, source, test_set} of the best program
     POST /api/select              {ontology} -> ready | building(job_id)
     POST /api/rebuild             {ontology} -> building(job_id) (force rebuild)
     GET  /api/status/{job_id}     build job progress (poll while building)
@@ -288,6 +288,40 @@ def create_app(
                 return iters[-1] / "query_program.py"
         return None
 
+    def _test_set_for(program_path: Path) -> list[dict]:
+        """The question/expected-answer pairs that directed this program's
+        evolution.
+
+        Each iteration's ``evaluation.json`` records the fixed evaluation set
+        the builder scored the program against (the same questions every
+        iteration). We read it from the iteration directory that produced the
+        best program (the sibling of ``query_program.py``) so the test set
+        shown matches the program source shown. Returns ``[]`` when the file is
+        missing or malformed, so a program with no recoverable eval set still
+        renders.
+        """
+        evaluation = program_path.parent / "evaluation.json"
+        if not evaluation.exists():
+            return []
+        try:
+            results = json.loads(evaluation.read_text()).get("results", [])
+        except (json.JSONDecodeError, OSError):
+            return []
+        test_set: list[dict] = []
+        for r in results:
+            if not isinstance(r, dict):
+                continue
+            question = r.get("question")
+            if not question:
+                continue
+            test_set.append(
+                {
+                    "question": question,
+                    "expected_answer": r.get("expected_answer") or "",
+                }
+            )
+        return test_set
+
     @app.get("/api/program/{ontology}")
     async def api_program(ontology: str) -> dict:
         if ontology not in _ontology_names():
@@ -302,6 +336,7 @@ def create_app(
             "ontology": ontology,
             "path": str(path),
             "source": path.read_text(),
+            "test_set": _test_set_for(path),
         }
 
     def _start_build(ontology: str) -> str:

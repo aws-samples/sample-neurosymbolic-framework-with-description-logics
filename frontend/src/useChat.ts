@@ -20,11 +20,29 @@ export interface ChatState {
   messages: ChatMessage[];
   buildLog: string;
   buildFailed: boolean; // keep the build log visible after a failure
+  rebuilding: boolean; // true when the current build is a forced rebuild (a program already exists)
   error: string | null;
   sending: boolean;
 }
 
 const uid = () => Math.random().toString(36).slice(2);
+
+// Remember the last-selected ontology across page reloads.
+const LAST_ONTOLOGY_KEY = "ndl.lastOntology";
+const loadLastOntology = (): string | null => {
+  try {
+    return localStorage.getItem(LAST_ONTOLOGY_KEY);
+  } catch {
+    return null;
+  }
+};
+const saveLastOntology = (ontology: string) => {
+  try {
+    localStorage.setItem(LAST_ONTOLOGY_KEY, ontology);
+  } catch {
+    // localStorage unavailable (private mode / disabled) — persistence is best-effort.
+  }
+};
 
 export function useChat() {
   const [state, setState] = useState<ChatState>({
@@ -34,12 +52,14 @@ export function useChat() {
     messages: [],
     buildLog: "",
     buildFailed: false,
+    rebuilding: false,
     error: null,
     sending: false,
   });
 
   const conversationId = useRef<string | null>(null);
   const closeStream = useRef<(() => void) | null>(null);
+  const restored = useRef(false);
 
   const patch = useCallback(
     (p: Partial<ChatState>) => setState((s) => ({ ...s, ...p })),
@@ -112,6 +132,7 @@ export function useChat() {
   const selectOntology = useCallback(
     (ontology: string) => {
       if (!ontology) return;
+      saveLastOntology(ontology);
       conversationId.current = null;
       if (closeStream.current) {
         closeStream.current();
@@ -145,7 +166,7 @@ export function useChat() {
             setStatus(`Switched to ${ontology}.`);
             void startConversation(ontology);
           } else if (done.status === "building") {
-            patch({ phase: "building" });
+            patch({ phase: "building", rebuilding: false });
             streamBuildOutput(done.job_id, ontology);
           } else {
             patch({ phase: "error", error: done.error ?? "Failed to load program." });
@@ -162,6 +183,17 @@ export function useChat() {
     },
     [patch, addMessage, startConversation, streamBuildOutput],
   );
+
+  // Restore the last-selected ontology once the list has loaded (one-shot).
+  useEffect(() => {
+    if (restored.current) return;
+    if (state.ontologies.length === 0) return;
+    restored.current = true;
+    const last = loadLastOntology();
+    if (last && state.ontologies.some((o) => o.name === last)) {
+      selectOntology(last);
+    }
+  }, [state.ontologies, selectOntology]);
 
   const send = useCallback(
     async (text: string) => {
@@ -247,7 +279,7 @@ export function useChat() {
       closeStream.current();
       closeStream.current = null;
     }
-    patch({ phase: "building", messages: [], buildLog: "", buildFailed: false, error: null });
+    patch({ phase: "building", messages: [], buildLog: "", buildFailed: false, rebuilding: true, error: null });
     addMessage({ role: "system", text: `Forcing a rebuild of the query program for ${ontology}…` });
     try {
       const res = await api.rebuild(ontology);

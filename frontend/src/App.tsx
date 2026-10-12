@@ -33,6 +33,7 @@ export function App() {
             messages={state.messages}
             building={state.phase === "building"}
             buildFailed={state.buildFailed}
+            rebuilding={state.rebuilding}
             ontology={state.ontology}
             buildLog={state.buildLog}
             onToggleWork={toggleWork}

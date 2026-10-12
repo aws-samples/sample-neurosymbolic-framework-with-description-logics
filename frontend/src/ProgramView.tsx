@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { api, type ProgramInfo } from "./api";
+import { Markdown } from "./Markdown";
 
 interface Props {
   ontology: string;
@@ -71,7 +72,34 @@ export function ProgramView({ ontology }: Props) {
       </div>
     );
   } else if (program) {
-    body = <pre className="program-source">{program.source}</pre>;
+    const testSet = program.test_set ?? [];
+    body = (
+      <>
+        {testSet.length > 0 && (
+          <details className="test-set">
+            <summary>Test set used to direct the evolution</summary>
+            <ol className="test-set-list">
+              {testSet.map((item, idx) => (
+                <li key={idx}>
+                  <details className="test-set-item">
+                    <summary>{item.question}</summary>
+                    <div className="test-set-answer">
+                      <div className="test-set-answer-label">Expected answer</div>
+                      {item.expected_answer.trim() ? (
+                        <Markdown text={item.expected_answer} />
+                      ) : (
+                        <div className="program-empty">No expected answer recorded.</div>
+                      )}
+                    </div>
+                  </details>
+                </li>
+              ))}
+            </ol>
+          </details>
+        )}
+        <pre className="program-source">{program.source}</pre>
+      </>
+    );
   } else {
     body = null;
   }
