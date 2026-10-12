@@ -53,6 +53,9 @@ const compute = new ComputeStack(app, `${prefix}-Compute`, {
   accessPoint: storage.accessPoint,
   ontologyBucket: storage.ontologyBucket,
   artifactBucket: storage.artifactBucket,
+  // Ontologies exposed as MCP answer_question_with_<NAME> tools (each also
+  // gets a per-deploy builder evolve task). HPO is first-class alongside GO/CTO.
+  mcpOntologies: ['GO', 'CTO', 'HPO'],
   // Image tags/repos are supplied by CI (Task 7). Placeholder context keys:
   webImageAsset: app.node.tryGetContext('webImage'),
   builderImageAsset: app.node.tryGetContext('builderImage'),
