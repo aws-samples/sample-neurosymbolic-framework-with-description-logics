@@ -17,16 +17,30 @@ class ExecutionResult:
 
 
 def extract_answer(stdout: str) -> Optional[str]:
-    """Extract answer from stdout matching 'Answer: <text>' format.
+    """Extract the answer from stdout marked by an 'Answer: ' line.
 
-    Scans lines in reverse order, returns the first match.
-    Returns None if no matching line found.
+    The query program prints its answer starting with a line ``Answer: <text>``.
+    The answer MAY span multiple lines (e.g. a Markdown table or bulleted list):
+    everything from the marker to the end of output is the answer. We take the
+    LAST ``Answer: `` marker (so diagnostic chatter earlier in stdout is ignored)
+    and return the marker's text plus any following lines, right-stripped.
+
+    A single-line answer is returned exactly as before (no trailing newline),
+    so this is backward-compatible with programs that print one line.
+
+    Returns None if no ``Answer: `` marker is found.
     """
     lines = stdout.splitlines()
-    for line in reversed(lines):
-        if line.startswith("Answer: "):
-            return line[len("Answer: "):]
-    return None
+    marker = "Answer: "
+    last_idx = None
+    for i, line in enumerate(lines):
+        if line.startswith(marker):
+            last_idx = i
+    if last_idx is None:
+        return None
+    first = lines[last_idx][len(marker):]
+    rest = lines[last_idx + 1:]
+    return "\n".join([first, *rest]).rstrip() or first
 
 
 def execute_query_program(
