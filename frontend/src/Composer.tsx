@@ -1,5 +1,6 @@
 import { useState, type KeyboardEvent, type ChangeEvent } from "react";
 
+
 interface Props {
   disabled: boolean;
   sending: boolean;
@@ -18,8 +19,8 @@ export function Composer({ disabled, sending, onSend, questions }: Props) {
     setValue("");
   };
 
-  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
       e.preventDefault();
       submit(value);
     }
@@ -59,7 +60,8 @@ export function Composer({ disabled, sending, onSend, questions }: Props) {
             ))}
           </select>
         )}
-        <textarea
+        <input
+          type="text"
           value={value}
           disabled={disabled}
           placeholder={

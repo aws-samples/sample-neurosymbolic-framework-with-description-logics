@@ -312,15 +312,13 @@ button.rebuild-btn:hover:not(:disabled) { background: var(--accent-2); }
 .lazy-picker:disabled { opacity: 0.5; cursor: not-allowed; }
 .lazy-picker:focus-visible { outline: 2px solid var(--border); outline-offset: 1px; }
 
-textarea {
+.composer input[type="text"] {
   flex: 1;
-  resize: none;
   background: var(--panel-2);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 12px;
+  padding: 0 12px;
   font: inherit;
-  min-height: 44px;
-  max-height: 160px;
+  height: 44px;
 }
