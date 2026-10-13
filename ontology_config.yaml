@@ -604,3 +604,152 @@ ontologies:
           contributes to treatment resistance (since many chemotherapies work by
           triggering apoptosis), and flags apoptosis-restoring or pro-apoptotic
           strategies as a therapeutic angle.
+  - name: "OBI"
+    display_name: "Ontology for Biomedical Investigations"
+    owl_file: "s3://neurosymbolicdl-storage-ontologybucket795a3498-gjp5avevev34/ontologies/obi.owl"
+    # Ontology for Biomedical Investigations (OBI) -- an OBO Foundry ontology
+    # that models the DESIGN and CONDUCT of biomedical investigations rather
+    # than disease/anatomy concepts: assays, study designs, specimens and
+    # material entities, data items and transformations, devices/instruments,
+    # reagents, and the roles and planned processes that tie them together. It
+    # builds on BFO (Basic Formal Ontology) upper-level categories and reuses
+    # IAO (Information Artifact Ontology) for information entities. The eval set
+    # has two complementary kinds of question so the evolved program stays
+    # competent at BOTH:
+    #   (a) factual lookups of entities OBI actually defines (assay, study
+    #       design, specimen, data item, device, investigation, their
+    #       definitions and parent/child relationships), and
+    #   (b) interpretive "what does this classification mean for an experiment"
+    #       questions.
+    # Every expected_answer stays grounded in OBI's real class hierarchy and
+    # textual definitions so the neurosymbolic retrieval drives the answer
+    # rather than free speculation.
+    questions:
+      # --- (a) Factual concept lookups ---
+      - question: "How does OBI define an 'assay'?"
+        expected_answer: |
+          OBI defines an assay as a planned process with the objective of
+          producing information (a measurement datum) about an evaluant -- the
+          material entity being examined -- by physically examining it. It is a
+          subtype of planned process and is the central class OBI uses to model
+          the act of measuring or testing a sample.
+      - question: "What is a 'study design' in OBI?"
+        expected_answer: |
+          In OBI a study design is a plan specification (an information entity)
+          that specifies how an investigation is to be carried out -- the
+          independent and dependent variables, the groups, and the overall
+          structure of the experiment. It is realized by the investigation's
+          processes rather than being a material thing itself.
+      - question: "What kind of entity is a 'specimen' in OBI, and how does it relate to a material sample?"
+        expected_answer: |
+          OBI treats a specimen as a material entity that has a specimen role --
+          i.e. a material thing taken or collected to serve as a representative
+          sample for study. The specimen role is borne by the material entity, so
+          'specimen' is a role-based classification layered on a material sample
+          rather than a distinct kind of substance.
+      - question: "What is a 'data item' in OBI (via IAO), and how does it differ from a measurement datum?"
+        expected_answer: |
+          A data item is an information content entity intended to be a truthful
+          statement about something and structured for computational processing;
+          OBI reuses this from IAO. A measurement datum is a more specific
+          subtype: a data item that is the output of a measurement assay about
+          some quality of an entity. So every measurement datum is a data item,
+          but data items also include non-measurement information.
+      - question: "What does OBI mean by an 'investigation'?"
+        expected_answer: |
+          OBI defines an investigation as a planned process that consists of
+          parts -- study designs being executed, assays, data transformations --
+          carried out to test one or more hypotheses or to characterize some
+          entities. It is the top-level process that groups the specific assays
+          and analyses performed into a coherent study.
+      - question: "What is a 'device' in OBI?"
+        expected_answer: |
+          In OBI a device is a material entity designed to perform a function,
+          used as an instrument in a process (for example an assay). It is a
+          processed material/artifact that bears a function; mass spectrometers,
+          sequencers, and centrifuges are modeled as devices realized in the
+          assays they participate in.
+      - question: "How does OBI represent a 'planned process', and why is that class central?"
+        expected_answer: |
+          A planned process in OBI is a process that realizes a plan (a plan
+          specification concretized as a realizable entity) and is carried out
+          to achieve an objective. It is central because assays, data
+          transformations, material-processing steps, and whole investigations
+          are all subtypes of planned process -- it is the backbone OBI uses to
+          model deliberate experimental activity.
+      - question: "What is a 'data transformation' in OBI?"
+        expected_answer: |
+          A data transformation is a planned process that produces output data
+          from input data by means of an algorithm or computational method -- for
+          example normalization, statistical analysis, or sequence alignment. It
+          is distinguished from an assay (which examines a material evaluant) in
+          that its input and output are both information entities, not physical
+          samples.
+
+      # --- (b) Interpretive "what does this mean for an experiment" questions ---
+      - question: |
+          An experiment is annotated in OBI terms as an "assay" whose output is a
+          "measurement datum" about a "specimen". Walking through OBI's classes,
+          what does that chain of annotations actually describe?
+        expected_answer: |
+          Reading it through OBI: a material sample bearing a specimen role (the
+          specimen) is the evaluant that gets physically examined by an assay --
+          a planned process whose objective is to produce information about that
+          evaluant. The assay's output, a measurement datum, is a data item
+          recording some measured quality of the specimen. So the chain describes
+          a complete measurement act: take a representative sample, examine it in
+          a defined procedure, and emit a structured, computable measurement
+          about it -- material in, information out.
+      - question: |
+          Why does OBI model a "specimen" as a material entity bearing a role
+          rather than as its own distinct kind of substance, and what does that
+          buy an experiment's data model?
+        expected_answer: |
+          OBI follows BFO's split between what a thing IS (its material type --
+          e.g. a blood sample, a tissue section) and the role it PLAYS in a
+          context. 'Specimen' is contextual: the same blood sample is a specimen
+          when collected for study and merely blood otherwise. Modeling it as a
+          material entity bearing a specimen role lets the data model keep the
+          sample's intrinsic identity stable while attaching, removing, or
+          changing the specimen role as the sample moves through the
+          investigation -- so provenance and reuse are tracked without
+          reclassifying the substance itself.
+      - question: |
+          A pipeline step is classified in OBI as a "data transformation" rather
+          than an "assay". Based on how OBI distinguishes them, what does that
+          classification tell me about the step's inputs and outputs?
+        expected_answer: |
+          Both are planned processes, but OBI separates them by what they act on.
+          An assay physically examines a material evaluant and produces
+          information about it (material in, information out). A data
+          transformation takes information as input and produces information as
+          output via an algorithm -- no physical sample is examined. So calling
+          the step a data transformation tells me it is a purely computational
+          stage (e.g. normalization or statistical analysis operating on existing
+          data), not a bench measurement that touches a specimen.
+      - question: |
+          Two activities are grouped under one OBI "investigation". Using OBI's
+          process model, what does placing them under a single investigation
+          imply about how they relate?
+        expected_answer: |
+          In OBI an investigation is a planned process whose parts are the
+          specific processes carried out to test hypotheses or characterize
+          entities. Grouping two activities under one investigation implies they
+          are parts of the same overarching study plan -- executed in service of
+          the same objective and study design, sharing provenance and context --
+          rather than independent one-off procedures. It lets the data model tie
+          their assays, data transformations, and outputs together as a coherent
+          whole.
+      - question: |
+          An instrument used in a protocol is annotated as a "device" realized in
+          an "assay". Given OBI's treatment of functions and roles, what does that
+          annotation practically capture?
+        expected_answer: |
+          OBI models a device as a material entity that bears a function -- a
+          disposition to perform some action -- which is realized only when the
+          device actually participates in a process. Annotating it as a device
+          realized in an assay captures two things: the instrument's standing
+          capability (its function, independent of any single run) and the fact
+          that this capability is actualized during the specific assay. That
+          separation lets the model describe what an instrument can do, and
+          record each occasion on which it did it, without conflating the two.
