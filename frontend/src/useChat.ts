@@ -138,12 +138,21 @@ export function useChat() {
         closeStream.current();
         closeStream.current = null;
       }
+      // If this ontology has no built program yet, selecting it will trigger a
+      // (potentially long) builder run. Enter the "building" phase eagerly so
+      // BuildProgress renders its "this can take a while" explanation right
+      // away, rather than sitting in a dead-looking idle window while the
+      // select stream works toward its first `building` event. If the program
+      // turns out to be ready after all, the stream's `ready` branch corrects
+      // the phase below.
+      const needsBuild = !state.ontologies.find((o) => o.name === ontology)?.has_program;
       patch({
         ontology,
-        phase: "idle",
+        phase: needsBuild ? "building" : "idle",
         messages: [],
         buildLog: "",
         buildFailed: false,
+        rebuilding: false,
         error: null,
       });
       const statusId = addMessage({ role: "system", text: `Switching to ${ontology}…` });
@@ -181,17 +190,24 @@ export function useChat() {
         },
       );
     },
-    [patch, addMessage, startConversation, streamBuildOutput],
+    [patch, addMessage, startConversation, streamBuildOutput, state.ontologies],
   );
 
   // Restore the last-selected ontology once the list has loaded (one-shot).
+  // Only auto-restore an ontology that ALREADY has a built program: selecting
+  // one that still needs a build kicks off a long (minutes, for a large OWL)
+  // builder run on page load, which the user did not ask for this session and
+  // which reads as the app "hanging" (idle select phase, disabled composer).
+  // In that case we leave the picker idle so the user lands on a usable UI and
+  // can choose to build it deliberately (where BuildProgress explains the wait).
   useEffect(() => {
     if (restored.current) return;
     if (state.ontologies.length === 0) return;
     restored.current = true;
     const last = loadLastOntology();
-    if (last && state.ontologies.some((o) => o.name === last)) {
-      selectOntology(last);
+    const lastOntology = last ? state.ontologies.find((o) => o.name === last) : undefined;
+    if (lastOntology && lastOntology.has_program) {
+      selectOntology(lastOntology.name);
     }
   }, [state.ontologies, selectOntology]);
 
