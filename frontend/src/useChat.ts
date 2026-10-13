@@ -173,7 +173,16 @@ export function useChat() {
           closeStream.current = null;
           if (done.status === "ready") {
             setStatus(`Switched to ${ontology}.`);
-            void startConversation(ontology);
+            // Surface a conversation-creation failure instead of leaving the
+            // composer wedged: startConversation flips phase to "ready" only on
+            // success, so a swallowed rejection here looks like a silent hang
+            // ("Switched to X" shown, input greyed out forever). This happens
+            // when /api/conversation is ALB-routed to a task that has not loaded
+            // the ontology; the backend now lazy-loads, but keep the UI honest.
+            startConversation(ontology).catch((e) => {
+              patch({ phase: "error", error: (e as Error).message });
+              setStatus(`Error starting conversation: ${(e as Error).message}`);
+            });
           } else if (done.status === "building") {
             patch({ phase: "building", rebuilding: false });
             streamBuildOutput(done.job_id, ontology);

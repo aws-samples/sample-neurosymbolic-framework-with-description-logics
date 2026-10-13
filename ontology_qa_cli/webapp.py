@@ -60,6 +60,10 @@ from ontology_qa_cli.build_backend import (
 )
 from ontology_qa_cli import s3_cache
 from ontology_qa_cli import program_store
+from ontology_qa_cli.conversation_store import (
+    make_conversation_store,
+    history_from_record,
+)
 from ontology_qa_cli.auth import install_cognito_auth
 
 try:
@@ -119,6 +123,7 @@ def create_app(
     # In-memory state (single process).
     answerers: dict[str, OntologyAnswerer] = {}          # ontology -> answerer
     sessions: dict[str, ChatSession] = {}                # conversation_id -> session
+    conv_ontology: dict[str, str] = {}                   # conversation_id -> ontology name
     state_lock = threading.Lock()
 
     # How builds run: local subprocess (default) or a Fargate task (BUILD_BACKEND=ecs).
@@ -129,6 +134,15 @@ def create_app(
     # polled/streamed from any other (the service runs >1 task behind the ALB).
     # For the subprocess backend it is an in-process dict (single process).
     jobs = make_job_store(runs_dir)
+
+    # Where conversations are persisted. Same rationale as `jobs`: on ECS the
+    # service runs >1 task behind the ALB and tasks get replaced, so a session
+    # kept only in the in-memory `sessions` dict is lost on a restart and is
+    # invisible to sibling tasks. The store persists {ontology, history} to the
+    # shared EFS mount; the live ChatSession (answerer + history) is rehydrated
+    # on a cache miss via _get_or_rehydrate_session(). On the subprocess backend
+    # it is an in-process store, preserving the original single-process behavior.
+    conv_store = make_conversation_store(runs_dir)
 
     def _ontology_names() -> list[str]:
         return [e.name for e in load_config(config_path).ontologies]
@@ -241,6 +255,53 @@ def create_app(
         with state_lock:
             answerers[ontology] = answerer
         return answerer
+
+    def _get_or_rehydrate_session(conversation_id: str) -> "Optional[ChatSession]":
+        """Return the live session for ``conversation_id``, rebuilding it from
+        the durable store on an in-memory miss.
+
+        A miss happens whenever this task did not create the conversation: after
+        a task restart (the in-memory dict is empty) or when the ALB routed the
+        request to a sibling task. We rebuild the ChatSession from the persisted
+        {ontology, history} record -- reloading the (cached) answerer for its
+        ontology -- so the conversation continues seamlessly instead of 400ing.
+        Returns None only when the conversation id is genuinely unknown.
+        """
+        with state_lock:
+            session = sessions.get(conversation_id)
+        if session is not None:
+            return session
+        record = conv_store.get(conversation_id)
+        if record is None:
+            return None
+        ontology = record.get("ontology")
+        if not ontology:
+            return None
+        # Rebuild the answerer (cheap + cached) and restore the history.
+        answerer = _load_answerer(ontology)
+        session = ChatSession(answerer=answerer, resolve_followups=resolve_followups)
+        session.history = history_from_record(record)
+        with state_lock:
+            # Another request on this task may have rehydrated concurrently;
+            # keep whichever is already cached to avoid clobbering live history.
+            existing = sessions.get(conversation_id)
+            if existing is not None:
+                return existing
+            sessions[conversation_id] = session
+            conv_ontology[conversation_id] = ontology
+        return session
+
+    def _persist_turn(conversation_id: str, session: ChatSession) -> None:
+        """Write a conversation's current ontology + history to the durable
+        store after a turn. Best-effort: a store write failure must not fail
+        the user's request (the in-memory session still works for this task)."""
+        ontology = conv_ontology.get(conversation_id)
+        if not ontology:
+            return
+        try:
+            conv_store.put(conversation_id, ontology, session)
+        except Exception:  # noqa: BLE001 - durable store is best-effort
+            pass
 
     # ----------------------------------------------------------------- API --
     @app.get("/api/ontologies")
@@ -564,8 +625,7 @@ def create_app(
 
     @app.post("/api/chat")
     async def api_chat(req: ChatRequest) -> dict:
-        with state_lock:
-            session = sessions.get(req.conversation_id)
+        session = _get_or_rehydrate_session(req.conversation_id)
         if session is None:
             raise HTTPException(
                 status_code=400,
@@ -578,6 +638,7 @@ def create_app(
             turn = await loop.run_in_executor(None, session.send, req.message)
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=500, detail=f"Query failed: {exc}") from exc
+        _persist_turn(req.conversation_id, session)
         return {
             "answer": turn.answer,
             "resolved_question": turn.resolved_question,
@@ -596,6 +657,8 @@ def create_app(
         """
         with state_lock:
             session = sessions.get(conversation_id)
+        if session is None:
+            session = _get_or_rehydrate_session(conversation_id)
         if session is None:
             raise HTTPException(
                 status_code=400,
@@ -619,6 +682,7 @@ def create_app(
         def _work() -> None:
             try:
                 turn = session.send_streaming(message, _on_line)
+                _persist_turn(conversation_id, session)
                 _put(
                     (
                         "done",
@@ -664,21 +728,47 @@ def create_app(
     async def api_conversation(req: SelectRequest) -> dict:
         """Start a conversation bound to an ontology; returns a conversation_id.
 
-        Requires the ontology's answerer to be loaded already (via /api/select).
+        The ontology's answerer is loaded on demand on a cache miss. A miss
+        happens routinely with more than one web task behind the ALB: the
+        preceding /api/select landed on one task (loading the answerer into
+        THAT task's in-memory cache), while this POST can be routed to a
+        sibling task whose cache is empty. Rather than 409 -- which left the UI
+        wedged with a disabled composer after "Switched to <ontology>" -- we
+        load the answerer from the durable program here (cheap + cached),
+        exactly as _get_or_rehydrate_session does for /api/chat. A genuinely
+        unbuilt/unknown ontology surfaces as the loader's own error.
         """
         ontology = req.ontology
         with state_lock:
             answerer = answerers.get(ontology)
         if answerer is None:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Ontology '{ontology}' is not ready. Select it first.",
-            )
+            import asyncio
+
+            loop = asyncio.get_running_loop()
+            try:
+                answerer = await loop.run_in_executor(None, _load_answerer, ontology)
+            except (Exception, SystemExit) as e:  # noqa: BLE001
+                # find_best_program() calls sys.exit(1) (-> SystemExit, NOT an
+                # Exception subclass) when no program exists, so catch both:
+                # an unbuilt/unknown ontology must surface as a clean 409, not a
+                # 500 from an unhandled SystemExit.
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Ontology '{ontology}' is not ready and could not be "
+                        f"loaded. Build it first."
+                    ),
+                ) from (e if isinstance(e, Exception) else None)
         conversation_id = uuid.uuid4().hex
         with state_lock:
             sessions[conversation_id] = ChatSession(
                 answerer=answerer, resolve_followups=resolve_followups
             )
+            conv_ontology[conversation_id] = ontology
+            new_session = sessions[conversation_id]
+        # Persist the (empty) conversation so a sibling task or a post-restart
+        # task can rehydrate it on the user's first question.
+        _persist_turn(conversation_id, new_session)
         return {"conversation_id": conversation_id, "ontology": ontology}
 
     # ----------------------------------------------------------------- UI ---

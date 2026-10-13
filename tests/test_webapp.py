@@ -212,6 +212,70 @@ class TestWebApp:
             assert "['Heart']" in r["answer"]
             assert r["was_rewritten"] is False
 
+    def test_conversation_survives_task_restart(self, env, monkeypatch):
+        """A conversation created on one task (process) must keep working on a
+        REPLACEMENT task after a restart. The conversation store is a shared
+        file store on the EFS runs mount; a second app instance over the same
+        runs_dir models the replacement task (fresh in-memory sessions dict,
+        same durable store). We force the file store directly rather than via
+        BUILD_BACKEND=ecs so the test doesn't also need the ECS build backend's
+        cluster/subnet env."""
+        from ontology_qa_cli.conversation_store import FileConversationStore
+
+        def _file_store(runs_dir):
+            return FileConversationStore(Path(runs_dir) / ".conversations")
+
+        monkeypatch.setattr(webapp, "make_conversation_store", _file_store)
+
+        # Task A: create a conversation and take a turn.
+        with _client(env) as c1:
+            c1.post("/api/select", json={"ontology": "TINY"})
+            conv = c1.post("/api/conversation", json={"ontology": "TINY"}).json()
+            cid = conv["conversation_id"]
+            r1 = c1.post(
+                "/api/chat",
+                json={"conversation_id": cid, "message": "what classes?"},
+            )
+            assert r1.status_code == 200
+
+        # The persisted record exists on the shared mount.
+        assert (env["runs"] / ".conversations" / f"{cid}.json").exists()
+
+        # Task B: a brand-new app instance (empty in-memory sessions) over the
+        # SAME runs_dir -- the replacement task. The same conversation_id must
+        # NOT 400; it rehydrates from the store and continues.
+        with _client(env) as c2:
+            # No /api/conversation call here: the conversation predates this task.
+            r2 = c2.post(
+                "/api/chat",
+                json={"conversation_id": cid, "message": "what classes again?"},
+            )
+            assert r2.status_code == 200, r2.text
+            assert "['Heart']" in r2.json()["answer"]
+
+        # History carried over: 2 turns x (user+assistant) = 4 messages persisted.
+        rec = json.loads(
+            (env["runs"] / ".conversations" / f"{cid}.json").read_text()
+        )
+        assert len(rec["history"]) == 4
+        assert rec["ontology"] == "TINY"
+
+    def test_unknown_conversation_still_400_with_file_store(self, env, monkeypatch):
+        """Rehydration must not mask a genuinely unknown conversation id: with
+        no record in the store, the chat endpoint still returns 400."""
+        from ontology_qa_cli.conversation_store import FileConversationStore
+
+        monkeypatch.setattr(
+            webapp, "make_conversation_store",
+            lambda runs_dir: FileConversationStore(Path(runs_dir) / ".conversations"),
+        )
+        with _client(env) as c:
+            resp = c.post(
+                "/api/chat",
+                json={"conversation_id": "deadbeef", "message": "x"},
+            )
+            assert resp.status_code == 400
+
     def test_chat_stream_streams_output_then_answer(self, env):
         with _client(env) as c:
             c.post("/api/select", json={"ontology": "TINY"})
@@ -258,8 +322,26 @@ class TestWebApp:
             )
 
     def test_conversation_before_select_409(self, env):
+        # An ontology with no built program cannot start a conversation: the
+        # lazy answerer load fails (find_best_program -> SystemExit) and must
+        # surface as a clean 409, not a 500.
         with _client(env) as c:
             assert c.post("/api/conversation", json={"ontology": "NOPROG"}).status_code == 409
+
+    def test_conversation_without_prior_select_lazy_loads(self, env):
+        # Regression: with >1 web task behind the ALB, /api/select lands on one
+        # task (loading the answerer there) while the follow-up /api/conversation
+        # can be routed to a sibling task with an empty answerer cache. That used
+        # to 409 and wedge the UI ("Switched to X", composer greyed out forever).
+        # The handler now lazy-loads the answerer from the durable program, so a
+        # conversation starts for a BUILT ontology even with no prior select on
+        # this task. TINY has a program but this fresh client never selected it.
+        with _client(env) as c:
+            r = c.post("/api/conversation", json={"ontology": "TINY"})
+            assert r.status_code == 200
+            body = r.json()
+            assert body["ontology"] == "TINY"
+            assert body["conversation_id"]
 
     def test_build_job_flow(self, env, monkeypatch):
         runs = env["runs"]
