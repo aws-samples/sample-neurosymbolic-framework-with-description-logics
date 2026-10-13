@@ -5,6 +5,7 @@
     "exclude": ["README.md", "cdk*.json", "**/*.d.ts", "node_modules", "cdk.out"]
   },
   "context": {
+    "appDomain": "https://d15j8kb5manvuj.cloudfront.net",
     "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
     "@aws-cdk/core:checkSecretUsage": true,
     "@aws-cdk/aws-iam:minimizePolicies": true,
