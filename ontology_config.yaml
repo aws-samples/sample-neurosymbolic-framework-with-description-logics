@@ -89,6 +89,91 @@ ontologies:
           Yes, the carotid arteries are a vital part of the circulatory system.
           They are major blood vessels in the neck that supply oxygen-rich
           blood directly to the brain, neck, and face.
+      # --- Added to double the FMA eval set (13 -> 26). Each is a distinct
+      #     anatomical concept answerable from FMA's class hierarchy and
+      #     part-of / continuity / regional relationships. ---
+      - question: "How many bones make up the adult human skeleton, and what are its two major divisions?"
+        expected_answer: |
+          The adult human skeleton comprises 206 bones, organized into two major
+          divisions: the axial skeleton (the skull, vertebral column, ribs, and
+          sternum, which form the central axis of the body) and the appendicular
+          skeleton (the bones of the limbs together with the pectoral and pelvic
+          girdles that attach them to the axial skeleton).
+      - question: "What are the four lobes of the cerebral cortex?"
+        expected_answer: |
+          The cerebral cortex is divided into four paired lobes named for the
+          overlying cranial bones: the frontal lobe (anterior, concerned with
+          movement, planning, and executive function), the parietal lobe
+          (somatosensory processing and spatial awareness), the temporal lobe
+          (hearing, memory, and language), and the occipital lobe (posterior,
+          dedicated to vision).
+      - question: "What is the largest artery in the human body, and where does it originate?"
+        expected_answer: |
+          The aorta is the largest artery in the human body. It originates from
+          the left ventricle of the heart at the aortic valve, arches over the
+          heart (the aortic arch), then descends through the thorax and abdomen
+          (the thoracic and abdominal aorta) before dividing into the common
+          iliac arteries.
+      - question: "Which structures make up the upper respiratory tract?"
+        expected_answer: |
+          The upper respiratory tract consists of the nose and nasal cavity, the
+          paranasal sinuses, the pharynx (naso-, oro-, and laryngopharynx), and
+          the larynx. It conducts and conditions air before it passes into the
+          lower respiratory tract (the trachea, bronchi, and lungs).
+      - question: "What are the three parts of the small intestine in order?"
+        expected_answer: |
+          The small intestine has three continuous parts, in order from the
+          stomach: the duodenum (the first, C-shaped segment), the jejunum (the
+          middle portion), and the ileum (the final segment, which joins the
+          large intestine at the ileocecal junction).
+      - question: "What muscle is primarily responsible for respiration, and what separates the thoracic and abdominal cavities?"
+        expected_answer: |
+          The diaphragm is the primary muscle of respiration. It is a dome-shaped
+          sheet of skeletal muscle that forms the floor of the thoracic cavity
+          and the roof of the abdominal cavity, so it also serves as the anatomic
+          partition separating those two cavities.
+      - question: "What is the functional unit of the kidney called?"
+        expected_answer: |
+          The functional unit of the kidney is the nephron. Each kidney contains
+          roughly a million nephrons, and each nephron consists of a renal
+          corpuscle (glomerulus plus Bowman's capsule) and a renal tubule that
+          together filter blood and form urine.
+      - question: "Which bones form the pectoral (shoulder) girdle?"
+        expected_answer: |
+          The pectoral girdle is formed by two paired bones on each side: the
+          clavicle (collarbone) and the scapula (shoulder blade). Together they
+          connect the upper limb to the axial skeleton and provide attachment for
+          the muscles that move the arm.
+      - question: "What are the three auditory ossicles of the middle ear?"
+        expected_answer: |
+          The three auditory ossicles, the smallest bones in the body, are the
+          malleus (hammer), the incus (anvil), and the stapes (stirrup). They
+          form a chain in the middle ear that transmits and amplifies sound
+          vibrations from the tympanic membrane to the oval window of the inner
+          ear.
+      - question: "What type of joint is the knee, and what bones does it connect?"
+        expected_answer: |
+          The knee is a synovial hinge joint. It connects the femur (thigh bone)
+          above to the tibia (shin bone) below, with the patella (kneecap)
+          articulating anteriorly; the fibula lies lateral but does not form part
+          of the main femorotibial articulation.
+      - question: "What is the outermost layer of the skin, and what tissue type is it?"
+        expected_answer: |
+          The outermost layer of the skin is the epidermis, which is composed of
+          keratinized stratified squamous epithelium. It overlies the dermis
+          (dense connective tissue) and provides a protective, waterproof barrier.
+      - question: "Which quadrant of the abdomen contains the appendix?"
+        expected_answer: |
+          The appendix (vermiform appendix) is located in the right lower
+          quadrant of the abdomen. It is a blind-ending tube attached to the
+          cecum, the first part of the large intestine, near the ileocecal
+          junction.
+      - question: "What are the chambers of the heart that receive blood, and from where?"
+        expected_answer: |
+          The two atria are the receiving chambers of the heart. The right atrium
+          receives deoxygenated blood returning from the body via the superior
+          and inferior vena cavae, while the left atrium receives oxygenated blood
+          returning from the lungs via the pulmonary veins.
   - name: "GO"
     display_name: "Gene Ontology"
     owl_file: "s3://neurosymbolicdl-storage-ontologybucket795a3498-gjp5avevev34/ontologies/go-plus.owl"
@@ -257,6 +342,183 @@ ontologies:
           practical read is a stressed proteostasis state engaging the
           chaperone/quality-control machinery.
 
+      # === Added to double the GO eval set (18 -> 36), preserving the
+      #     factual / interpretive balance (8 new factual + 10 new interpretive).
+      #     New genes and GO terms, grounded in GO annotations and term
+      #     definitions, deeply distinct from the existing items. ===
+
+      # --- (a) Factual single-gene annotation lookups (new) ---
+      - question: "What is the molecular function of the gene MYH7?"
+        expected_answer: |
+          MYH7 encodes a myosin heavy chain with motor activity; it has ATPase
+          activity and actin binding, driving muscle contraction in cardiac and
+          slow-twitch skeletal muscle.
+      - question: "In which cellular component does the ribosomal protein RPL13 act?"
+        expected_answer: |
+          It is a structural constituent of the ribosome and is located in the
+          large (60S) ribosomal subunit in the cytoplasm, where it participates
+          in translation.
+      - question: "What biological process is the gene CASP3 central to?"
+        expected_answer: |
+          CASP3 is an executioner caspase central to the apoptotic process
+          (programmed cell death); it has cysteine-type endopeptidase activity
+          and cleaves many cellular substrates during apoptosis.
+      - question: "What kind of activity does the enzyme SOD1 have?"
+        expected_answer: |
+          SOD1 has superoxide dismutase activity: it catalyzes the conversion of
+          superoxide radicals into oxygen and hydrogen peroxide, functioning in
+          the cellular response to oxidative stress, primarily in the cytoplasm.
+      - question: "Where in the cell does the protein LMNA (lamin A/C) localize?"
+        expected_answer: |
+          LMNA localizes to the nuclear envelope, specifically the nuclear
+          lamina on the inner side of the inner nuclear membrane, where it
+          provides structural support to the nucleus as a structural molecule.
+      - question: "What is the primary molecular function of the gene HBB?"
+        expected_answer: |
+          HBB encodes beta-globin; its molecular function is oxygen binding (and
+          heme binding), and it participates in the biological process of oxygen
+          transport as part of the hemoglobin complex.
+      - question: "What process does the gene ATG7 participate in?"
+        expected_answer: |
+          ATG7 participates in autophagy (specifically macroautophagy); it acts
+          as an E1-like activating enzyme that is required for forming the
+          autophagosome membrane.
+      - question: "What is the molecular function and location of the gene SLC2A1 (GLUT1)?"
+        expected_answer: |
+          SLC2A1/GLUT1 has glucose transmembrane transporter activity and is
+          located in the plasma membrane, where it mediates facilitated glucose
+          transport into the cell.
+
+      # --- (b) Interpretive "practical meaning" questions (new) ---
+      - question: |
+          A GO enrichment analysis of genes upregulated during stem-cell
+          differentiation shows strong enrichment for "cell differentiation" and
+          "developmental process". How should I interpret this biologically?
+        expected_answer: |
+          "Cell differentiation" is the process by which a less specialized cell
+          becomes more specialized, and "developmental process" is the broader
+          category of processes that advance an organism or cell toward its mature
+          state. Co-enrichment practically confirms the cells are executing a
+          differentiation program -- turning on the gene sets that drive
+          commitment toward a specialized fate rather than maintaining a
+          proliferative, undifferentiated state. The actionable read is that the
+          sample is progressing along a lineage, so lineage-specification genes
+          are the drivers to examine next.
+      - question: |
+          Enrichment analysis of a dataset from senescent cells highlights
+          "cellular senescence" and "negative regulation of cell cycle". What
+          does this co-enrichment practically indicate?
+        expected_answer: |
+          "Cellular senescence" is the process of a stable, essentially permanent
+          cell-cycle arrest in response to stress or damage, and "negative
+          regulation of cell cycle" captures the braking of division. Together
+          they practically indicate the cells have exited active proliferation and
+          entered a senescent state -- not dead, but no longer dividing. In
+          context this flags growth arrest (often with an inflammatory secretory
+          phenotype) rather than apoptosis, pointing to senescence as the dominant
+          response rather than cell death or continued growth.
+      - question: |
+          My upregulated genes are enriched for "autophagy". Practically, what
+          cellular situation does enrichment for this process most likely reflect?
+        expected_answer: |
+          Autophagy is the regulated process of degrading and recycling the
+          cell's own components by delivering them to the lysosome. Enrichment
+          practically reflects that the cells are increasing self-digestion and
+          recycling, typically in response to nutrient deprivation, stress, or a
+          need to clear damaged organelles and protein aggregates. The practical
+          read is a cell adapting to starvation or stress by recycling internal
+          resources to survive, rather than one in a nutrient-replete growth state.
+      - question: |
+          A GO enrichment of genes downregulated after a toxin exposure shows
+          enrichment for "mitochondrial electron transport chain". What is the
+          practical significance of losing expression in this process?
+        expected_answer: |
+          The mitochondrial electron transport chain is the set of complexes that
+          pass electrons to generate the proton gradient driving ATP synthesis.
+          Losing expression there practically means the cells' capacity for
+          mitochondrial energy production is being impaired -- a sign of
+          mitochondrial dysfunction and compromised aerobic ATP generation. In a
+          toxin-exposure context this points to the toxin damaging respiratory
+          capacity, which can force a shift toward glycolysis and signal energetic
+          stress.
+      - question: |
+          Enrichment analysis shows "immune response" and "cytokine-mediated
+          signaling pathway" are over-represented in a chronic-inflammation
+          sample. How do I read this practically?
+        expected_answer: |
+          "Immune response" is the body's reaction to defend against a perceived
+          threat, and "cytokine-mediated signaling pathway" is the process of
+          cells communicating via cytokines to coordinate that response.
+          Over-representation of both practically means the sample is dominated by
+          active immune signaling -- cells are producing and responding to
+          cytokines to sustain an inflammatory/immune program. In a chronic
+          context this indicates persistent immune activation rather than a
+          resolved or resting state, pointing at cytokine signaling as a driver to
+          target.
+      - question: |
+          A GO term enriched among genes upregulated in a fibrotic tissue is
+          "extracellular matrix organization". Practically, what does this tell me
+          about the tissue?
+        expected_answer: |
+          "Extracellular matrix organization" is the process of assembling and
+          arranging the network of proteins outside cells. Enrichment practically
+          indicates the tissue is actively building and remodeling its
+          extracellular matrix -- depositing collagen and related structural
+          proteins. In a fibrotic context this is the molecular signature of
+          scarring/fibrosis, so the actionable interpretation is excessive matrix
+          deposition driving tissue stiffening, and ECM-remodeling pathways as a
+          therapeutic target.
+      - question: |
+          A screen of genes upregulated in dividing cells returns enrichment for
+          "chromosome segregation". Practically, what stage or activity does this
+          point to?
+        expected_answer: |
+          "Chromosome segregation" is the process of partitioning replicated
+          chromosomes to opposite poles so each daughter cell receives a complete
+          set. Enrichment practically points to cells engaged in mitosis,
+          specifically the segregation machinery that operates during anaphase.
+          It confirms active division and flags the spindle and segregation
+          apparatus as central to the sample's phenotype -- consistent with a
+          highly proliferative population.
+      - question: |
+          Downregulated genes in a model of cardiac failure are enriched for
+          "muscle contraction". What is the practical significance of reduced
+          expression in this process?
+        expected_answer: |
+          "Muscle contraction" is the process of generating force and shortening
+          via the contractile apparatus. Reduced expression practically means the
+          tissue's contractile capacity is being diminished -- the molecular
+          machinery that produces force is being downregulated. In a cardiac
+          failure model this is consistent with impaired pumping function and
+          points to loss of contractile gene expression as a mechanism of the
+          functional decline.
+      - question: |
+          Enrichment analysis of a neuronal dataset highlights "axon guidance".
+          Practically, what developmental or regenerative activity does this
+          suggest?
+        expected_answer: |
+          "Axon guidance" is the process directing a growing axon's growth cone
+          toward its correct target using attractive and repulsive cues.
+          Enrichment practically suggests the neurons are actively extending and
+          steering axons -- an activity characteristic of neural development or
+          of regeneration/rewiring after injury. The actionable read is that the
+          sample is engaged in establishing or re-establishing neuronal
+          connectivity, so guidance-cue signaling is the relevant program.
+      - question: |
+          A GO enrichment of a hypoxic tumor sample shows "response to hypoxia"
+          and "glycolytic process". Practically, what metabolic state does this
+          co-enrichment describe?
+        expected_answer: |
+          "Response to hypoxia" is the process of reacting to low oxygen, and the
+          "glycolytic process" is the breakdown of glucose to pyruvate for energy
+          without requiring oxygen. Co-enrichment practically describes cells
+          adapting to a low-oxygen environment by shifting their energy
+          production toward glycolysis -- the classic hypoxic/Warburg-like
+          metabolic switch. In a tumor context it indicates the cells are
+          surviving oxygen scarcity by relying on anaerobic ATP production, which
+          flags HIF-driven and glycolytic pathways as features of the aggressive,
+          hypoxic phenotype.
+
   - name: "CTO"
     display_name: "Clinical Trial Ontology"
     owl_file: "s3://neurosymbolicdl-storage-ontologybucket795a3498-gjp5avevev34/ontologies/cto.owl"
@@ -381,6 +643,125 @@ ontologies:
           confounding disease, and where excluding pediatric and older
           populations limits variability and risk. It also means the results may
           not generalize to the eventual patient population.
+      # === Added to double the CTO eval set (12 -> 24), preserving the
+      #     factual / interpretive balance (8 new factual + 4 new interpretive).
+      #     Distinct trial-design concepts grounded in CTO's class hierarchy. ===
+
+      # --- (a) Factual trial-design concept lookups (new) ---
+      - question: "What is a placebo-controlled design in CTO?"
+        expected_answer: |
+          A placebo-controlled design is a comparator-arm design in which the
+          control group receives a placebo -- an inactive substance made to
+          resemble the active intervention -- so that the intervention's effect
+          can be measured against a baseline that accounts for the placebo effect.
+          CTO represents it among its control/comparator design concepts.
+      - question: "What is a crossover design in a clinical trial?"
+        expected_answer: |
+          In a crossover design each participant receives more than one of the
+          study treatments in sequence, serving as their own control across
+          successive periods (often with a washout between them). CTO models it
+          as an intervention-model/assignment design distinct from a
+          parallel-group design, where each participant stays on a single arm.
+      - question: "What is a parallel-group (parallel assignment) design?"
+        expected_answer: |
+          A parallel-group design assigns each participant to a single study arm
+          for the duration of the trial, with the arms running concurrently and
+          compared against each other. CTO represents it as an intervention
+          (assignment) model, contrasted with crossover and single-group designs.
+      - question: "What does CTO represent as an 'arm' of a clinical trial?"
+        expected_answer: |
+          In CTO an arm is a group of participants in a trial that receives a
+          specific intervention (or no intervention) according to the protocol.
+          Trials are structured into one or more arms -- e.g. an experimental
+          (treatment) arm and a control arm -- which define the comparison the
+          study makes.
+      - question: "What is informed consent in the context of CTO?"
+        expected_answer: |
+          Informed consent is the process (and the resulting documented
+          agreement) by which a potential participant, after being told the
+          trial's purpose, procedures, risks, and benefits, voluntarily agrees to
+          take part. CTO represents it as part of the ethical/enrollment framework
+          that must precede a participant's entry into a study.
+      - question: "What is a single-group (single-arm) assignment in CTO?"
+        expected_answer: |
+          A single-group assignment is an intervention model in which all
+          enrolled participants receive the same intervention, with no separate
+          comparator arm. CTO models it alongside parallel and crossover
+          assignments; because there is no concurrent control, such studies are
+          typically early-phase or exploratory.
+      - question: "What is an interventional study versus an observational study in CTO?"
+        expected_answer: |
+          CTO distinguishes study types by whether the investigator assigns the
+          intervention. In an interventional (experimental) study, participants
+          are assigned to receive an intervention per the protocol so its effects
+          can be evaluated. In an observational study, participants are observed
+          and outcomes recorded without the investigator assigning the
+          intervention. These are top-level study-design distinctions in CTO.
+      - question: "What is a secondary outcome measure, and how does CTO relate it to the primary outcome?"
+        expected_answer: |
+          A secondary outcome measure is a pre-specified result of interest that
+          the trial is not principally powered to detect, used to assess
+          additional effects beyond the main question. CTO models secondary (and
+          other) outcome measures separately from the primary outcome measure,
+          which remains the result the trial's success is judged on; secondary
+          outcomes provide supporting, hypothesis-generating evidence.
+
+      # --- (b) Interpretive "what does this design imply" questions (new) ---
+      - question: |
+          A trial uses a crossover design with a washout period between
+          treatments. What does that design mean practically, and what is its
+          main advantage and risk?
+        expected_answer: |
+          Practically, each participant receives both treatments in sequence and
+          acts as their own control, with the washout period letting the first
+          treatment clear before the second begins. The main advantage is
+          statistical efficiency and control of between-person variability --
+          comparing a treatment to itself within the same person needs fewer
+          participants. The main risks are carryover effects (an inadequate
+          washout lets the first treatment's effect bleed into the second period)
+          and period/order effects, so crossover suits stable, chronic conditions
+          with reversible, short-acting treatments rather than curative ones.
+      - question: |
+          A study is observational rather than interventional. Based on CTO's
+          distinction, what can and cannot such a study establish?
+        expected_answer: |
+          Because the investigator does not assign the intervention, an
+          observational study can establish associations -- that an exposure and
+          an outcome tend to occur together -- and describe real-world patterns,
+          but it cannot by itself establish causation. Without randomized
+          assignment, confounding factors may explain any observed link.
+          Practically, it is well suited to generating hypotheses, studying
+          natural history, or examining questions that cannot ethically be
+          randomized, while interventional trials remain necessary to prove that
+          the intervention causes the effect.
+      - question: |
+          A trial is single-arm and open-label but enrolls a large number of
+          patients with the target disease. Why does the lack of a control arm
+          still limit the strength of its conclusions?
+        expected_answer: |
+          Even with many participants, a single arm has no concurrent comparator,
+          so there is nothing to attribute outcomes against: improvement could be
+          due to the natural course of the disease, regression to the mean, or
+          the placebo/expectation effect rather than the intervention. Open-label
+          assessment adds expectation bias on top. Practically, large size
+          improves precision of the estimate within the arm but cannot substitute
+          for a control group, so the study still cannot causally attribute
+          benefit to the treatment -- it remains supportive rather than
+          confirmatory evidence.
+      - question: |
+          A trial reports meeting a secondary outcome but missing its primary
+          outcome. Using CTO's separation of outcome types, how should that result
+          be interpreted?
+        expected_answer: |
+          CTO treats the primary outcome as the pre-specified result the trial is
+          powered and judged on, with secondary outcomes as supporting measures.
+          Practically, missing the primary outcome means the trial did not
+          demonstrate its principal hypothesis, so it is formally a negative
+          result regardless of the secondary finding. A positive secondary
+          outcome is hypothesis-generating -- it may motivate a new trial powered
+          specifically for it -- but because it was not the pre-registered basis
+          for success, it is subject to multiple-comparison bias and cannot be
+          treated as confirmatory evidence on its own.
   - name: "CL"
     display_name: "Cell Ontology"
     owl_file: "s3://neurosymbolicdl-storage-ontologybucket795a3498-gjp5avevev34/ontologies/cl.owl"
@@ -421,6 +802,56 @@ ontologies:
         expected_answer: |
           Hepatocytes, hepatic stellate cells, Kupffer cells, and liver
           sinusoidal endothelial cells.
+      # --- Added to double the CL eval set (8 -> 16). Distinct cell-type
+      #     classifications, lineage relationships, and markers answerable from
+      #     the Cell Ontology's class hierarchy. ---
+      - question: "What are the main types of glial cell in the central nervous system?"
+        expected_answer: |
+          The Cell Ontology classifies the central nervous system glia as
+          astrocytes, oligodendrocytes, and microglial cells (with ependymal
+          cells also often grouped as CNS glia). Astrocytes provide support and
+          regulate the environment, oligodendrocytes myelinate CNS axons, and
+          microglia are the resident immune cells of the CNS.
+      - question: "Is a 'natural killer cell' a type of lymphocyte?"
+        expected_answer: |
+          Yes. The Cell Ontology defines a natural killer (NK) cell as a type of
+          lymphocyte -- specifically an innate lymphoid cell of the lymphoid
+          lineage -- that mediates cytotoxicity without prior antigen
+          sensitization.
+      - question: "What is the mature, antibody-secreting cell that a B cell differentiates into?"
+        expected_answer: |
+          A B cell differentiates into a plasma cell (plasmacyte), the terminally
+          differentiated, antibody-secreting effector cell of the B-cell lineage.
+          The Cell Ontology places the plasma cell downstream of the activated/
+          mature B cell.
+      - question: "What is the most general classification for an 'erythrocyte' (red blood cell)?"
+        expected_answer: |
+          The Cell Ontology classifies an erythrocyte as a myeloid cell and, more
+          broadly, a hematopoietic cell / blood cell; it is an enucleate,
+          oxygen-carrying cell of the erythroid lineage derived ultimately from a
+          hematopoietic stem cell.
+      - question: "Which myeloid precursor do granulocytes such as neutrophils develop from?"
+        expected_answer: |
+          Granulocytes (neutrophils, eosinophils, basophils) develop from the
+          common myeloid progenitor via the granulocyte-monocyte progenitor
+          (GMP), per the Cell Ontology's hematopoietic lineage.
+      - question: "Is a 'dendritic cell' considered a professional antigen-presenting cell in the ontology?"
+        expected_answer: |
+          Yes. The Cell Ontology classifies the dendritic cell as a professional
+          antigen-presenting cell of the immune system (myeloid or plasmacytoid
+          subtypes), specialized for capturing antigen and presenting it to T
+          cells.
+      - question: "What type of cell is a 'cardiomyocyte', and what broader class does it belong to?"
+        expected_answer: |
+          A cardiomyocyte (cardiac muscle cell) is a type of striated muscle cell
+          and, more broadly, a muscle cell and an electrically excitable cell in
+          the Cell Ontology; it is the contractile cell of the heart.
+      - question: "What is the defining role of an 'epithelial cell' and one example subtype?"
+        expected_answer: |
+          The Cell Ontology defines an epithelial cell as a cell that is part of
+          an epithelium -- a sheet of cells covering a surface or lining a cavity,
+          typically polarized and joined by cell junctions. An example subtype is
+          the keratinocyte (an epidermal epithelial cell).
 
   - name: "HPO"
     display_name: "Human Phenotype Ontology"
@@ -459,6 +890,54 @@ ontologies:
         expected_answer: |
           Brachydactyly is rare in this specific disease, documented with an
           explicit baseline ratio of 3/56 cases.
+      # --- Added to double the HPO eval set (8 -> 16). Distinct phenotype
+      #     terms, synonym resolution, hierarchy, and definitions answerable
+      #     from the Human Phenotype Ontology. ---
+      - question: "What is the primary HPO term for an abnormally small head, and how is it defined?"
+        expected_answer: |
+          The term is Microcephaly (HP:0000252), defined as a head circumference
+          more than two standard deviations below the age- and sex-matched mean
+          (occipitofrontal circumference). It falls under abnormalities of head
+          size/skull morphology in the ontology.
+      - question: "To what single HPO term does the free-text description 'high blood sugar' resolve?"
+        expected_answer: |
+          It resolves to Hyperglycemia (HP:0003074). The ontology stores lay
+          phrases such as "high blood sugar" and "elevated blood glucose" as
+          synonyms mapping to this term, a subtype of abnormal glucose
+          homeostasis.
+      - question: "What is the HPO term for an abnormally increased muscle tone, and what is its opposite term?"
+        expected_answer: |
+          Increased muscle tone is Hypertonia (HP:0001276); its opposite is
+          Hypotonia (HP:0001252), decreased muscle tone. Both are children of
+          Abnormality of muscle tone (HP:0003808) in the ontology.
+      - question: "What are the immediate parent terms for 'Seizure' in the HPO?"
+        expected_answer: |
+          Seizure (HP:0001250) sits under Abnormality of the nervous system,
+          specifically within abnormal nervous system physiology / abnormal
+          CNS electrophysiology; it is itself the parent of many seizure-type
+          subclasses (focal, generalized, etc.).
+      - question: "What HPO term describes an unusually tall stature, and how is it quantified?"
+        expected_answer: |
+          Tall stature (HP:0000098), defined as a height more than two standard
+          deviations above the mean for age and sex. It is the counterpart of
+          Short stature (HP:0004322) under abnormalities of body height.
+      - question: "What is the HPO term and definition for yellowing of the skin and eyes?"
+        expected_answer: |
+          Jaundice (HP:0000952), defined as yellow discoloration of the skin,
+          mucous membranes, and sclerae caused by increased bilirubin
+          (hyperbilirubinemia). The ontology records "yellow skin" as a synonym.
+      - question: "Does 'Atrial septal defect' share a parent term with 'Ventricular septal defect' in the HPO?"
+        expected_answer: |
+          Yes. Both Atrial septal defect (HP:0001631) and Ventricular septal
+          defect (HP:0001629) are children of Abnormal cardiac septum morphology
+          (HP:0001671), under abnormalities of the heart.
+      - question: "What is the frequency convention HPO uses to annotate how often a phenotype occurs in a disease?"
+        expected_answer: |
+          HPO annotates phenotype-to-disease frequency using explicit ratios
+          (e.g. 3/56 cases) and/or ordinal frequency categories -- Obligate
+          (100%), Very frequent (80-99%), Frequent (30-79%), Occasional (5-29%),
+          Very rare (1-4%), and Excluded (0%) -- so each annotation records how
+          commonly the phenotype is seen in that disease.
 
   - name: "NCIt"
     display_name: "NCI Thesaurus"
@@ -604,6 +1083,137 @@ ontologies:
           contributes to treatment resistance (since many chemotherapies work by
           triggering apoptosis), and flags apoptosis-restoring or pro-apoptotic
           strategies as a therapeutic angle.
+      # === Added to double the NCIt eval set (13 -> 26), preserving the
+      #     factual / interpretive balance (8 new factual + 5 new interpretive).
+      #     Distinct NCIt concepts (diseases, agents, biomarkers, processes)
+      #     grounded in its class hierarchy and definitions. ===
+
+      # --- (a) Factual concept lookups (new) ---
+      - question: "How does NCIt define 'Leukemia'?"
+        expected_answer: |
+          NCIt defines leukemia as a malignant neoplasm of hematopoietic
+          (blood-forming) origin, arising from the uncontrolled proliferation of
+          abnormal white blood cells in the bone marrow and blood. It is grouped
+          under hematopoietic/lymphoid malignancies and distinguished from the
+          solid carcinomas and sarcomas.
+      - question: "What kind of entity is 'Imatinib' in NCIt?"
+        expected_answer: |
+          NCIt represents imatinib as a therapeutic agent -- specifically a
+          small-molecule tyrosine kinase inhibitor (notably of BCR-ABL and KIT).
+          It is a subtype of antineoplastic agent, used to treat chronic myeloid
+          leukemia and gastrointestinal stromal tumors, grouped by its targeted
+          mechanism.
+      - question: "What is the 'BRAF gene' in NCIt and why is it clinically relevant?"
+        expected_answer: |
+          NCIt defines BRAF as the gene encoding a serine/threonine kinase in the
+          MAPK signaling pathway. It is cataloged as a gene concept with
+          associated protein and mutation concepts; clinically it matters because
+          the BRAF V600E activating mutation drives melanoma and other cancers and
+          is the target of BRAF inhibitors.
+      - question: "How does NCIt define a 'biomarker'?"
+        expected_answer: |
+          In NCIt a biomarker is a measurable biological characteristic or
+          substance whose presence, absence, or level serves as an indicator of a
+          normal or pathological process, or of a response to therapy. It is used
+          for diagnosis, prognosis, or prediction of treatment response (e.g.
+          HER2, EGFR mutation status).
+      - question: "What is 'Metastasis' as defined in NCIt?"
+        expected_answer: |
+          NCIt defines metastasis as the spread of malignant tumor cells from the
+          primary site to a distant, non-contiguous site, where they establish a
+          secondary tumor. It is a process concept central to staging; its
+          presence (distant metastasis) corresponds to the most advanced
+          (Stage IV) disease.
+      - question: "What does NCIt mean by 'Remission' in the course of a disease?"
+        expected_answer: |
+          In NCIt remission denotes a decrease in or disappearance of the signs
+          and symptoms of a disease (such as cancer), which may be complete (no
+          detectable disease) or partial (a reduction in tumor burden). It is a
+          finding/status concept describing disease state, not a cure.
+      - question: "How does NCIt classify 'Lymphoma' relative to 'Leukemia'?"
+        expected_answer: |
+          NCIt groups both lymphoma and leukemia under hematopoietic and lymphoid
+          malignancies, but distinguishes them by site: a lymphoma is a malignant
+          neoplasm arising primarily in lymphoid tissue (lymph nodes and the
+          lymphatic system), whereas a leukemia primarily involves the bone marrow
+          and peripheral blood. They are sibling categories of blood-origin cancer
+          rather than one being a subtype of the other.
+      - question: "What is a 'chemotherapeutic agent' in NCIt?"
+        expected_answer: |
+          A chemotherapeutic agent in NCIt is an antineoplastic drug that kills or
+          inhibits the proliferation of rapidly dividing cells, typically acting
+          broadly (cytotoxically) rather than against a specific molecular target.
+          It is a subtype of antineoplastic agent, contrasted with targeted
+          therapies and immunotherapies by its non-selective mechanism.
+
+      # --- (b) Interpretive "what does this mean clinically" questions (new) ---
+      - question: |
+          A tumor is reported as "triple-negative breast carcinoma". Using NCIt's
+          concepts, what does that classification mean and what does it imply for
+          treatment?
+        expected_answer: |
+          Through NCIt: it is a breast carcinoma (malignant epithelial neoplasm of
+          the breast) that lacks the three biomarkers NCIt represents as targets --
+          estrogen receptor, progesterone receptor, and HER2 (ERBB2)
+          overexpression. Practically, "triple-negative" is a predictive biomarker
+          profile: because the tumor expresses none of these, the targeted agents
+          tied to them in NCIt (hormonal therapy, anti-HER2 antibodies like
+          trastuzumab) are not applicable, so treatment relies on cytotoxic
+          chemotherapy (and increasingly immunotherapy). The classification links
+          absent molecular features to the exclusion of specific targeted
+          therapies.
+      - question: |
+          A drug is annotated in NCIt as an "immune checkpoint inhibitor". What
+          does that concept practically tell me about how it works and how it
+          differs from chemotherapy?
+        expected_answer: |
+          The concept describes an immunotherapeutic agent that blocks inhibitory
+          "checkpoint" signals (such as PD-1/PD-L1 or CTLA-4) which tumors exploit
+          to evade immune attack. Practically, unlike a chemotherapeutic agent --
+          which directly kills dividing cells -- a checkpoint inhibitor does not
+          attack the tumor itself; it releases the brakes on the patient's own T
+          cells so the immune system can recognize and destroy the cancer. NCIt's
+          grouping of it under immunotherapy rather than cytotoxic chemotherapy
+          reflects this fundamentally indirect, immune-mediated mechanism, which
+          also explains its distinct (immune-related) toxicity profile.
+      - question: |
+          A pathology report calls a lesion "benign" rather than "malignant".
+          Based on how NCIt distinguishes neoplasms, what does that tell me about
+          the lesion's expected behavior?
+        expected_answer: |
+          NCIt separates neoplasms by behavior. A benign neoplasm grows locally,
+          does not invade surrounding tissue destructively, and does not
+          metastasize to distant sites, whereas a malignant neoplasm invades and
+          can metastasize. Practically, calling the lesion benign tells me it is
+          expected to remain localized and not spread -- generally not
+          life-threatening by metastasis -- so management is typically local
+          (observation or excision) rather than the systemic therapy a malignant,
+          potentially metastatic tumor would require.
+      - question: |
+          A tumor's report notes "high tumor mutational burden (TMB)". Given
+          NCIt's biomarker concepts, what is the practical significance of this
+          finding?
+        expected_answer: |
+          NCIt treats tumor mutational burden as a biomarker -- a measurable
+          characteristic indicating a biological state. A high TMB practically
+          means the tumor carries many somatic mutations, which tend to produce
+          more neoantigens that the immune system can recognize. As a predictive
+          biomarker this flags the tumor as more likely to respond to immune
+          checkpoint inhibitor therapy, so the finding informs treatment choice
+          toward immunotherapy rather than merely describing the tumor.
+      - question: |
+          A cancer is documented as being in "complete remission" after therapy.
+          Using NCIt's definition, what does that status practically signify and
+          not signify?
+        expected_answer: |
+          NCIt defines remission as a decrease or disappearance of a disease's
+          signs and symptoms, with complete remission meaning no detectable
+          disease by the applied assessments. Practically it signifies that
+          current methods find no evidence of cancer -- a very favorable response
+          -- but it does not signify a definitive cure: microscopic residual
+          disease can remain below detection thresholds, which is why relapse is
+          possible and continued monitoring is standard. Complete remission is a
+          disease-state finding, not a guarantee of permanent eradication.
   - name: "OBI"
     display_name: "Ontology for Biomedical Investigations"
     owl_file: "s3://neurosymbolicdl-storage-ontologybucket795a3498-gjp5avevev34/ontologies/obi.owl"
@@ -753,6 +1363,140 @@ ontologies:
           that this capability is actualized during the specific assay. That
           separation lets the model describe what an instrument can do, and
           record each occasion on which it did it, without conflating the two.
+      # === Added to double the OBI eval set (12 -> 24), preserving the
+      #     factual / interpretive balance (7 new factual + 5 new interpretive).
+      #     Distinct OBI/IAO/BFO-grounded concepts, deeply different from the
+      #     existing items. ===
+
+      # --- (a) Factual concept lookups (new) ---
+      - question: "What is a 'material entity' in OBI, and how does it relate to BFO?"
+        expected_answer: |
+          OBI reuses material entity from BFO: it is an independent continuant
+          that has some portion of matter as part -- it occupies space and
+          persists through time as a bearer. In OBI, specimens, reagents, and
+          devices are all material entities; it is the category of physical thing
+          that assays examine and that bears roles and functions.
+      - question: "How does OBI define a 'reagent'?"
+        expected_answer: |
+          OBI defines a reagent as a material entity that bears a reagent role --
+          a processed material that participates in and is largely consumed or
+          transformed during an assay or other planned process to enable or
+          detect a reaction, without being the evaluant of interest itself (for
+          example a buffer, stain, or antibody used in a protocol).
+      - question: "What is a 'protocol' in OBI?"
+        expected_answer: |
+          In OBI a protocol is a plan specification (an information content
+          entity) that describes the steps and conditions for carrying out a
+          planned process such as an assay. It is concretized as a realizable
+          entity and realized when an investigator actually executes the
+          procedure; it is information, not a material thing.
+      - question: "What is an 'organism' in OBI?"
+        expected_answer: |
+          OBI treats an organism as a material entity -- a BFO independent
+          continuant -- that is an individual living thing. Organisms serve as
+          study subjects, as sources of specimens, and as the bearers of roles
+          (such as the subject role) within an investigation.
+      - question: "What is an 'objective specification' in OBI?"
+        expected_answer: |
+          An objective specification in OBI is an information content entity (a
+          directive) that describes the intended goal or output of a planned
+          process. A planned process is carried out to achieve its objective, so
+          the objective specification states what the process is meant to
+          accomplish -- for example, the objective of an assay is to produce a
+          measurement datum.
+      - question: "How does OBI represent a 'measurement datum' in relation to IAO?"
+        expected_answer: |
+          OBI builds measurement datum on IAO's information content entity /
+          data item: a measurement datum is a data item that is the output of a
+          measurement assay and represents the value of some measured quality of
+          the evaluant. It inherits from IAO's information artifact framework and
+          specializes it to the result of a measurement.
+      - question: "What is an 'analyte' in the context of OBI assays?"
+        expected_answer: |
+          In OBI an analyte is the entity (or quality of an entity) that an assay
+          is designed to detect or measure within the evaluant -- the specific
+          target the measurement is about. It is the thing being quantified or
+          identified, as distinct from the specimen (the material sample) and the
+          reagents used to perform the measurement.
+      - question: "What is a 'processed material' in OBI?"
+        expected_answer: |
+          A processed material in OBI is a material entity that is the output of
+          a material-processing planned process -- something that has been
+          deliberately created or altered from input materials (for example a
+          purified extract, a stained slide, or a manufactured device). It is
+          distinguished from naturally occurring material entities by having been
+          produced through a planned process.
+
+      # --- (b) Interpretive "what does this mean for an experiment" questions (new) ---
+      - question: |
+          A protocol step is annotated as a "material-processing" planned process
+          (e.g. centrifugation) rather than an assay. Based on OBI's model, what
+          does that classification tell me about the step?
+        expected_answer: |
+          Both are planned processes, but OBI distinguishes them by purpose and
+          output. An assay examines a material evaluant to produce information (a
+          measurement datum). A material-processing process instead takes a
+          material entity as input and produces a transformed material entity as
+          output -- it changes the sample (separating, purifying, aliquoting)
+          rather than measuring it. So classifying centrifugation as
+          material processing tells me it is a sample-preparation step that yields
+          another material thing, not a measurement that emits data about the
+          specimen.
+      - question: |
+          An entity is annotated as a "reagent" rather than the "evaluant" of an
+          assay. Using OBI's role-based model, what practical distinction does
+          that draw?
+        expected_answer: |
+          OBI assigns roles by what a material plays in the process. The evaluant
+          is the material entity the assay is actually about -- the thing being
+          examined -- whereas a reagent bears a reagent role: it is used up or
+          transformed to enable or reveal the measurement but is not the subject
+          of interest. Practically, the distinction tells me which material the
+          resulting data describe (the evaluant) versus which materials are
+          merely instrumental to obtaining them (the reagents), which is exactly
+          what provenance and interpretation of the measurement require.
+      - question: |
+          Two investigations reuse the same "study design". Given that OBI models
+          a study design as a plan specification realized by processes, what does
+          sharing one design imply?
+        expected_answer: |
+          Because a study design is an information content entity (a plan
+          specification) rather than a material or a one-off event, the same
+          design can be concretized and realized by many separate investigations.
+          Sharing one design practically implies the two investigations follow the
+          same specified structure -- the same variables, groups, and procedure --
+          so their executions are comparable and the design is a reusable template
+          instantiated independently each time, not a thing consumed by a single
+          study. This supports standardization and cross-study comparison.
+      - question: |
+          A protocol specifies an objective but a run of it fails to produce the
+          intended measurement datum. Using OBI's plan/realization model, how do
+          I describe what happened?
+        expected_answer: |
+          OBI separates the plan (the protocol, a plan specification, with its
+          objective specification) from the planned process that realizes it. The
+          protocol and its objective still exist as information regardless of any
+          run. The failed execution is a planned process that was carried out to
+          achieve the objective but did not produce the specified output. So I
+          describe it as a realization of the plan that did not satisfy its
+          objective specification -- the plan is intact and re-runnable; it is the
+          particular process occurrence that fell short, cleanly separating "what
+          was intended" from "what actually occurred".
+      - question: |
+          A dataset is annotated with both a "measurement datum" (from an assay)
+          and a derived value from a "data transformation". Walking through OBI,
+          how do these two information entities relate?
+        expected_answer: |
+          Through OBI: the measurement datum is a data item output by an assay
+          that physically examined a material evaluant -- the primary, measured
+          information (material in, information out). The derived value is the
+          output of a data transformation, a planned process that took that datum
+          (information) as input and produced new information by an algorithm
+          (information in, information out). So they form a provenance chain: the
+          raw measurement is the evidential source, and the transformed value is a
+          computed descendant of it. OBI lets the model trace the derived result
+          back through the transformation to the originating measurement and its
+          specimen.
   - name: "OGMS"
     display_name: "Ontology for General Medical Science"
     owl_file: "s3://neurosymbolicdl-storage-ontologybucket795a3498-gjp5avevev34/ontologies/ogms.owl"
@@ -888,6 +1632,126 @@ ontologies:
           is reinterpreted, and it is distinct from the underlying bodily reality
           it is about -- a judgement derived from evidence, not the condition
           itself.
+      # === Added to double the OGMS eval set (12 -> 24), preserving the
+      #     factual / interpretive balance (7 new factual + 5 new interpretive).
+      #     Distinct OGMS/BFO-grounded clinical concepts, deeply different from
+      #     the existing items. ===
+
+      # --- (a) Factual concept lookups (new) ---
+      - question: "What is a 'patient' in OGMS, and why is it modeled that way?"
+        expected_answer: |
+          In OGMS a patient is a human organism bearing a patient role -- a role
+          (a realizable dependent continuant) acquired by entering into a care
+          relationship with a healthcare provider. It is modeled as a role rather
+          than a kind of organism because being a patient is contextual and can be
+          gained or lost without changing what the person intrinsically is.
+      - question: "What does OGMS mean by a 'bodily process'?"
+        expected_answer: |
+          A bodily process in OGMS is a process (a BFO occurrent) that occurs
+          within or is carried out by an organism's body. Normal bodily processes
+          are physiological; a pathological process is the subtype that is
+          clinically abnormal and realizes a disease.
+      - question: "How does OGMS define a 'clinical finding'?"
+        expected_answer: |
+          A clinical finding in OGMS is an information content entity representing
+          an observation made about a patient during the clinical process -- the
+          recorded result of observing signs, symptoms, or measurements. Findings
+          are the elements collected into the clinical picture that the clinician
+          interprets.
+      - question: "What is the 'disease course' in OGMS?"
+        expected_answer: |
+          The disease course in OGMS is the totality of the processes through
+          which a disease is realized over time in a patient -- how the disease
+          unfolds, including onset, progression, remission, and relapse. It is an
+          occurrent-level view of the disease's realization across the patient's
+          history.
+      - question: "What is a 'disorder' in OGMS, in BFO terms?"
+        expected_answer: |
+          In OGMS a disorder is a material entity -- a causally relatively
+          isolated combination of physical components of an organism that is
+          clinically abnormal. In BFO terms it is an independent continuant (the
+          physical substrate), and it is what grounds the disease (a disposition)
+          that inheres in the organism because of it.
+      - question: "How does OGMS characterize a 'laboratory finding' or test result?"
+        expected_answer: |
+          OGMS characterizes a laboratory/test result as an information content
+          entity -- a datum produced by examining a specimen or measuring some
+          quality of the patient -- that contributes to the clinical picture. It
+          is observed information about the patient, interpreted alongside signs
+          and symptoms toward a diagnosis, rather than the bodily abnormality
+          itself.
+
+      # --- (b) Interpretive "what does this clinical classification mean" questions (new) ---
+      - question: |
+          A record states a patient "has a disease that is not currently realized
+          by any pathological process". Using OGMS, what clinical situation does
+          that describe?
+        expected_answer: |
+          Through OGMS: the patient bears a disease -- a disposition grounded in
+          some disorder -- but no pathological process is presently unfolding to
+          realize it. A disposition can exist without being realized, so this
+          describes a disease that is present but currently inactive or latent:
+          the capacity to malfunction exists (the disorder grounds it), yet it is
+          not producing signs or symptoms right now. Clinically this corresponds
+          to an asymptomatic or quiescent/remission state -- the patient still
+          "has" the disease, but it is not active.
+      - question: |
+          A clinician records a "sign" and the patient reports a "symptom" that
+          point to the same underlying problem. Using OGMS, how do these two
+          manifestations relate to the pathological process?
+        expected_answer: |
+          In OGMS both signs and symptoms are manifestations produced by the same
+          underlying pathological process (the clinically abnormal bodily process
+          realizing the disease). They differ only by observer: the sign is a
+          bodily feature observed by a third-party examiner and judged clinically
+          significant, while the symptom is a bodily feature the patient
+          themselves experiences and reports. So they are two observational
+          windows -- external and self-reported -- onto one and the same abnormal
+          process, which is why they can converge on the same problem.
+      - question: |
+          Two clinicians reach different diagnoses from the same clinical picture.
+          Using OGMS's model of diagnosis, how is that possible and what does it
+          reveal about what a diagnosis is?
+        expected_answer: |
+          OGMS models the diagnosis as an information content entity -- a
+          conclusion a clinician derives by interpreting the clinical picture --
+          not as the disease or disorder itself. Because it is an interpretive
+          assertion about which disease is present, two clinicians interpreting
+          the same picture can legitimately reach different conclusions. This
+          reveals that a diagnosis is epistemic and revisable: it is a judgement
+          about the underlying bodily reality, distinct from and not guaranteed to
+          match that reality, which is precisely why diagnoses can be wrong,
+          disputed, or updated as the picture is reinterpreted.
+      - question: |
+          A disease is described as having a known "etiological process" that
+          produced its disorder. Using OGMS, what does identifying the etiology
+          add beyond stating that the disease exists?
+        expected_answer: |
+          OGMS's etiological process is the process that causes the disorder (the
+          clinically abnormal material basis) to come into being, preceding and
+          explaining it. Stating merely that a disease exists captures the current
+          disposition and its substrate; adding the etiology captures the causal
+          origin -- how the physical abnormality arose in the first place.
+          Practically this lets the model represent not just that the patient has
+          the disease but why, connecting cause (etiological process) to substrate
+          (disorder) to disposition (disease) to realization (pathological
+          process), which supports prevention and causal reasoning rather than
+          description alone.
+      - question: |
+          A patient's status changes from "disease active" to "in remission" and
+          later "relapse". Using OGMS's disposition-and-realization model, what is
+          actually changing at each step while the disease persists?
+        expected_answer: |
+          OGMS treats the disease as a disposition grounded in a disorder, which
+          is realized in pathological processes. What changes across active ->
+          remission -> relapse is whether that disposition is currently being
+          realized, not whether the disease exists. "Active" means a pathological
+          process is unfolding (producing signs/symptoms); "remission" means the
+          disposition is present but not currently realized (no active
+          pathological process, so manifestations subside); "relapse" means the
+          disposition is realized again. The disease itself persists throughout as
+          the same disposition -- it is the realization that switches on and off,
+          which is exactly what the disposition model is designed to express.
   - name: "BFO"
     display_name: "Basic Formal Ontology"
     owl_file: "s3://neurosymbolicdl-storage-ontologybucket795a3498-gjp5avevev34/ontologies/bfo.owl"
@@ -1031,3 +1895,131 @@ ontologies:
           asserts not just that the bearer can do something, but that doing it is
           what the bearer is for -- its existence is explained by design or
           selection, not merely by incidental physical makeup.
+      # === Added to double the BFO eval set (12 -> 24), preserving the
+      #     factual / interpretive balance (8 new factual + 4 new interpretive).
+      #     Distinct BFO upper-level categories and relations, deeply different
+      #     from the existing items. ===
+
+      # --- (a) Factual category lookups (new) ---
+      - question: "What is a 'generically dependent continuant' in BFO, and how does it differ from a specifically dependent continuant?"
+        expected_answer: |
+          A generically dependent continuant (GDC) is a continuant that depends
+          on some bearer but can be copied and migrate between bearers -- an
+          information entity such as the content of a document or a sequence,
+          which can exist concretized in many carriers. A specifically dependent
+          continuant (quality, role, disposition) depends on and inheres in one
+          particular bearer and cannot migrate. So a GDC is bearer-dependent but
+          multiply realizable, whereas an SDC is tied to its single specific
+          bearer.
+      - question: "What does BFO's relation 'inheres in' connect?"
+        expected_answer: |
+          "Inheres in" is the relation connecting a specifically dependent
+          continuant to its bearer -- the independent continuant it depends on.
+          A quality, role, or disposition inheres in the material entity that
+          bears it (e.g. a color inheres in an apple, a patient role inheres in a
+          person). It expresses one-sided existential dependence of the dependent
+          continuant on its bearer.
+      - question: "What does the BFO relation 'realized in' relate?"
+        expected_answer: |
+          "Realized in" relates a realizable entity (a role, disposition, or
+          function) to the process that actualizes it. A disposition like
+          fragility is realized in a breaking process; a function like the
+          heart's is realized in the process of pumping. It connects a continuant
+          capacity to the occurrent in which that capacity is manifested.
+      - question: "What is a 'spatial region' in BFO?"
+        expected_answer: |
+          A spatial region in BFO is a continuant part of space itself -- an
+          independent continuant that is a region of space (zero-, one-, two-, or
+          three-dimensional). It is distinct from the material entities that may
+          occupy it; sites and the places material things occupy are described
+          relative to spatial regions.
+      - question: "What is a 'temporal region' in BFO, and which branch does it belong to?"
+        expected_answer: |
+          A temporal region in BFO is an occurrent -- a part of time itself,
+          either a temporal instant (zero-dimensional) or a temporal interval
+          (one-dimensional). Because it is a region of time rather than a
+          persisting thing, it belongs to the occurrent branch; processes occupy
+          temporal regions much as material entities occupy spatial regions.
+      - question: "What is an 'object' in BFO?"
+        expected_answer: |
+          An object in BFO is a material entity (an independent continuant) that
+          is spatially extended, maximally self-connected, and causally
+          relatively isolated -- a coherent, bounded physical individual such as
+          an organism, a cell, or a rock. It is the paradigmatic material entity
+          that bears qualities, roles, dispositions, and functions.
+      - question: "What does the BFO relation 'participates in' connect?"
+        expected_answer: |
+          "Participates in" connects a continuant to an occurrent: it relates a
+          material entity (or other continuant) to a process in which it takes
+          part. For example, an enzyme participates in a reaction, a person
+          participates in an examination. It is how BFO ties the things that
+          exist (continuants) to the happenings they are involved in
+          (occurrents).
+      - question: "What is a 'fiat object part' in BFO?"
+        expected_answer: |
+          A fiat object part in BFO is a material entity that is a part of an
+          object demarcated by a boundary that is not a physical discontinuity
+          but is drawn by human convention or fiat -- for example the upper half
+          of a body, or a quadrant of the abdomen. It is a genuine material part
+          whose delimitation is conceptual rather than marked by a real
+          physical seam.
+
+      # --- (b) Interpretive "why this distinction / how to classify" questions (new) ---
+      - question: |
+          I want to represent the text of a report and the particular printed
+          copy on my desk. Using BFO's categories, how should each be classified,
+          and how do they relate?
+        expected_answer: |
+          The text (the information content) is a generically dependent
+          continuant: it depends on some bearer but can be copied across many
+          carriers without being tied to one. The particular printed copy is a
+          material entity (an independent continuant / object) that bears a
+          concretization of that content. They relate by concretization: the GDC
+          (the text) is concretized in the specific material copy, and the same
+          text can be concretized again in other copies. This is exactly why BFO
+          separates the migratable information from any one physical carrier --
+          so the content's identity survives across copies while each copy is its
+          own independent thing.
+      - question: |
+          Why does BFO insist that a process cannot bear a quality, whereas a
+          material entity can? What does this constraint prevent?
+        expected_answer: |
+          Qualities are specifically dependent continuants, and in BFO dependent
+          continuants inhere only in independent continuants (bearers that are
+          wholly present at each moment). A process is an occurrent -- it has
+          temporal parts and is never wholly present at an instant -- so it is not
+          the right kind of thing to bear a continuant quality. The constraint
+          prevents category errors such as attributing a persisting, wholly
+          present property to something that only unfolds over time; instead
+          processes have attributes via their participants and their temporal
+          structure. Keeping qualities on continuants preserves BFO's clean
+          continuant/occurrent split.
+      - question: |
+          A modeler wants to say "this reaction happened during January". Using
+          BFO's treatment of occurrents and temporal regions, how is that stated,
+          and why is a reaction not itself a temporal region?
+        expected_answer: |
+          Both the reaction and January are occurrents, but they are different
+          kinds. The reaction is a process -- an occurrent that depends on
+          material participants and does something. January is a temporal region,
+          a part of time itself with no participants. The statement is expressed
+          by relating the process to the temporal region it occupies (the
+          reaction occupies, or occurs during, that temporal interval). A reaction
+          is not itself a temporal region because it is more than a stretch of
+          time: it involves participants and change, whereas a temporal region is
+          pure time, the container the process occupies.
+      - question: |
+          Someone proposes modeling "membership in a club" as a quality of a
+          person. Using BFO's quality-versus-role distinction, why is that the
+          wrong classification, and what is the right one?
+        expected_answer: |
+          Membership in a club is externally grounded and contingent: a person
+          gains or loses it depending on their relationship to an institution,
+          without any change in their intrinsic physical makeup, and it is not
+          fully exhibited simply by being borne. That is the signature of a role,
+          not a quality. A quality (like mass or color) is intrinsic and fully
+          present whenever borne. So BFO classifies club membership as a role -- a
+          realizable, context-dependent dependent continuant the person bears --
+          which correctly lets the membership be acquired and dropped over time
+          while the person's intrinsic classification stays fixed.
+
