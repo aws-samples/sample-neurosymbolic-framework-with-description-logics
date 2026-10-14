@@ -49,7 +49,7 @@ def parse_args() -> argparse.Namespace:
     Arguments:
         ontology_name (required): Name of the ontology to build for.
         --config: Path to YAML config file (default: ontology_config.yaml).
-        --threshold: Accuracy threshold (default: 0.8).
+        --threshold: Accuracy threshold (default: 0.9).
         --max-iterations: Maximum iterations (default: 10).
         --output-dir: Base directory for run outputs (default: runs/).
     """
@@ -69,8 +69,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--threshold",
         type=float,
-        default=0.8,
-        help="Accuracy threshold to stop iterating (default: 0.8).",
+        default=0.9,
+        help="Accuracy threshold to stop iterating (default: 0.9).",
     )
     parser.add_argument(
         "--max-iterations",
