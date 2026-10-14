@@ -753,3 +753,281 @@ ontologies:
           that this capability is actualized during the specific assay. That
           separation lets the model describe what an instrument can do, and
           record each occasion on which it did it, without conflating the two.
+  - name: "OGMS"
+    display_name: "Ontology for General Medical Science"
+    owl_file: "s3://neurosymbolicdl-storage-ontologybucket795a3498-gjp5avevev34/ontologies/ogms.owl"
+    # Ontology for General Medical Science (OGMS) -- an OBO Foundry ontology
+    # that provides a formal framework for the CLINICAL domain, bridging basic
+    # biomedical science and medicine. It models disease and disorder, the
+    # pathological processes that realize them, their manifestations (signs and
+    # symptoms), and the clinical workflow that observes and interprets them
+    # (clinical history, examination, diagnosis). It is built directly on BFO
+    # upper-level categories and reuses OBI/IAO patterns. The eval set has two
+    # complementary kinds of question so the evolved program stays competent at
+    # BOTH:
+    #   (a) factual lookups of entities OGMS actually defines (disorder,
+    #       disease, pathological process, sign, symptom, diagnosis, clinical
+    #       picture, their definitions and relationships), and
+    #   (b) interpretive "what does this clinical classification mean" questions.
+    # Every expected_answer stays grounded in OGMS's real class hierarchy and
+    # textual definitions so the neurosymbolic retrieval drives the answer
+    # rather than free speculation.
+    questions:
+      # --- (a) Factual concept lookups ---
+      - question: "How does OGMS distinguish a 'disorder' from a 'disease'?"
+        expected_answer: |
+          In OGMS a disorder is a material entity: a causally relatively isolated
+          combination of physical components that is clinically abnormal -- the
+          underlying bodily basis. A disease is a disposition: it is borne by an
+          organism and inheres in it because of the disorder, and it is realized
+          by pathological processes. So the disorder is the physical substrate
+          and the disease is the disposition to malfunction that the disorder
+          grounds; they are different ontological kinds, not synonyms.
+      - question: "What is a 'pathological process' in OGMS?"
+        expected_answer: |
+          A pathological process in OGMS is a bodily process that is clinically
+          abnormal and is the realization of a disease. It is an occurrent -- it
+          unfolds in time -- and it is what actually produces the signs and
+          symptoms a clinician observes. The disease (a disposition) is realized
+          in these pathological processes.
+      - question: "How does OGMS define a 'sign' versus a 'symptom'?"
+        expected_answer: |
+          Both are manifestations of a bodily process, but OGMS separates them by
+          who can observe them. A sign is a bodily feature of a patient that is
+          observed in an examination and judged to be of clinical significance by
+          an examiner (observable by a third party -- e.g. a rash, a murmur). A
+          symptom is a bodily feature observed by the patient themselves and
+          taken to be of clinical significance (e.g. pain, nausea). Signs are
+          objectively observable by others; symptoms are the patient's own
+          experience.
+      - question: "What is a 'diagnosis' in OGMS?"
+        expected_answer: |
+          In OGMS a diagnosis is a conclusion -- an information content entity --
+          reached by a clinician that asserts the patient has a particular
+          disease (or that a specific disorder is present), produced by
+          interpreting the patient's clinical picture. It is the output of the
+          diagnostic process, not the disease itself.
+      - question: "What does OGMS mean by a 'clinical picture'?"
+        expected_answer: |
+          A clinical picture in OGMS is a representation (an information content
+          entity) created by a clinician of the salient features of a patient at
+          a given time -- the collected signs, symptoms, history and findings. It
+          is the evidential basis the clinician interprets to arrive at a
+          diagnosis.
+      - question: "How does OGMS relate 'disease', 'disorder' and 'pathological process' to one another?"
+        expected_answer: |
+          OGMS ties them in a chain: a disorder (a clinically abnormal material
+          entity) is the bearer basis for a disease (a disposition that inheres
+          in the organism because of the disorder), and the disease is realized
+          by one or more pathological processes (clinically abnormal bodily
+          processes). Those processes in turn give rise to signs and symptoms. So
+          disorder -> grounds -> disease -> realized in -> pathological process ->
+          manifests as -> signs/symptoms.
+      - question: "What is 'etiology' or an 'etiological process' in OGMS terms?"
+        expected_answer: |
+          An etiological process in OGMS is the process that produces or causes a
+          disorder to come into being -- the causal origin of the clinically
+          abnormal material basis. It precedes and explains the disorder, which
+          in turn grounds the disease; capturing it lets the model represent not
+          just that a disease exists but how its physical substrate arose.
+
+      # --- (b) Interpretive "what does this clinical classification mean" questions ---
+      - question: |
+          A patient record states the patient "has a disease realized by an
+          ongoing pathological process, manifesting as signs and symptoms".
+          Walking through OGMS's classes, what does that chain actually describe?
+        expected_answer: |
+          Reading it through OGMS: the patient bears a disease, which is a
+          disposition grounded in some clinically abnormal disorder (material
+          basis) in their body. That disposition is currently being realized --
+          an ongoing pathological process (a clinically abnormal bodily process)
+          is actually unfolding. That process produces manifestations: signs
+          (features a third party can observe) and symptoms (features the patient
+          experiences). So the chain describes an active, not merely latent,
+          illness: a physical abnormality grounding a malfunction-disposition
+          that is right now playing out and showing itself to both clinician and
+          patient.
+      - question: |
+          Why does OGMS model a "disease" as a disposition rather than as the
+          physical abnormality itself, and what does that distinction buy a
+          clinical data model?
+        expected_answer: |
+          OGMS separates the material basis (the disorder) from the capacity to
+          malfunction (the disease, a disposition). A disposition can exist
+          without being realized -- so the model can represent a disease that is
+          present but currently asymptomatic (not yet realized in a pathological
+          process), and distinguish "has the disease" from "the disease is
+          active". It also lets one disorder ground a disposition whose
+          realization varies over time, so onset, remission and relapse are
+          modeled as the disposition being realized or not, without changing what
+          the disease fundamentally is.
+      - question: |
+          A finding is recorded as a "sign" rather than a "symptom". Based on how
+          OGMS distinguishes them, what does that classification tell me about how
+          the finding was obtained?
+        expected_answer: |
+          OGMS splits them by observer. Classifying the finding as a sign tells
+          me it was observed by a third party -- the examiner -- during an
+          examination and judged clinically significant (an objectively
+          observable bodily feature such as a measured fever, a visible lesion,
+          or an auscultated murmur). Had it been a symptom, it would have been
+          something the patient themselves reported experiencing (pain, fatigue).
+          So "sign" marks the finding as externally/clinically observed evidence
+          rather than patient-reported experience.
+      - question: |
+          A clinician reaches a "diagnosis" by interpreting a "clinical picture".
+          Using OGMS's model, what does that relationship imply about what a
+          diagnosis is and is not?
+        expected_answer: |
+          In OGMS the clinical picture is a representation of the patient's
+          salient features (signs, symptoms, history), and the diagnosis is a
+          conclusion -- an information content entity -- the clinician derives by
+          interpreting that picture. The relationship implies the diagnosis is an
+          epistemic assertion about which disease is present, not the disease or
+          disorder itself. It can be revised as the clinical picture changes or
+          is reinterpreted, and it is distinct from the underlying bodily reality
+          it is about -- a judgement derived from evidence, not the condition
+          itself.
+  - name: "BFO"
+    display_name: "Basic Formal Ontology"
+    owl_file: "s3://neurosymbolicdl-storage-ontologybucket795a3498-gjp5avevev34/ontologies/bfo.owl"
+    # Basic Formal Ontology (BFO) -- the small, top-level UPPER ontology that
+    # OBO Foundry ontologies (including OBI and OGMS above) build on. Unlike the
+    # domain ontologies here, BFO defines no diseases, anatomy or assays; it
+    # defines the most general categories of reality: the continuant/occurrent
+    # split, independent vs dependent continuants, qualities, roles,
+    # dispositions, functions, processes, spatial and temporal regions, and the
+    # core relations (inheres in, realized in, participates in, part of). The
+    # eval set has two complementary kinds of question so the evolved program
+    # stays competent at BOTH:
+    #   (a) factual lookups of the categories BFO actually defines and their
+    #       definitions/parent-child relationships, and
+    #   (b) interpretive "why does BFO draw this distinction / how do I classify
+    #       X" questions.
+    # Every expected_answer stays grounded in BFO's real category hierarchy and
+    # textual definitions so the neurosymbolic retrieval drives the answer
+    # rather than free speculation.
+    questions:
+      # --- (a) Factual category lookups ---
+      - question: "What is the top-level distinction in BFO between a 'continuant' and an 'occurrent'?"
+        expected_answer: |
+          BFO's most fundamental split is between continuants and occurrents. A
+          continuant is an entity that persists through time while maintaining
+          its identity and is wholly present at any moment it exists (things:
+          objects, qualities, roles). An occurrent is an entity that unfolds or
+          happens in time and has temporal parts (processes, events). Roughly:
+          continuants are the things that exist, occurrents are what happens to
+          and among them.
+      - question: "How does BFO distinguish an 'independent continuant' from a 'dependent continuant'?"
+        expected_answer: |
+          An independent continuant is a continuant that does not depend on any
+          other entity to exist -- the bearers, such as material entities
+          (objects) and the sites/boundaries associated with them. A dependent
+          continuant exists only by inhering in or being borne by some
+          independent continuant: qualities, roles, dispositions and functions
+          all require a bearer. So independent continuants can stand alone;
+          dependent continuants cannot exist without something to inhere in.
+      - question: "What is a 'quality' in BFO?"
+        expected_answer: |
+          A quality in BFO is a specifically dependent continuant that, if it
+          exists, is fully exhibited or realized whenever it is borne -- it needs
+          no further process to be manifest. Examples are the mass, color or
+          temperature of an object. A quality inheres in its bearer and is simply
+          present (unlike a disposition, which may be unrealized).
+      - question: "How does BFO define a 'role'?"
+        expected_answer: |
+          A role in BFO is a realizable dependent continuant that a bearer has
+          because of how it is placed in some social, institutional or contextual
+          setting, and that it can gain or lose without changing what the bearer
+          intrinsically is -- it is externally grounded. A person's role as a
+          patient, or a material's role as a specimen, are roles: contingent and
+          context-dependent rather than part of the thing's essential nature.
+      - question: "What is a 'disposition' in BFO, and how does it differ from a quality?"
+        expected_answer: |
+          A disposition is a realizable dependent continuant: a tendency or
+          capacity of its bearer, grounded in the bearer's physical makeup, that
+          is realized only in certain processes under certain conditions (e.g.
+          fragility realized in breaking). Unlike a quality -- which is fully
+          exhibited simply by being borne -- a disposition can exist unrealized,
+          waiting for the triggering process. Both inhere in a bearer, but a
+          disposition points to a possible future realization.
+      - question: "How does BFO define a 'function', and how does it relate to a disposition?"
+        expected_answer: |
+          A function in BFO is a special kind of disposition: a disposition that
+          exists because its bearer is the kind of thing it is -- by design (an
+          artifact's function) or by selection/evolution (a biological function)
+          -- and that is realized in the process the bearer is meant to carry
+          out. So every function is a disposition, but one whose existence is
+          explained by the bearer's physical or designed makeup being for that
+          end (e.g. the heart's function to pump blood).
+      - question: "What is a 'process' in BFO?"
+        expected_answer: |
+          A process in BFO is an occurrent that has temporal parts and depends on
+          one or more material entities as its participants -- it unfolds in time
+          and happens to or among continuants. The realization of a disposition
+          or function is a process, and processes are what dependent continuants
+          like dispositions get realized in.
+      - question: "What does BFO mean by a 'material entity'?"
+        expected_answer: |
+          A material entity in BFO is an independent continuant that has some
+          portion of matter as part -- it occupies space and persists through
+          time as a bearer (objects, object aggregates, fiat object parts). It is
+          the paradigmatic independent continuant: the kind of thing that
+          qualities, roles, dispositions and functions inhere in or are borne by.
+
+      # --- (b) Interpretive "why this distinction / how to classify" questions ---
+      - question: |
+          I want to represent "the fragility of a glass" and "the mass of a
+          glass". Using BFO's categories, how should each be classified and why
+          are they not the same kind of entity?
+        expected_answer: |
+          Both are specifically dependent continuants inhering in the glass, but
+          BFO classes them differently by how they manifest. Mass is a quality:
+          it is fully exhibited simply by being borne -- the glass has its mass at
+          every moment, no triggering process needed. Fragility is a disposition:
+          a capacity grounded in the glass's structure that is realized only in a
+          process (breaking) under certain conditions, and that can exist
+          unrealized indefinitely. So mass is "always on" while fragility is a
+          latent tendency awaiting realization -- which is exactly why BFO
+          separates qualities from dispositions.
+      - question: |
+          Why does BFO treat "patient" as a role rather than as a kind of
+          material entity, and what does that buy a data model?
+        expected_answer: |
+          In BFO 'patient' is a realizable, externally grounded dependent
+          continuant -- a role -- because being a patient is contingent on
+          context (entering a care relationship) and can be gained or lost
+          without changing what the person intrinsically is (a human material
+          entity). Modeling it as a role rather than a type of material entity
+          lets the data model keep the person's identity and intrinsic
+          classification stable while attaching or removing the patient role as
+          they move in and out of care, so the same individual can bear many
+          roles over time without being reclassified as a different kind of
+          thing.
+      - question: |
+          How do I decide whether something belongs under BFO's "continuant" or
+          "occurrent" branch, and why does that top-level choice matter?
+        expected_answer: |
+          Ask whether the entity persists through time while being wholly present
+          at each moment (a continuant -- a thing: an object, a quality, a role) or
+          whether it unfolds in time with temporal parts (an occurrent -- a
+          happening: a process, an event). A heart is a continuant; its beating
+          is an occurrent. The choice matters because it fixes which relations
+          and further categories apply: continuants bear qualities and
+          participate in processes, whereas occurrents have temporal parts and
+          have participants. Getting the branch right determines the entire
+          downstream modeling, which is why BFO forces this distinction first.
+      - question: |
+          A capability is annotated in BFO as a "function" rather than a plain
+          "disposition". Based on how BFO relates the two, what extra claim is
+          that annotation making?
+        expected_answer: |
+          Every function is a disposition, so calling it a function keeps all the
+          disposition semantics (a realizable capacity, grounded in the bearer,
+          realized in a process). The extra claim is about WHY the capacity
+          exists: a function is a disposition the bearer has because of the kind
+          of thing it is -- either designed for that end (an artifact) or selected
+          for it (a biological trait). So annotating a capability as a function
+          asserts not just that the bearer can do something, but that doing it is
+          what the bearer is for -- its existence is explained by design or
+          selection, not merely by incidental physical makeup.
