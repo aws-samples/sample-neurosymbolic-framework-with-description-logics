@@ -165,10 +165,14 @@ select {
 .test-set > summary:hover { color: var(--accent, var(--text)); }
 .test-set-list {
   margin: 0;
-  padding: 0 14px 10px 32px;
+  padding: 0 14px 10px 14px;
+  list-style: none;
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+.test-set-list > li {
+  list-style: none;
 }
 .test-set-item > summary {
   cursor: pointer;
@@ -238,8 +242,34 @@ button.rebuild-btn:hover:not(:disabled) { background: var(--accent-2); }
   word-wrap: break-word;
 }
 .msg.user { align-self: flex-end; background: var(--user); }
-.msg.bot { align-self: flex-start; background: var(--bot); border: 1px solid var(--border); }
+.msg.bot { align-self: flex-start; background: var(--bot); border: 1px solid var(--border); position: relative; }
 .msg.bot.pending { color: var(--muted); }
+
+/* Copy-raw-Markdown control, pinned to the top-right of a bot answer bubble.
+   Faint until the bubble is hovered, so it stays unobtrusive. */
+.msg.bot { padding-right: 36px; }
+.msg .copy-md {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.msg.bot:hover .copy-md,
+.msg .copy-md:focus-visible { opacity: 1; }
+.msg .copy-md:hover { color: var(--text); background: var(--border); }
+.msg .copy-md.copied { opacity: 1; color: #2ea043; }
 .msg.system {
   align-self: center;
   background: transparent;

@@ -65,6 +65,29 @@ function currentIdToken(): string | null {
   return t.idToken;
 }
 
+/**
+ * Return a valid id token, refreshing an expired one first and, if that fails,
+ * bouncing to the hosted-UI login (never resolving, since the page navigates
+ * away). Resolves to the token when auth is active, or `null` when auth is
+ * disabled (local dev build without Cognito config).
+ *
+ * Use this BEFORE opening an EventSource: `withAuthParam` can only read the
+ * token synchronously and silently sends NONE when the stored one has expired,
+ * which makes the authenticated SSE endpoints 401 and the stream close with no
+ * completion frame (surfaced to the user as "Lost connection…"). Awaiting a
+ * fresh token first keeps that from happening in the common token-expiry case.
+ */
+export async function freshIdToken(): Promise<string | null> {
+  if (!authEnabled()) return null;
+  const current = currentIdToken();
+  if (current) return current;
+  // Stored token missing/expired: try a silent refresh, else full re-login.
+  const refreshed = await refresh();
+  if (refreshed) return refreshed.idToken;
+  await ensureAuthenticated(); // refreshes or navigates to the hosted UI
+  return currentIdToken();
+}
+
 // ------------------------------------------------------------------ PKCE util
 function base64url(bytes: Uint8Array): string {
   let s = "";

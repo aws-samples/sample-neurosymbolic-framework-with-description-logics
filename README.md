@@ -368,6 +368,66 @@ To use a custom config file:
 uv run python -m ontology_qa_cli.ontology_stats path/to/ontology_config.yaml
 ```
 
+## Web application
+
+In addition to the CLIs, the project ships a web UI (a React SPA served by the
+FastAPI backend in `ontology_qa_cli/webapp.py`). It lets you pick an ontology,
+build its query program on demand, and ask questions in a chat interface.
+
+Run it locally:
+
+```bash
+# Build the SPA once (see the auth note below for the deployed build)
+cd frontend && npm install && npm run build && cd ..
+
+# Serve the API + built SPA
+uv run python -m ontology_qa_cli.webapp
+```
+
+For live frontend development, run the Vite dev server (`cd frontend && npm run
+dev`) alongside the backend.
+
+### Deployment architecture (what to know before changing the web app)
+
+The deployed app runs on AWS Fargate, fronted by an Application Load Balancer
+and CloudFront, provisioned by the CDK app under `cdk/`:
+
+- **Multiple web tasks behind the ALB.** Any request can be routed to any task,
+  and a task can be replaced at any time (deploy, health check, task loss). So
+  the web layer must be *stateless across tasks* — never assume a follow-up
+  request lands on the task that handled the previous one.
+- **Durable conversation store** (`ontology_qa_cli/conversation_store.py`). A
+  conversation's irreplaceable state (its ontology binding + message history) is
+  persisted to the shared EFS runs mount, so a sibling task — or a task that
+  restarted — can rehydrate it. The heavy `OntologyAnswerer` is *not* persisted;
+  it is rebuilt from the ontology's program on a cache miss via
+  `_load_answerer(ontology)`. Handlers that need an answerer (`/api/conversation`,
+  `/api/chat`) must lazy-load it on a miss rather than assuming a prior
+  `/api/select` on *this* task loaded it.
+- **The SPA is served from S3/CloudFront, not the container.** The `frontend/dist`
+  bundle is published by the CDK **Edge** stack; the container image (Compute
+  stack) carries the backend. A frontend change therefore needs an Edge deploy,
+  and a backend change needs a Compute deploy.
+
+### Frontend build-time configuration (Cognito)
+
+The SPA reads its Cognito auth config from **build-time** `VITE_*` env vars, so
+the frontend **must be rebuilt with them set before `cdk deploy`**. A plain
+`npm run build` with these unset produces a bundle with authentication
+**disabled** — do not ship that to the deployed app:
+
+```bash
+cd frontend
+VITE_COGNITO_DOMAIN="https://<your-cognito-domain>.auth.<region>.amazoncognito.com" \
+VITE_COGNITO_CLIENT_ID="<spa-app-client-id>" \
+VITE_COGNITO_REDIRECT="https://<your-cloudfront-domain>/" \
+npm run build
+```
+
+Use the **SPA** app client id (not a generic user-pool client). The deployed
+callback/redirect URLs are driven by the CDK `appDomain` context (see
+`cdk/cdk.json`); keep them in sync with the CloudFront domain.
+
 ## Downloading the ontologies
 
 ### FMA (Foundational Model of Anatomy)

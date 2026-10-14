@@ -5,6 +5,8 @@ import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
+import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
+import * as path from 'path';
 
 export interface EdgeStackProps extends cdk.StackProps {
   loadBalancer: elbv2.IApplicationLoadBalancer;
@@ -134,6 +136,39 @@ export class EdgeStack extends cdk.Stack {
       errorResponses: [
         { httpStatus: 403, responseHttpStatus: 200, responsePagePath: '/index.html' },
         { httpStatus: 404, responseHttpStatus: 200, responsePagePath: '/index.html' },
+      ],
+    });
+
+    // ---- Frontend SPA deployment ----------------------------------------
+    // Ship the PRE-BUILT ../frontend/dist into the SPA bucket as part of
+    // `cdk deploy`, and invalidate the distribution so the new bundle is live
+    // immediately. Previously this was a manual `aws s3 sync` + CloudFront
+    // invalidation (see cdk/README.md); folding it in here means a single
+    // `cdk deploy` ships the container AND the SPA, so the browser can never be
+    // left on a stale pre-build.
+    //
+    // NB: the SPA must be built with the Cognito VITE_* vars baked in BEFORE
+    // `cdk deploy` (the CloudFront redirect URL is build-time config). See
+    // cdk/README.md "Frontend (SPA) deploy".
+    //
+    // One cache-control is applied to every uploaded object here, but the REAL
+    // caching is enforced at the edge by the distribution's behaviors above:
+    // index.html is forced `no-store` by the default behavior's
+    // ResponseHeadersPolicy, while content-hashed `assets/*` get
+    // CACHING_OPTIMIZED. Both override the S3 object metadata, so the
+    // `immutable` value below is correct for the hashed assets and harmless for
+    // index.html (the edge policy wins).
+    const distDir = path.join(__dirname, '..', '..', 'frontend', 'dist');
+    new s3deploy.BucketDeployment(this, 'FrontendDeployment', {
+      sources: [s3deploy.Source.asset(distDir)],
+      destinationBucket: this.frontendBucket,
+      distribution: this.distribution,
+      distributionPaths: ['/*'],
+      prune: true,
+      cacheControl: [
+        s3deploy.CacheControl.setPublic(),
+        s3deploy.CacheControl.maxAge(cdk.Duration.days(365)),
+        s3deploy.CacheControl.immutable(),
       ],
     });
 

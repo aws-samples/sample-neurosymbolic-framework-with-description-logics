@@ -78,7 +78,7 @@ export function ProgramView({ ontology }: Props) {
         {testSet.length > 0 && (
           <details className="test-set">
             <summary>Test set used to direct the evolution</summary>
-            <ol className="test-set-list">
+            <ul className="test-set-list">
               {testSet.map((item, idx) => (
                 <li key={idx}>
                   <details className="test-set-item">
@@ -94,7 +94,7 @@ export function ProgramView({ ontology }: Props) {
                   </details>
                 </li>
               ))}
-            </ol>
+            </ul>
           </details>
         )}
         <pre className="program-source">{program.source}</pre>
