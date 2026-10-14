@@ -534,6 +534,11 @@ export class ComputeStack extends cdk.Stack {
     webContainer.addEnvironment('BUILD_ECS_LOG_STREAM_PREFIX', 'builder');
     webContainer.addEnvironment('ONTOLOGY_CONFIG', 'ontology_config.yaml');
     webContainer.addEnvironment('ONTOLOGY_RUNS_DIR', EFS_MOUNT);
+    // The same list the MCP service serves (MCP_ONTOLOGIES), handed to the web
+    // app so /api/ontologies can flag which ontologies have an MCP tool. The MCP
+    // service is the authority on this; mirroring the CSV here keeps the "MCP"
+    // tab honest (shown only for ontologies actually wired up with the server).
+    webContainer.addEnvironment('MCP_ONTOLOGIES', mcpOntologiesCsv);
     // The web app tails the builder's CloudWatch logs for the live build stream.
     builderLogGroup.grantRead(webTaskDef.taskRole);
 

@@ -9,6 +9,12 @@ export interface OntologyInfo {
   has_program: boolean;
   /** Canned question texts for the "I'm feeling lazy!" quick-pick dropdown. */
   questions?: string[];
+  /**
+   * True when the remote MCP server exposes an `answer_question_with_<NAME>`
+   * tool for this ontology (i.e. it is in the server's MCP_ONTOLOGIES list).
+   * Drives whether the "MCP" tab is shown for the ontology.
+   */
+  mcp_enabled?: boolean;
 }
 
 export type SelectResult =

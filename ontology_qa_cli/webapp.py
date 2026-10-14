@@ -10,7 +10,7 @@ history).
 Endpoints
 ---------
     GET  /                        the single-page chat UI
-    GET  /api/ontologies          [{name, display_name, has_program, questions}] for the dropdown
+    GET  /api/ontologies          [{name, display_name, has_program, questions, mcp_enabled}] for the dropdown
     GET  /api/program/{ontology}  {path, source, test_set} of the best program
     POST /api/select              {ontology} -> ready | building(job_id)
     POST /api/rebuild             {ontology} -> building(job_id) (force rebuild)
@@ -164,6 +164,24 @@ def create_app(
                 return e.display_name
         return None
 
+    def _mcp_ontologies() -> set[str]:
+        """The set of ontologies the remote MCP server exposes a tool for.
+
+        Mirrors the MCP server's own ``_parse_ontologies``: the comma-separated
+        ``MCP_ONTOLOGIES`` env (CDK hands the web task the SAME value the MCP
+        service gets), honoring the legacy singular ``MCP_ONTOLOGY`` alias.
+        Empty/unset => empty set (no "MCP" tab anywhere), which is the right
+        default for a local dev run with no MCP service. Case-insensitive match
+        is handled by the caller via a lowercased comparison.
+        """
+        raw = os.environ.get("MCP_ONTOLOGIES") or os.environ.get("MCP_ONTOLOGY") or ""
+        return {part.strip() for part in raw.split(",") if part.strip()}
+
+    def _mcp_enabled_for(ontology: str, mcp_set: set[str]) -> bool:
+        """True when ``ontology`` is served by the MCP server (case-insensitive)."""
+        lower = {o.lower() for o in mcp_set}
+        return ontology.lower() in lower
+
     def _owl_for(ontology: str) -> Path:
         for e in load_config(config_path).ontologies:
             if e.name.lower() == ontology.lower():
@@ -306,6 +324,7 @@ def create_app(
     # ----------------------------------------------------------------- API --
     @app.get("/api/ontologies")
     async def api_ontologies() -> dict:
+        mcp_set = _mcp_ontologies()
         return {
             "ontologies": [
                 {
@@ -313,6 +332,7 @@ def create_app(
                     "display_name": _display_name_for(name),
                     "has_program": _has_program(name),
                     "questions": _questions_for(name),
+                    "mcp_enabled": _mcp_enabled_for(name, mcp_set),
                 }
                 for name in _ontology_names()
             ]

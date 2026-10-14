@@ -146,6 +146,34 @@ class TestWebApp:
             assert by_name["NOPROG"] is None
             assert by_name["EMPTY"] is None
 
+    def test_ontologies_mcp_enabled_reflects_env(self, env, monkeypatch):
+        # The "MCP" tab is shown only for ontologies the MCP server serves.
+        # MCP_ONTOLOGIES (comma-separated) is matched case-insensitively; an
+        # ontology absent from it reports mcp_enabled=false.
+        monkeypatch.setenv("MCP_ONTOLOGIES", "tiny,SOMETHING_ELSE")
+        with _client(env) as c:
+            onts = c.get("/api/ontologies").json()["ontologies"]
+            by_name = {o["name"]: o["mcp_enabled"] for o in onts}
+            assert by_name == {"TINY": True, "NOPROG": False, "EMPTY": False}
+
+    def test_ontologies_mcp_enabled_absent_env_all_false(self, env, monkeypatch):
+        # No MCP service configured (local dev): no ontology is MCP-wired.
+        monkeypatch.delenv("MCP_ONTOLOGIES", raising=False)
+        monkeypatch.delenv("MCP_ONTOLOGY", raising=False)
+        with _client(env) as c:
+            onts = c.get("/api/ontologies").json()["ontologies"]
+            assert all(o["mcp_enabled"] is False for o in onts)
+
+    def test_ontologies_mcp_enabled_legacy_singular_alias(self, env, monkeypatch):
+        # The legacy singular MCP_ONTOLOGY is honored when MCP_ONTOLOGIES is unset.
+        monkeypatch.delenv("MCP_ONTOLOGIES", raising=False)
+        monkeypatch.setenv("MCP_ONTOLOGY", "TINY")
+        with _client(env) as c:
+            onts = c.get("/api/ontologies").json()["ontologies"]
+            by_name = {o["name"]: o["mcp_enabled"] for o in onts}
+            assert by_name["TINY"] is True
+            assert by_name["NOPROG"] is False
+
     def test_select_ready_when_program_exists(self, env):
         with _client(env) as c:
             res = c.post("/api/select", json={"ontology": "TINY"}).json()

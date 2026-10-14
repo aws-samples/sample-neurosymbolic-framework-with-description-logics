@@ -10,6 +10,8 @@ interface Props {
   onRebuild: () => void;
   view: View;
   onViewChange: (view: View) => void;
+  /** Whether the selected ontology is served by the MCP server (shows the MCP tab). */
+  mcpEnabled: boolean;
 }
 
 const pillLabel: Record<ChatState["phase"], string> = {
@@ -28,6 +30,7 @@ export function Banner({
   onRebuild,
   view,
   onViewChange,
+  mcpEnabled,
 }: Props) {
   return (
     <header className="banner">
@@ -52,7 +55,7 @@ export function Banner({
       <div
         className="view-toggle"
         role="tablist"
-        aria-label="Switch between chat and the query program"
+        aria-label="Switch between chat, the query program, and MCP"
       >
         <button
           role="tab"
@@ -70,6 +73,17 @@ export function Banner({
         >
           Query program
         </button>
+        {mcpEnabled && (
+          <button
+            role="tab"
+            aria-selected={view === "mcp"}
+            className={view === "mcp" ? "active" : ""}
+            onClick={() => onViewChange("mcp")}
+            title="This ontology is wired up with the MCP server"
+          >
+            MCP
+          </button>
+        )}
       </div>
 
       <span className={`pill ${phase}`}>
