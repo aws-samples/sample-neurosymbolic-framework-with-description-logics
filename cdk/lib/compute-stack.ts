@@ -436,9 +436,13 @@ export class ComputeStack extends cdk.Stack {
     // ======================= BUILDER TASK ==================================
     // Launched on demand by the web service via ecs.run_task (Task 6), NOT a
     // standing service. Same EFS mount so the built program is visible to web.
+    // 4 vCPU / 16 GB (valid Fargate ARM64 combo). Bumped from 1 vCPU / 2 GB:
+    // the largest ontology (NCIt, ~209,910 classes) OOM-killed the builder
+    // (SIGKILL/-9) during the streaming parse that builds in-memory dicts for
+    // every class. The smaller OWLs never needed it; NCIt does.
     this.builderTaskDefinition = new ecs.FargateTaskDefinition(this, 'BuilderTaskDef', {
-      cpu: 1024,
-      memoryLimitMiB: 2048,
+      cpu: 4096,
+      memoryLimitMiB: 16384,
       volumes: [efsVolume],
       runtimePlatform: {
         cpuArchitecture: ecs.CpuArchitecture.ARM64,
