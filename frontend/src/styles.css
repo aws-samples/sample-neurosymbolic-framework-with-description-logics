@@ -430,3 +430,112 @@ button.rebuild-btn:hover:not(:disabled) { background: var(--accent-2); }
   font: inherit;
   height: 44px;
 }
+
+/* MCP tab: how to call this ontology's MCP tool (sample curl + live output).
+   Mirrors the .program styling and uses the theme variables so it renders in
+   both light and dark. */
+.mcp {
+  flex: 1;
+  overflow: auto;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.mcp-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mcp-section-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.mcp-section-title {
+  flex: 1;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.mcp-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.mcp-note code,
+.mcp-section-title code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  background: var(--bot);
+  color: var(--text);
+  padding: 1px 5px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+}
+.mcp-q-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.mcp-q-input {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-size: 14px;
+  font-family: inherit;
+}
+.mcp-q-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+/* Code blocks: monospace, respect newlines, wrap long lines. */
+.mcp-code {
+  margin: 0;
+  overflow: auto;
+  background: var(--bg);
+  color: var(--text);
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  tab-size: 2;
+}
+.mcp-error {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.mcp-copy,
+.mcp-run {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.mcp-copy:hover,
+.mcp-run:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.mcp-run:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.mcp-copy svg {
+  display: block;
+}

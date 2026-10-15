@@ -436,9 +436,13 @@ export class ComputeStack extends cdk.Stack {
     // ======================= BUILDER TASK ==================================
     // Launched on demand by the web service via ecs.run_task (Task 6), NOT a
     // standing service. Same EFS mount so the built program is visible to web.
+    // 4 vCPU / 16 GB (valid Fargate ARM64 combo). Bumped from 1 vCPU / 2 GB:
+    // the largest ontology (NCIt, ~209,910 classes) OOM-killed the builder
+    // (SIGKILL/-9) during the streaming parse that builds in-memory dicts for
+    // every class. The smaller OWLs never needed it; NCIt does.
     this.builderTaskDefinition = new ecs.FargateTaskDefinition(this, 'BuilderTaskDef', {
-      cpu: 1024,
-      memoryLimitMiB: 2048,
+      cpu: 4096,
+      memoryLimitMiB: 16384,
       volumes: [efsVolume],
       runtimePlatform: {
         cpuArchitecture: ecs.CpuArchitecture.ARM64,
@@ -534,6 +538,11 @@ export class ComputeStack extends cdk.Stack {
     webContainer.addEnvironment('BUILD_ECS_LOG_STREAM_PREFIX', 'builder');
     webContainer.addEnvironment('ONTOLOGY_CONFIG', 'ontology_config.yaml');
     webContainer.addEnvironment('ONTOLOGY_RUNS_DIR', EFS_MOUNT);
+    // The same list the MCP service serves (MCP_ONTOLOGIES), handed to the web
+    // app so /api/ontologies can flag which ontologies have an MCP tool. The MCP
+    // service is the authority on this; mirroring the CSV here keeps the "MCP"
+    // tab honest (shown only for ontologies actually wired up with the server).
+    webContainer.addEnvironment('MCP_ONTOLOGIES', mcpOntologiesCsv);
     // The web app tails the builder's CloudWatch logs for the live build stream.
     builderLogGroup.grantRead(webTaskDef.taskRole);
 

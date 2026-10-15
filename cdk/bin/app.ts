@@ -54,8 +54,9 @@ const compute = new ComputeStack(app, `${prefix}-Compute`, {
   ontologyBucket: storage.ontologyBucket,
   artifactBucket: storage.artifactBucket,
   // Ontologies exposed as MCP answer_question_with_<NAME> tools (each also
-  // gets a per-deploy builder evolve task). HPO is first-class alongside GO/CTO.
-  mcpOntologies: ['GO', 'CTO', 'HPO'],
+  // gets a per-deploy builder evolve task). All configured ontologies are
+  // served; the list mirrors ontology_config.yaml.
+  mcpOntologies: ['FMA', 'GO', 'CTO', 'CL', 'HPO', 'NCIt', 'OBI', 'OGMS', 'BFO'],
   // Image tags/repos are supplied by CI (Task 7). Placeholder context keys:
   webImageAsset: app.node.tryGetContext('webImage'),
   builderImageAsset: app.node.tryGetContext('builderImage'),

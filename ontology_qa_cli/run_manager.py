@@ -108,7 +108,7 @@ def write_summary(
     total_iterations: int,
     best_iteration: int,
     best_iteration_path: Path,
-    threshold: float = 0.8,
+    threshold: float = 0.9,
     terminated_reason: str = "threshold_met",
 ) -> None:
     """Write a summary file to the top-level run directory.
