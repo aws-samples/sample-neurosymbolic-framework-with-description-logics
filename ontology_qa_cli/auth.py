@@ -45,9 +45,12 @@ state must fail loudly rather than silently allow every request.
 """
 from __future__ import annotations
 
+import logging
 import os
 import time
 from typing import Iterable, Optional
+
+logger = logging.getLogger(__name__)
 
 try:  # FastAPI/Starlette are only present with the `api` extra.
     from fastapi import FastAPI
@@ -273,7 +276,22 @@ def install_cognito_auth(
     open_paths = frozenset(public_paths) if public_paths is not None else _PUBLIC_PATHS
     jwks = _JwksCache(cfg.jwks_url)
 
-    def _unauthorized(detail: str) -> "JSONResponse":
+    def _unauthorized(detail: str, request: "Optional[Request]" = None) -> "JSONResponse":
+        # Log the concrete reason so a 401 is diagnosable from the service logs
+        # rather than appearing as a bare "401 Unauthorized" access-log line.
+        # Critical for the SSE endpoints: EventSource never surfaces the 401
+        # body to the UI (it only sees a closed stream -> "Lost connection"),
+        # so the server log is the ONLY place the reason is visible. The token
+        # itself is never logged -- only the verifier's client-safe reason.
+        if request is not None:
+            logger.warning(
+                "401 Unauthorized %s %s -- %s",
+                request.method,
+                request.url.path,
+                detail,
+            )
+        else:
+            logger.warning("401 Unauthorized -- %s", detail)
         return JSONResponse(
             {"detail": detail},
             status_code=401,
@@ -288,7 +306,9 @@ def install_cognito_auth(
 
         token = _extract_bearer(request)
         if token is None:
-            return _unauthorized("Missing bearer token. Authenticate via Cognito.")
+            return _unauthorized(
+                "Missing bearer token. Authenticate via Cognito.", request
+            )
         try:
             # Signature verification does blocking I/O (JWKS fetch) only on a
             # cache miss; run it in a worker thread so the event loop is free.
@@ -296,9 +316,9 @@ def install_cognito_auth(
 
             await anyio.to_thread.run_sync(_verify_token, token, cfg, jwks)
         except _AuthError as exc:
-            return _unauthorized(str(exc))
+            return _unauthorized(str(exc), request)
         except Exception as exc:  # noqa: BLE001 - never leak internals as 500 here
-            return _unauthorized(f"token verification failed: {exc}")
+            return _unauthorized(f"token verification failed: {exc}", request)
         return await call_next(request)
 
     return True
