@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
+import * as ecr_assets from 'aws-cdk-lib/aws-ecr-assets';
 import * as efs from 'aws-cdk-lib/aws-efs';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as actions from 'aws-cdk-lib/aws-elasticloadbalancingv2-actions';
@@ -89,14 +90,24 @@ export class ComputeStack extends cdk.Stack {
 
     // Images: repo-root Dockerfiles. In CI (Task 7) these become ECR image
     // references; here we point at the build context with the right Dockerfile.
+    //
+    // platform MUST be LINUX_ARM64 to match the ARM64 runtimePlatform on every
+    // task def below. CDK's fromAsset defaults to the BUILD HOST's architecture:
+    // on the local Apple Silicon (finch) host that was arm64 and matched, but
+    // the CodeBuild deploy runs on an amd64 worker, which would bake an amd64
+    // image -> "exec /usr/bin/sh: exec format error" (exit 255) on Fargate ARM64.
+    // Pinning the platform makes Buildx cross-build arm64 regardless of host.
     const webImage = ecs.ContainerImage.fromAsset(props.webImageAsset ?? '..', {
       file: 'Dockerfile.web',
+      platform: ecr_assets.Platform.LINUX_ARM64,
     });
     const builderImage = ecs.ContainerImage.fromAsset(props.builderImageAsset ?? '..', {
       file: 'Dockerfile.builder',
+      platform: ecr_assets.Platform.LINUX_ARM64,
     });
     const mcpImage = ecs.ContainerImage.fromAsset(props.mcpImageAsset ?? '..', {
       file: 'Dockerfile.mcp',
+      platform: ecr_assets.Platform.LINUX_ARM64,
     });
 
     const efsVolume: ecs.Volume = {
