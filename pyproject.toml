@@ -31,6 +31,11 @@ api = [
     # Cognito JWT verification (RS256) for application-level auth (auth.py).
     # The `crypto` extra pulls in `cryptography` for RSA signature checks.
     "pyjwt[crypto]>=2.8.0",
+    # Official MCP Python SDK. Pinned <2: the stable FastMCP API
+    # (stateless_http / json_response kwargs + streamable_http_app()) lives in
+    # 1.x; 2.x renamed FastMCP -> MCPServer and moved those knobs, which is a
+    # migration we are not taking here.
+    "mcp>=1.13,<2",
 ]
 
 # uv's native dev dependency group. Installed by default with `uv sync`

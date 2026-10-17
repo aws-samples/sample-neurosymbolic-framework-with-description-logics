@@ -366,6 +366,24 @@ export class ComputeStack extends cdk.Stack {
     );
     m2mSecret.grantRead(mcpTaskDef.taskRole);
 
+    // Values that let the MCP server publish an accurate RFC 9728 Protected
+    // Resource Metadata document and that document the manual 2LO recipe:
+    //   COGNITO_HOSTED_UI_DOMAIN - the Cognito hosted-UI domain the headless
+    //     client POSTs its client-credentials grant to (/oauth2/token). Only
+    //     the domain is needed; the server builds the token URL from it.
+    //   MCP_PUBLIC_URL - the public /mcp URL used as the RFC 9728 `resource`
+    //     identifier (falls back to the issuer when unset). Sourced from the
+    //     same `-c appDomain=...` context bin/app.ts uses (the CloudFront/custom
+    //     origin); the Edge stack owns the CloudFront domain, so Compute cannot
+    //     take it as a prop without a dependency cycle.
+    const appDomainCtx = this.node.tryGetContext('appDomain') as string | undefined;
+    const discoveryEnv: Record<string, string> = {
+      ...(props.userPoolDomain
+        ? { COGNITO_HOSTED_UI_DOMAIN: props.userPoolDomain.domainName }
+        : {}),
+      ...(appDomainCtx ? { MCP_PUBLIC_URL: `${appDomainCtx}/mcp` } : {}),
+    };
+
     const mcpContainer = mcpTaskDef.addContainer('mcp', {
       image: mcpImage,
       logging: ecs.LogDrivers.awsLogs({
@@ -382,6 +400,7 @@ export class ComputeStack extends cdk.Stack {
         // container-local ./runs and never finds it.
         ONTOLOGY_RUNS_DIR: EFS_MOUNT,
         ...cognitoEnv,
+        ...discoveryEnv,
         PORT: String(MCP_PORT),
       },
       portMappings: [{ containerPort: MCP_PORT }],

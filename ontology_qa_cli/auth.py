@@ -249,6 +249,7 @@ def install_cognito_auth(
     app: "FastAPI",
     *,
     public_paths: "Optional[Iterable[str]]" = None,
+    resource_metadata_path: "Optional[str]" = None,
 ) -> bool:
     """Install Cognito JWT enforcement on ``app`` when configured.
 
@@ -258,6 +259,14 @@ def install_cognito_auth(
 
     ``public_paths`` overrides the default set of always-open paths (the ALB
     health-check endpoints). Pass an empty iterable to gate everything.
+
+    ``resource_metadata_path`` is an app-relative path (e.g.
+    ``/.well-known/oauth-protected-resource``) to the RFC 9728 Protected
+    Resource Metadata document. When set, every 401's ``WWW-Authenticate``
+    header carries a ``resource_metadata="<url>"`` parameter so an
+    RFC-9728-aware MCP client (Amazon Quick Suite) can discover the Cognito
+    authorization server from the challenge instead of being configured by
+    hand. The absolute URL is built per-request from the request's base URL.
     """
     cfg = CognitoConfig.from_env()
     if cfg is None:
@@ -292,10 +301,18 @@ def install_cognito_auth(
             )
         else:
             logger.warning("401 Unauthorized -- %s", detail)
+        # RFC 9728: advertise the Protected Resource Metadata URL in the
+        # challenge so an RFC-9728-aware client can discover the authorization
+        # server. Built from the request's base URL so it is correct behind
+        # CloudFront/ALB without hard-coding the public origin.
+        challenge = "Bearer"
+        if resource_metadata_path and request is not None:
+            md_url = str(request.base_url).rstrip("/") + resource_metadata_path
+            challenge = f'Bearer resource_metadata="{md_url}"'
         return JSONResponse(
             {"detail": detail},
             status_code=401,
-            headers={"WWW-Authenticate": "Bearer"},
+            headers={"WWW-Authenticate": challenge},
         )
 
     @app.middleware("http")

@@ -91,8 +91,31 @@ def cognito_env(monkeypatch, rsa_key):
 
 # --------------------------------------------------------------------------- #
 # MCP app — small and self-contained, used for most auth assertions.
+#
+# The MCP endpoint now speaks the SDK's Streamable HTTP transport, so a request
+# that is meant to PASS auth must be a valid MCP request (initialize, with the
+# Accept: application/json, text/event-stream header) and the TestClient must be
+# used as a context manager so the app lifespan starts the SDK session manager.
+# Auth is enforced by middleware BEFORE the SDK mount, so the 401-vs-not-401
+# decision these tests care about is made by the middleware regardless.
 # --------------------------------------------------------------------------- #
-def _mcp_client(tmp_path: Path) -> TestClient:
+_MCP_HEADERS = {
+    "Accept": "application/json, text/event-stream",
+    "Content-Type": "application/json",
+}
+_INITIALIZE = {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+        "protocolVersion": "2025-06-18",
+        "capabilities": {},
+        "clientInfo": {"name": "pytest", "version": "0"},
+    },
+}
+
+
+def _mcp_app(tmp_path: Path):
     cfg = tmp_path / "ontology_config.yaml"
     cfg.write_text(
         textwrap.dedent(
@@ -106,107 +129,109 @@ def _mcp_client(tmp_path: Path) -> TestClient:
             """
         )
     )
-    app = mcp_server.create_mcp_app(config_path=cfg, ontologies="GO")
-    return TestClient(app)
+    return mcp_server.create_mcp_app(config_path=cfg, ontologies="GO")
 
 
-_TOOLS_LIST = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+def _post_initialize(client: TestClient, *, headers: dict | None = None):
+    h = dict(_MCP_HEADERS)
+    if headers:
+        h.update(headers)
+    return client.post("/mcp", json=_INITIALIZE, headers=h)
 
 
 def test_auth_disabled_by_default(tmp_path, monkeypatch):
     """With no COGNITO_USER_POOL_ID, the MCP endpoint answers unauthenticated."""
     monkeypatch.delenv("COGNITO_USER_POOL_ID", raising=False)
     monkeypatch.delenv("COGNITO_AUTH_DISABLED", raising=False)
-    client = _mcp_client(tmp_path)
-    r = client.post("/mcp", json=_TOOLS_LIST)
-    assert r.status_code == 200
-    assert "result" in r.json()
+    with TestClient(_mcp_app(tmp_path)) as client:
+        r = _post_initialize(client)
+        assert r.status_code == 200
 
 
 def test_explicit_disable_overrides_pool(tmp_path, monkeypatch):
     monkeypatch.setenv("COGNITO_USER_POOL_ID", POOL_ID)
     monkeypatch.setenv("COGNITO_AUTH_DISABLED", "true")
-    client = _mcp_client(tmp_path)
-    r = client.post("/mcp", json=_TOOLS_LIST)
-    assert r.status_code == 200
+    with TestClient(_mcp_app(tmp_path)) as client:
+        r = _post_initialize(client)
+        assert r.status_code == 200
 
 
 def test_missing_token_is_401(tmp_path, cognito_env):
-    client = _mcp_client(tmp_path)
-    r = client.post("/mcp", json=_TOOLS_LIST)
-    assert r.status_code == 401
-    assert r.headers.get("www-authenticate") == "Bearer"
+    with TestClient(_mcp_app(tmp_path)) as client:
+        r = _post_initialize(client)
+        assert r.status_code == 401
+        # RFC 9728: the challenge advertises the Protected Resource Metadata URL
+        # so an RFC-9728-aware client can discover the authorization server.
+        www = r.headers.get("www-authenticate", "")
+        assert www.startswith("Bearer")
+        assert "resource_metadata=" in www
+        assert "/.well-known/oauth-protected-resource" in www
+
+
+def test_resource_metadata_is_public_and_points_at_cognito(tmp_path, cognito_env):
+    """RFC 9728 doc is reachable without a token and names the Cognito issuer."""
+    with TestClient(_mcp_app(tmp_path)) as client:
+        r = client.get("/.well-known/oauth-protected-resource")
+        assert r.status_code == 200
+        doc = r.json()
+        assert doc["authorization_servers"] == [ISSUER]
+        assert "neurosymbolic-mcp/mcp.invoke" in doc["scopes_supported"]
 
 
 def test_valid_access_token_accepted(tmp_path, cognito_env):
-    client = _mcp_client(tmp_path)
-    token = _mint(cognito_env, token_use="access", client_id=CLIENT_ID)
-    r = client.post(
-        "/mcp", json=_TOOLS_LIST, headers={"Authorization": f"Bearer {token}"}
-    )
-    assert r.status_code == 200
-    assert "result" in r.json()
+    with TestClient(_mcp_app(tmp_path)) as client:
+        token = _mint(cognito_env, token_use="access", client_id=CLIENT_ID)
+        r = _post_initialize(client, headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 200
 
 
 def test_valid_id_token_accepted(tmp_path, cognito_env):
-    client = _mcp_client(tmp_path)
-    token = _mint(cognito_env, token_use="id", aud=CLIENT_ID)
-    r = client.post(
-        "/mcp", json=_TOOLS_LIST, headers={"Authorization": f"Bearer {token}"}
-    )
-    assert r.status_code == 200
+    with TestClient(_mcp_app(tmp_path)) as client:
+        token = _mint(cognito_env, token_use="id", aud=CLIENT_ID)
+        r = _post_initialize(client, headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 200
 
 
 def test_expired_token_is_401(tmp_path, cognito_env):
-    client = _mcp_client(tmp_path)
-    token = _mint(cognito_env, exp_delta=-10)  # already expired
-    r = client.post(
-        "/mcp", json=_TOOLS_LIST, headers={"Authorization": f"Bearer {token}"}
-    )
-    assert r.status_code == 401
+    with TestClient(_mcp_app(tmp_path)) as client:
+        token = _mint(cognito_env, exp_delta=-10)  # already expired
+        r = _post_initialize(client, headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 401
 
 
 def test_wrong_audience_is_401(tmp_path, cognito_env):
-    client = _mcp_client(tmp_path)
-    token = _mint(cognito_env, token_use="access", client_id="some-other-client")
-    r = client.post(
-        "/mcp", json=_TOOLS_LIST, headers={"Authorization": f"Bearer {token}"}
-    )
-    assert r.status_code == 401
+    with TestClient(_mcp_app(tmp_path)) as client:
+        token = _mint(cognito_env, token_use="access", client_id="some-other-client")
+        r = _post_initialize(client, headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 401
 
 
 def test_wrong_issuer_is_401(tmp_path, cognito_env):
-    client = _mcp_client(tmp_path)
-    token = _mint(cognito_env, issuer="https://evil.example.com/pool")
-    r = client.post(
-        "/mcp", json=_TOOLS_LIST, headers={"Authorization": f"Bearer {token}"}
-    )
-    assert r.status_code == 401
+    with TestClient(_mcp_app(tmp_path)) as client:
+        token = _mint(cognito_env, issuer="https://evil.example.com/pool")
+        r = _post_initialize(client, headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 401
 
 
 def test_unknown_kid_is_401(tmp_path, cognito_env):
-    client = _mcp_client(tmp_path)
-    token = _mint(cognito_env, kid="unknown-kid")
-    r = client.post(
-        "/mcp", json=_TOOLS_LIST, headers={"Authorization": f"Bearer {token}"}
-    )
-    assert r.status_code == 401
+    with TestClient(_mcp_app(tmp_path)) as client:
+        token = _mint(cognito_env, kid="unknown-kid")
+        r = _post_initialize(client, headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 401
 
 
 def test_malformed_bearer_is_401(tmp_path, cognito_env):
-    client = _mcp_client(tmp_path)
-    r = client.post(
-        "/mcp", json=_TOOLS_LIST, headers={"Authorization": "Bearer not-a-jwt"}
-    )
-    assert r.status_code == 401
+    with TestClient(_mcp_app(tmp_path)) as client:
+        r = _post_initialize(client, headers={"Authorization": "Bearer not-a-jwt"})
+        assert r.status_code == 401
 
 
 def test_mcp_health_is_public_even_with_auth(tmp_path, cognito_env):
     """The ALB health-check path must stay reachable without a token."""
-    client = _mcp_client(tmp_path)
-    r = client.get("/mcp/health")
-    assert r.status_code == 200
-    assert r.json()["status"] == "ok"
+    with TestClient(_mcp_app(tmp_path)) as client:
+        r = client.get("/mcp/health")
+        assert r.status_code == 200
+        assert r.json()["status"] == "ok"
 
 
 # --------------------------------------------------------------------------- #
@@ -310,10 +335,10 @@ def test_token_from_second_client_id_accepted(tmp_path, monkeypatch, rsa_key):
     monkeypatch.delenv("COGNITO_AUTH_DISABLED", raising=False)
     pub = rsa_key.public_key()
     monkeypatch.setattr(auth, "jwts_get", lambda _j, kid: pub if kid == KID else None)
-    client = _mcp_client(tmp_path)
-    token = _mint(rsa_key, token_use="id", aud="spa-client-xyz")
-    r = client.post("/mcp", headers={"Authorization": f"Bearer {token}"}, json={})
-    assert r.status_code != 401
+    with TestClient(_mcp_app(tmp_path)) as client:
+        token = _mint(rsa_key, token_use="id", aud="spa-client-xyz")
+        r = _post_initialize(client, headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code != 401
 
 
 # --------------------------------------------------------------------------- #
