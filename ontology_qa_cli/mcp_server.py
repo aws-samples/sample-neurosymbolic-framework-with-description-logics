@@ -359,9 +359,13 @@ def create_mcp_app(
     # BEFORE install_cognito_auth so it joins the public-paths set.
     well_known_path = "/.well-known/oauth-protected-resource"
     public_paths = {"/mcp/health", well_known_path}
+    # The known public origin (e.g. https://d123.cloudfront.net/mcp). Used both
+    # as the RFC 9728 `resource` identifier and to pin the scheme+host of the
+    # metadata URL advertised in the 401 challenge, independent of forwarded
+    # proxy headers.
+    mcp_public_url = os.environ.get("MCP_PUBLIC_URL")
 
     if cfg is not None:
-        mcp_public_url = os.environ.get("MCP_PUBLIC_URL")  # e.g. https://d123.cloudfront.net/mcp
 
         @app.get(well_known_path)
         async def oauth_protected_resource() -> JSONResponse:
@@ -375,6 +379,7 @@ def create_mcp_app(
         app,
         public_paths=public_paths,
         resource_metadata_path=well_known_path if cfg is not None else None,
+        public_base_url=mcp_public_url,
     )
 
     @app.get("/mcp/health")

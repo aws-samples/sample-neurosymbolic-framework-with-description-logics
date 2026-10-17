@@ -250,6 +250,7 @@ def install_cognito_auth(
     *,
     public_paths: "Optional[Iterable[str]]" = None,
     resource_metadata_path: "Optional[str]" = None,
+    public_base_url: "Optional[str]" = None,
 ) -> bool:
     """Install Cognito JWT enforcement on ``app`` when configured.
 
@@ -267,10 +268,27 @@ def install_cognito_auth(
     RFC-9728-aware MCP client (Amazon Quick Suite) can discover the Cognito
     authorization server from the challenge instead of being configured by
     hand. The absolute URL is built per-request from the request's base URL.
+
+    ``public_base_url`` optionally pins the scheme + host of that metadata URL
+    (e.g. ``https://d123.cloudfront.net``), making it independent of forwarded
+    proxy headers. When unset, the scheme is derived from
+    CloudFront-Forwarded-Proto / X-Forwarded-Proto and the host from the
+    request. Supply it from the known public origin (MCP_PUBLIC_URL) so the
+    advertised URL is always the real https CloudFront URL.
     """
     cfg = CognitoConfig.from_env()
     if cfg is None:
         return False
+
+    # Normalize the pinned public base to scheme://host (drop any path like
+    # the trailing /mcp), so metadata URLs are built as <base><metadata_path>.
+    pinned_base: "Optional[str]" = None
+    if public_base_url:
+        from urllib.parse import urlsplit
+
+        parts = urlsplit(public_base_url)
+        if parts.scheme and parts.netloc:
+            pinned_base = f"{parts.scheme}://{parts.netloc}"
 
     # Fail loudly if we are configured to enforce auth but cannot verify tokens.
     try:
@@ -304,19 +322,30 @@ def install_cognito_auth(
         # RFC 9728: advertise the Protected Resource Metadata URL in the
         # challenge so an RFC-9728-aware client can discover the authorization
         # server. Built from the request's base URL so it is correct behind
-        # CloudFront/ALB without hard-coding the public origin. The ALB speaks
-        # plain HTTP to the container, so request.base_url is http://; honor
-        # X-Forwarded-Proto (CloudFront/ALB set it to https) so the advertised
-        # metadata URL is https, which strict clients require.
+        # CloudFront/ALB without hard-coding the public origin. The container is
+        # reached over plain HTTP (CloudFront -> HTTP ALB -> app), so
+        # request.base_url is http://. The TRUE viewer scheme is carried by
+        # CloudFront-Forwarded-Proto (forwarded by the ALL_VIEWER origin-request
+        # policy and NOT overwritten by the ALB, which sets its own
+        # X-Forwarded-Proto to http on its HTTP listener). Prefer it, then fall
+        # back to X-Forwarded-Proto, so the advertised metadata URL is https,
+        # which strict clients require.
         challenge = "Bearer"
         if resource_metadata_path and request is not None:
-            base = str(request.base_url).rstrip("/")
-            fwd_proto = request.headers.get("x-forwarded-proto")
-            if fwd_proto:
-                # Use the first proto if a comma-separated list is forwarded.
-                scheme = fwd_proto.split(",", 1)[0].strip()
-                if scheme and base.startswith("http://") and scheme == "https":
-                    base = "https://" + base[len("http://"):]
+            if pinned_base:
+                # Deterministic: the known public origin, header-independent.
+                base = pinned_base
+            else:
+                base = str(request.base_url).rstrip("/")
+                fwd_proto = (
+                    request.headers.get("cloudfront-forwarded-proto")
+                    or request.headers.get("x-forwarded-proto")
+                )
+                if fwd_proto:
+                    # Use the first proto if a comma-separated list is forwarded.
+                    scheme = fwd_proto.split(",", 1)[0].strip()
+                    if scheme == "https" and base.startswith("http://"):
+                        base = "https://" + base[len("http://"):]
             md_url = base + resource_metadata_path
             challenge = f'Bearer resource_metadata="{md_url}"'
         return JSONResponse(

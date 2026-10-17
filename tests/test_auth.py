@@ -178,19 +178,44 @@ def test_resource_metadata_is_public_and_points_at_cognito(tmp_path, cognito_env
         assert "neurosymbolic-mcp/mcp.invoke" in doc["scopes_supported"]
 
 
-def test_challenge_uses_https_behind_forwarded_proto(tmp_path, cognito_env):
+def test_challenge_uses_https_behind_forwarded_proto(tmp_path, cognito_env, monkeypatch):
     """The 401 resource_metadata URL is https when X-Forwarded-Proto says so.
 
     Behind CloudFront/ALB the container is reached over plain HTTP, so
     request.base_url is http://; the challenge must still advertise an https
-    metadata URL (strict RFC-9728 clients reject a non-TLS metadata URL).
+    metadata URL (strict RFC-9728 clients reject a non-TLS metadata URL). With
+    no MCP_PUBLIC_URL pin, the scheme comes from the forwarded-proto header.
     """
+    monkeypatch.delenv("MCP_PUBLIC_URL", raising=False)
     with TestClient(_mcp_app(tmp_path)) as client:
         r = _post_initialize(client, headers={"X-Forwarded-Proto": "https"})
         assert r.status_code == 401
         www = r.headers.get("www-authenticate", "")
         assert 'resource_metadata="https://' in www
         assert 'resource_metadata="http://' not in www
+
+    # CloudFront-Forwarded-Proto is preferred (the HTTP ALB sets its own
+    # X-Forwarded-Proto to http, so the CloudFront header is the true scheme).
+    with TestClient(_mcp_app(tmp_path)) as client:
+        r = _post_initialize(
+            client,
+            headers={"CloudFront-Forwarded-Proto": "https", "X-Forwarded-Proto": "http"},
+        )
+        www = r.headers.get("www-authenticate", "")
+        assert 'resource_metadata="https://' in www
+
+
+def test_challenge_pins_https_from_public_url(tmp_path, cognito_env, monkeypatch):
+    """MCP_PUBLIC_URL pins the metadata URL scheme+host, header-independent."""
+    monkeypatch.setenv("MCP_PUBLIC_URL", "https://d123.cloudfront.net/mcp")
+    with TestClient(_mcp_app(tmp_path)) as client:
+        # No forwarded-proto header at all -> still https, from the pin.
+        r = _post_initialize(client)
+        www = r.headers.get("www-authenticate", "")
+        assert www == (
+            'Bearer resource_metadata='
+            '"https://d123.cloudfront.net/.well-known/oauth-protected-resource"'
+        )
 
 
 def test_valid_access_token_accepted(tmp_path, cognito_env):
