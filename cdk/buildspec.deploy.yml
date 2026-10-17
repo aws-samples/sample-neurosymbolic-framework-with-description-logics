@@ -41,6 +41,9 @@ phases:
       nodejs: 20
     commands:
       - node --version && docker --version
+      # Create the CDK temp/output dirs FIRST: buildx bootstrap (below) stats
+      # $TMPDIR, so it must exist before `docker buildx inspect --bootstrap`.
+      - mkdir -p "$TMPDIR" "$CDK_OUTPUT_DIR"
       # Cross-arch build prep. The ECS task defs are ARM64 and the image assets
       # pin platform=linux/arm64 (cdk/lib/compute-stack.ts), but this CodeBuild
       # worker is amd64. Register QEMU via binfmt so Buildx can emulate arm64,
@@ -51,7 +54,6 @@ phases:
       - docker run --rm --privileged tonistiigi/binfmt:latest --install arm64
       - docker buildx create --name ndlbuilder --use 2>/dev/null || docker buildx use ndlbuilder
       - docker buildx inspect --bootstrap
-      - mkdir -p "$TMPDIR" "$CDK_OUTPUT_DIR"
       - cd "$CODEBUILD_SRC_DIR/cdk" && npm ci
   pre_build:
     commands:
