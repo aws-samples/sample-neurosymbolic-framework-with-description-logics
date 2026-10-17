@@ -438,6 +438,19 @@ export class ComputeStack extends cdk.Stack {
     });
 
     if (httpsListener) {
+      // Public discovery rule: the RFC 9728 metadata doc must be fetchable
+      // WITHOUT auth (Amazon Quick Suite reads it unauthenticated, following
+      // the 401 `resource_metadata` hint), so forward it straight to the MCP
+      // target group with NO Cognito action. Higher priority than the /mcp*
+      // auth rule so the auth redirect never intercepts it. The app serves it
+      // publicly too (it is in the auth middleware's public-paths set).
+      httpsListener.addAction('McpDiscoveryRule', {
+        priority: 9,
+        conditions: [
+          elbv2.ListenerCondition.pathPatterns(['/.well-known/oauth-protected-resource']),
+        ],
+        action: elbv2.ListenerAction.forward([mcpTargetGroup]),
+      });
       // Authenticated path rule: `/mcp*` -> Cognito auth -> MCP target group.
       // Higher-priority (lower number) than the listener default so it wins for
       // MCP paths; everything else still falls through to the web service.
@@ -453,9 +466,17 @@ export class ComputeStack extends cdk.Stack {
       });
     } else {
       // No authenticated HTTPS listener yet (no cert/identity): expose `/mcp*`
-      // on the plain HTTP listener so the service is still reachable for
-      // testing. NOTE: unauthenticated — the authenticated rule above is the
-      // intended production path once a cert + Cognito identity are supplied.
+      // and the discovery doc on the plain HTTP listener so the service is
+      // still reachable for testing. NOTE: unauthenticated — the authenticated
+      // rule above is the intended production path once a cert + Cognito
+      // identity are supplied.
+      plainHttpListener?.addAction('McpDiscoveryRule', {
+        priority: 9,
+        conditions: [
+          elbv2.ListenerCondition.pathPatterns(['/.well-known/oauth-protected-resource']),
+        ],
+        action: elbv2.ListenerAction.forward([mcpTargetGroup]),
+      });
       plainHttpListener?.addAction('McpRule', {
         priority: 10,
         conditions: [elbv2.ListenerCondition.pathPatterns(['/mcp', '/mcp/*'])],

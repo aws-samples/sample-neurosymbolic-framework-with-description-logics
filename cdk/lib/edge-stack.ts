@@ -131,6 +131,21 @@ export class EdgeStack extends cdk.Stack {
           originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER,
           responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS,
         },
+        // RFC 9728 OAuth Protected Resource Metadata, served by the MCP service
+        // (GET /.well-known/oauth-protected-resource). Route it to the ALB
+        // origin; otherwise it falls through to the S3 default behavior and is
+        // served the SPA index.html, so an RFC-9728-aware client (Amazon Quick
+        // Suite) following the 401 `resource_metadata` hint gets HTML, not the
+        // JSON document. Exact-path behavior: the discovery doc lives at this
+        // single path, so no wildcard is needed.
+        '.well-known/oauth-protected-resource': {
+          origin: albOrigin,
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+          allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+          cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+          originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER,
+          responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS,
+        },
       },
       // SPA client-side routing: serve index.html for unknown paths.
       errorResponses: [

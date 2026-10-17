@@ -304,10 +304,20 @@ def install_cognito_auth(
         # RFC 9728: advertise the Protected Resource Metadata URL in the
         # challenge so an RFC-9728-aware client can discover the authorization
         # server. Built from the request's base URL so it is correct behind
-        # CloudFront/ALB without hard-coding the public origin.
+        # CloudFront/ALB without hard-coding the public origin. The ALB speaks
+        # plain HTTP to the container, so request.base_url is http://; honor
+        # X-Forwarded-Proto (CloudFront/ALB set it to https) so the advertised
+        # metadata URL is https, which strict clients require.
         challenge = "Bearer"
         if resource_metadata_path and request is not None:
-            md_url = str(request.base_url).rstrip("/") + resource_metadata_path
+            base = str(request.base_url).rstrip("/")
+            fwd_proto = request.headers.get("x-forwarded-proto")
+            if fwd_proto:
+                # Use the first proto if a comma-separated list is forwarded.
+                scheme = fwd_proto.split(",", 1)[0].strip()
+                if scheme and base.startswith("http://") and scheme == "https":
+                    base = "https://" + base[len("http://"):]
+            md_url = base + resource_metadata_path
             challenge = f'Bearer resource_metadata="{md_url}"'
         return JSONResponse(
             {"detail": detail},

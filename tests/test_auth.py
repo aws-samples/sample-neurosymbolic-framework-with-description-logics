@@ -178,6 +178,21 @@ def test_resource_metadata_is_public_and_points_at_cognito(tmp_path, cognito_env
         assert "neurosymbolic-mcp/mcp.invoke" in doc["scopes_supported"]
 
 
+def test_challenge_uses_https_behind_forwarded_proto(tmp_path, cognito_env):
+    """The 401 resource_metadata URL is https when X-Forwarded-Proto says so.
+
+    Behind CloudFront/ALB the container is reached over plain HTTP, so
+    request.base_url is http://; the challenge must still advertise an https
+    metadata URL (strict RFC-9728 clients reject a non-TLS metadata URL).
+    """
+    with TestClient(_mcp_app(tmp_path)) as client:
+        r = _post_initialize(client, headers={"X-Forwarded-Proto": "https"})
+        assert r.status_code == 401
+        www = r.headers.get("www-authenticate", "")
+        assert 'resource_metadata="https://' in www
+        assert 'resource_metadata="http://' not in www
+
+
 def test_valid_access_token_accepted(tmp_path, cognito_env):
     with TestClient(_mcp_app(tmp_path)) as client:
         token = _mint(cognito_env, token_use="access", client_id=CLIENT_ID)
