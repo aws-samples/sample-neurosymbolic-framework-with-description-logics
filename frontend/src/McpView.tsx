@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { authHeaders } from "./auth";
+import { Markdown } from "./Markdown";
 
 interface Props {
   ontology: string;
@@ -55,10 +56,41 @@ function formatStdout(json: unknown): string {
   return JSON.stringify(json, null, 2);
 }
 
+// Pull the markdown answer prose out of the MCP tools/call response so it can
+// be rendered (separate from the Raw output JSON). The server nests the answer
+// at result.content[0].text as a JSON string like {"answered":true,
+// "answer":"<markdown>", ...}; we return that answer string, or null if the
+// shape doesn't match (e.g. an error payload or an unexpected schema).
+function extractAnswer(json: unknown): string | null {
+  try {
+    const content = (json as { result?: { content?: unknown } })?.result?.content;
+    if (!Array.isArray(content)) return null;
+    const first = content.find(
+      (c): c is { type?: string; text?: string } =>
+        !!c && typeof (c as { text?: unknown }).text === "string",
+    );
+    if (!first?.text) return null;
+    // The text block is itself a JSON string carrying the answer payload.
+    try {
+      const payload = JSON.parse(first.text) as { answer?: unknown };
+      if (typeof payload.answer === "string" && payload.answer.trim()) {
+        return payload.answer;
+      }
+    } catch {
+      // Not JSON — treat the raw text block as the answer markdown.
+      return first.text;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function McpView({ ontology, questions }: Props) {
   const seed = (questions && questions[0]) || "";
   const [question, setQuestion] = useState(seed);
   const [stdout, setStdout] = useState<string | null>(null);
+  const [answer, setAnswer] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -68,6 +100,7 @@ export function McpView({ ontology, questions }: Props) {
   useEffect(() => {
     setQuestion((questions && questions[0]) || "");
     setStdout(null);
+    setAnswer(null);
     setError(null);
   }, [ontology]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -95,6 +128,7 @@ export function McpView({ ontology, questions }: Props) {
     setRunning(true);
     setError(null);
     setStdout(null);
+    setAnswer(null);
     void fetch(`${origin}/mcp`, {
       method: "POST",
       headers: {
@@ -111,9 +145,12 @@ export function McpView({ ontology, questions }: Props) {
         }
         // Try to pretty-print JSON; fall back to the raw text if it isn't JSON.
         try {
-          setStdout(formatStdout(JSON.parse(text)));
+          const parsed = JSON.parse(text);
+          setStdout(formatStdout(parsed));
+          setAnswer(extractAnswer(parsed));
         } catch {
           setStdout(text);
+          setAnswer(null);
         }
       })
       .catch((e: Error) => setError(e.message))
@@ -161,31 +198,46 @@ export function McpView({ ontology, questions }: Props) {
       <div className="mcp-section">
         <div className="mcp-section-head">
           <span className="mcp-section-title">Sample curl</span>
-          <button
-            className="mcp-copy"
-            onClick={copyCurl}
-            title="Copy the curl command to the clipboard"
-            aria-label="Copy curl command"
-          >
-            {/* clipboard icon */}
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="2" />
-              <path
-                d="M5 15V5a2 2 0 0 1 2-2h10"
-                stroke="currentColor"
-                strokeWidth="2"
-                fill="none"
-              />
-            </svg>
-            <span>{copied ? "Copied" : "Copy"}</span>
-          </button>
         </div>
-        <pre className="mcp-code">{curl}</pre>
+        <div className="mcp-code-wrap">
+          <button
+            className="mcp-copy-inline"
+            onClick={copyCurl}
+            title={copied ? "Copied" : "Copy the curl command to the clipboard"}
+            aria-label={copied ? "Copied curl command" : "Copy curl command"}
+          >
+            {copied ? (
+              /* checkmark icon */
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M5 13l4 4L19 7"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                />
+              </svg>
+            ) : (
+              /* clipboard icon */
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="2" />
+                <path
+                  d="M5 15V5a2 2 0 0 1 2-2h10"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  fill="none"
+                />
+              </svg>
+            )}
+          </button>
+          <pre className="mcp-code">{curl}</pre>
+        </div>
       </div>
 
       <div className="mcp-section">
         <div className="mcp-section-head">
-          <span className="mcp-section-title">Output</span>
+          <span className="mcp-section-title">Raw output</span>
           <button className="mcp-run" onClick={run} disabled={!question.trim() || running}>
             {running ? "Running…" : "Run"}
           </button>
@@ -200,6 +252,23 @@ export function McpView({ ontology, questions }: Props) {
           </div>
         )}
       </div>
+
+      {!error && stdout !== null && (
+        <div className="mcp-section">
+          <div className="mcp-section-head">
+            <span className="mcp-section-title">Rendered answer</span>
+          </div>
+          {answer !== null ? (
+            <div className="mcp-rendered">
+              <Markdown text={answer} />
+            </div>
+          ) : (
+            <div className="program-empty">
+              No markdown answer in this response (see Raw output above).
+            </div>
+          )}
+        </div>
+      )}
     </>
   );
 
