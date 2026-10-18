@@ -24,10 +24,21 @@ convenience on top of it.
 
 | Quick field | Value | Where it comes from |
 |---|---|---|
-| **MCP server endpoint** | `https://<cloudfront-domain>/mcp` | the Edge stack's CloudFront distribution |
-| **Client ID** | the M2M app client id | `M2mClientId` output of the Auth/Edge stack |
+| **MCP server endpoint** | `https://<cloudfront-domain>/mcp` | `DistributionDomain` output of the **Edge** stack |
+| **Client ID** | the M2M app client id | `M2mClientId` output of the **Auth** stack |
 | **Client Secret** | the M2M client's generated secret | Cognito (see below) |
-| **Token URL** | `https://<hosted-ui-domain>.auth.<region>.amazoncognito.com/oauth2/token` | the Cognito hosted-UI domain |
+| **Token URL** | `https://<hosted-ui-domain>.auth.<region>.amazoncognito.com/oauth2/token` | `HostedUiDomain` output of the **Auth** stack |
+| **Scope** | `neurosymbolic-mcp/mcp.invoke` | `M2mScope` output of the **Auth** stack |
+
+Live values for the `ndl` account (`347181052905`, `us-east-1`):
+
+| Field | Value |
+|---|---|
+| MCP server endpoint | `https://d15j8kb5manvuj.cloudfront.net/mcp` |
+| Client ID | `1gdhtn870npje732s65t50f62o` |
+| Token URL | `https://neurosymbolic-dl-347181052905.auth.us-east-1.amazoncognito.com/oauth2/token` |
+| Scope | `neurosymbolic-mcp/mcp.invoke` |
+| User pool id | `us-east-1_d9KfAPrid` |
 
 The hosted-UI domain prefix is `neurosymbolic-dl-<account-id>` (see
 `cdk/lib/auth-stack.ts`), so in the ndl account it is
@@ -36,17 +47,20 @@ The hosted-UI domain prefix is `neurosymbolic-dl-<account-id>` (see
 ### Fetch the live values (admin profile — the service role has no `cognito-idp`)
 
 ```bash
-# MCP endpoint (CloudFront domain) and the M2M client id
+# MCP endpoint (CloudFront domain) — Edge stack
 aws cloudformation describe-stacks --stack-name NeurosymbolicDL-Edge \
-  --query "Stacks[0].Outputs[?OutputKey=='M2mClientId'].OutputValue" \
+  --query "Stacks[0].Outputs[?OutputKey=='DistributionDomain'].OutputValue" \
   --output text --profile <ndl-admin>
 
-# the hosted-UI domain (to build the Token URL)
-aws cloudformation describe-stacks --stack-name NeurosymbolicDL-Edge \
+# M2M client id, hosted-UI domain, and scope — Auth stack
+aws cloudformation describe-stacks --stack-name NeurosymbolicDL-Auth \
+  --query "Stacks[0].Outputs[?OutputKey=='M2mClientId'].OutputValue" \
+  --output text --profile <ndl-admin>
+aws cloudformation describe-stacks --stack-name NeurosymbolicDL-Auth \
   --query "Stacks[0].Outputs[?OutputKey=='HostedUiDomain'].OutputValue" \
   --output text --profile <ndl-admin>
 
-# the M2M client secret
+# the M2M client secret (user pool id is the UserPoolId Auth-stack output)
 aws cognito-idp describe-user-pool-client \
   --user-pool-id <UserPoolId> \
   --client-id <M2mClientId> \
@@ -76,6 +90,19 @@ aws cognito-idp describe-user-pool-client \
    Cognito **access** token, and sends it as `Authorization: Bearer` on every
    `POST /mcp`. The server's `auth.py` verifier already accepts that token (its
    `client_id` claim is in the container's accepted-audience list).
+5. **Enable the tools.** After the connector saves, Quick runs `tools/list` and
+   should show one tool per configured ontology:
+   `answer_question_with_FMA / GO / CTO / CL / HPO / NCIt / OBI / OGMS / BFO`.
+   Enable them for the relevant Quick agent/space.
+6. **Smoke-test from the agent.** Ask a question that routes to a tool, e.g.
+   *"What is apoptosis?"* → the agent calls `answer_question_with_GO` and
+   returns a grounded prose answer with `answered: true`.
+
+> Quick console menu labels vary by release; the **field values** above are
+> exact and verified against the live endpoint. The authenticated `tools/list`
+> (instant, no reasoning) is the best first check that a token is accepted —
+> Quick performs it during connector setup, so a working `tools/list` curl
+> (section 2 verify step) predicts a successful handshake.
 
 ### Why there is no "scope" field to fill in
 
@@ -142,3 +169,16 @@ URL, but the client credentials are still supplied by hand.
   re-enable it without also allowlisting the CloudFront/ALB hosts.
 - **Health check stays public.** `GET /mcp/health` and the discovery document
   are the only unauthenticated paths; everything else requires a valid token.
+- **Cold-start 504.** The first `tools/call` to a not-yet-loaded ontology can
+  exceed CloudFront's 30s origin-response timeout and return `504`; the warm
+  call then succeeds (~11s for GO). If Quick's tool-call timeout is short or it
+  does not retry, warm each ontology after deploy (one `tools/call` per tool),
+  or raise the `/mcp` CloudFront/ALB origin timeout. A cold-start `504` is not
+  an auth or grounding failure — `tools/list` (no reasoning) still returns
+  instantly.
+- **Treat the M2M secret as durable.** It is a non-expiring app-client
+  credential. Do not paste it into chat/email; prefer minting a short-lived
+  (1h) access token for ad-hoc testers, or create a separate per-tester M2M
+  client you can revoke. Rotate with
+  `aws cognito-idp update-user-pool-client ...` (invalidates the old secret, so
+  reconfigure Quick with the new value).
