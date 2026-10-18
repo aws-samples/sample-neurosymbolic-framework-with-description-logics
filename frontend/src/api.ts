@@ -1,6 +1,6 @@
 // Typed client for the Ontology QA backend (ontology_qa_cli.webapp).
 // Every call maps 1:1 to a FastAPI route; in dev, Vite proxies /api to :8000.
-import { authHeaders, withAuthParam, handleUnauthorized, freshIdToken } from "./auth";
+import { authHeaders, withAuthParam, handleUnauthorized, freshIdToken, authEnabled } from "./auth";
 
 export interface OntologyInfo {
   name: string;
@@ -138,8 +138,20 @@ function openAuthedStream(
   let closed = false;
 
   void freshIdToken()
-    .then(() => {
+    .then((token) => {
       if (closed) return; // caller cleaned up before the token resolved
+      // When auth is ENABLED, `freshIdToken()` can still resolve to null if a
+      // refresh failed or a re-login is mid-flight. Opening an EventSource now
+      // would attach NO `access_token` (withAuthParam sends none without a
+      // token) and the authenticated SSE endpoint 401s "Missing bearer token",
+      // closing the stream with no completion frame — exactly the hard-reload
+      // "Lost connection while selecting the ontology" race. Instead, clear the
+      // stale token and bounce to re-login; do NOT open a doomed stream.
+      if (authEnabled() && !token) {
+        handleUnauthorized();
+        onError(lostMessage);
+        return;
+      }
       es = new EventSource(withAuthParam(path));
       wire(es);
       es.addEventListener("error", (e) => {
