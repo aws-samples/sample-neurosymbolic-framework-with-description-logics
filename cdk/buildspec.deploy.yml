@@ -62,6 +62,29 @@ phases:
       # with "CannotFindAsset .../frontend/dist" if the bundle is absent. This
       # is also what makes a frontend change (e.g. the auth token refresh) go
       # live -- the SPA is baked into the asset at deploy time.
+      #
+      # CRITICAL: the SPA reads VITE_COGNITO_* at BUILD time to decide whether
+      # auth is on. If these are unset the bundle ships with auth DISABLED --
+      # it then sends NO `access_token`, and every authenticated API/SSE call
+      # 401s "Missing bearer token" against the auth-ON backend (the hard-reload
+      # "Lost connection while selecting the ontology" symptom). Derive them
+      # from the Auth-stack outputs (this build runs as the CDK deploy role,
+      # which can DescribeStacks) and export BEFORE `npm run build`.
+      - |
+        AUTH_STACK="${AUTH_STACK_NAME:-NeurosymbolicDL-Auth}"
+        EDGE_STACK="${EDGE_STACK_NAME:-NeurosymbolicDL-Edge}"
+        REGION="${AWS_DEFAULT_REGION:-us-east-1}"
+        get_out() { aws cloudformation describe-stacks --stack-name "$1" --region "$REGION" \
+          --query "Stacks[0].Outputs[?OutputKey=='$2'].OutputValue" --output text; }
+        HOSTED_UI_DOMAIN="$(get_out "$AUTH_STACK" HostedUiDomain)"
+        SPA_CLIENT_ID="$(get_out "$AUTH_STACK" SpaClientId)"
+        DISTRIBUTION_DOMAIN="$(get_out "$EDGE_STACK" DistributionDomain)"
+        export VITE_COGNITO_DOMAIN="https://${HOSTED_UI_DOMAIN}.auth.${REGION}.amazoncognito.com"
+        export VITE_COGNITO_CLIENT_ID="$SPA_CLIENT_ID"
+        export VITE_COGNITO_REDIRECT="https://${DISTRIBUTION_DOMAIN}/"
+        echo "SPA auth config: domain=$VITE_COGNITO_DOMAIN client_id=$VITE_COGNITO_CLIENT_ID redirect=$VITE_COGNITO_REDIRECT"
+        test -n "$HOSTED_UI_DOMAIN" && test -n "$SPA_CLIENT_ID" && test -n "$DISTRIBUTION_DOMAIN" \
+          || { echo "ERROR: missing Cognito build config from stack outputs; SPA would ship with auth DISABLED"; exit 1; }
       - cd "$CODEBUILD_SRC_DIR/frontend" && npm ci && npm run build
       - test -f "$CODEBUILD_SRC_DIR/frontend/dist/index.html" || { echo "frontend build produced no dist/index.html"; exit 1; }
       # Account/region for the CDK env (bin/app.ts reads CDK_DEFAULT_*).
