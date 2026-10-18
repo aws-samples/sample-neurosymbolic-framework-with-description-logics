@@ -67,29 +67,35 @@ phases:
       # auth is on. If these are unset the bundle ships with auth DISABLED --
       # it then sends NO `access_token`, and every authenticated API/SSE call
       # 401s "Missing bearer token" against the auth-ON backend (the hard-reload
-      # "Lost connection while selecting the ontology" symptom). Derive them
-      # from the Auth-stack outputs (this build runs as the CDK deploy role,
-      # which can DescribeStacks).
+      # "Lost connection while selecting the ontology" symptom).
+      #
+      # These three values are STABLE, NON-SECRET, PUBLIC config (the SPA client
+      # id and Cognito hosted-UI domain are already baked into any auth-enabled
+      # bundle and visible in the browser), so they are hardcoded here rather
+      # than fetched at build time. Earlier we derived them from the Auth/Edge
+      # stack outputs, but the CodeBuild deploy role (NlDeployServiceRole) does
+      # NOT have cloudformation:DescribeStacks, so that returned empty and the
+      # guard (correctly) failed the build. Hardcoding the known values avoids
+      # that dependency. To override (e.g. after a stack rebuild changes them),
+      # set VITE_COGNITO_* as CodeBuild environment variables -- the ${VAR:-...}
+      # defaults below use the env value when present.
+      #
+      # Source of these values (confirmed live from the Auth/Edge stack outputs):
+      #   HostedUiDomain    = neurosymbolic-dl-347181052905
+      #   SpaClientId       = 6p7aprn1bicfd2uhqgv3c8dsvh
+      #   DistributionDomain= d15j8kb5manvuj.cloudfront.net
       #
       # NB: CodeBuild runs EACH list item in a SEPARATE shell, so the exports
       # and `npm run build` MUST be in the SAME command block -- exporting in a
       # prior item leaves Vite with no VITE_COGNITO_* and silently ships auth
-      # DISABLED. Keep the derivation + build together here.
+      # DISABLED. Keep the exports + build together here.
       - |
-        AUTH_STACK="${AUTH_STACK_NAME:-NeurosymbolicDL-Auth}"
-        EDGE_STACK="${EDGE_STACK_NAME:-NeurosymbolicDL-Edge}"
-        REGION="${AWS_DEFAULT_REGION:-us-east-1}"
-        get_out() { aws cloudformation describe-stacks --stack-name "$1" --region "$REGION" \
-          --query "Stacks[0].Outputs[?OutputKey=='$2'].OutputValue" --output text; }
-        HOSTED_UI_DOMAIN="$(get_out "$AUTH_STACK" HostedUiDomain)"
-        SPA_CLIENT_ID="$(get_out "$AUTH_STACK" SpaClientId)"
-        DISTRIBUTION_DOMAIN="$(get_out "$EDGE_STACK" DistributionDomain)"
-        export VITE_COGNITO_DOMAIN="https://${HOSTED_UI_DOMAIN}.auth.${REGION}.amazoncognito.com"
-        export VITE_COGNITO_CLIENT_ID="$SPA_CLIENT_ID"
-        export VITE_COGNITO_REDIRECT="https://${DISTRIBUTION_DOMAIN}/"
+        export VITE_COGNITO_DOMAIN="${VITE_COGNITO_DOMAIN:-https://neurosymbolic-dl-347181052905.auth.us-east-1.amazoncognito.com}"
+        export VITE_COGNITO_CLIENT_ID="${VITE_COGNITO_CLIENT_ID:-6p7aprn1bicfd2uhqgv3c8dsvh}"
+        export VITE_COGNITO_REDIRECT="${VITE_COGNITO_REDIRECT:-https://d15j8kb5manvuj.cloudfront.net/}"
         echo "SPA auth config: domain=$VITE_COGNITO_DOMAIN client_id=$VITE_COGNITO_CLIENT_ID redirect=$VITE_COGNITO_REDIRECT"
-        test -n "$HOSTED_UI_DOMAIN" && test -n "$SPA_CLIENT_ID" && test -n "$DISTRIBUTION_DOMAIN" \
-          || { echo "ERROR: missing Cognito build config from stack outputs; SPA would ship with auth DISABLED"; exit 1; }
+        test -n "$VITE_COGNITO_DOMAIN" && test -n "$VITE_COGNITO_CLIENT_ID" && test -n "$VITE_COGNITO_REDIRECT" \
+          || { echo "ERROR: missing Cognito build config; SPA would ship with auth DISABLED"; exit 1; }
         cd "$CODEBUILD_SRC_DIR/frontend" && npm ci && npm run build
       - test -f "$CODEBUILD_SRC_DIR/frontend/dist/index.html" || { echo "frontend build produced no dist/index.html"; exit 1; }
       # Account/region for the CDK env (bin/app.ts reads CDK_DEFAULT_*).
