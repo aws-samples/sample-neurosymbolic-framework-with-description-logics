@@ -109,6 +109,13 @@ provides high-level cell type classes as mapping points for cell type classes in
 ontologies representing other species"
 - **[Human phenotype ontology (HPO)](https://hpo.jax.org)** "provides a standardized
 vocabulary of phenotypic abnormalities encountered in human disease."
+- **Life Sciences Manufacturing & Supply Chain Ontology (LifeSci)** — a domain
+ontology for pharmaceutical/biologic manufacturing and supply chain (batches,
+materials, manufacturing sites, deviations, QP release, cold-chain logistics).
+Unlike the biomedical ontologies above it is authored in Turtle and layers
+SHACL node shapes and SKOS concept schemes on top of its OWL axioms, so it is
+translated offline to RDF/XML before loading — see
+[Non-OWL / Turtle source ontologies](#non-owl--turtle-source-ontologies).
 
 This framework has two main components:
 
@@ -473,6 +480,40 @@ Download the file `cl.owl` from `http://obofoundry.org/ontology/cl.html`.
 ### Human phenotype ontology (HPO)
 
 Download `hp-full.owl` from `https://github.com/obophenotype/human-phenotype-ontology/releases/download/v2026-02-16/hp-full.owl`.
+
+### Non-OWL / Turtle source ontologies
+
+The toolchain loads every ontology through
+[owlready2](https://owlready2.readthedocs.io/), which parses **RDF/XML,
+OWL/XML and NTriples — but not Turtle**. Some source ontologies ship only as
+Turtle (`.ttl`) and layer **SHACL** node shapes and **SKOS** concept schemes on
+top of their OWL axioms. The **LifeSci** (Life Sciences Manufacturing & Supply
+Chain) ontology is one such file.
+
+Rather than add a runtime Turtle parser (and a new runtime dependency) to the
+served image, translate the file **offline, once**, into the same RDF/XML
+`.owl` shape every other catalog entry uses. The round-trip is loss-free:
+rdflib reads every triple — OWL class axioms + `owl:Restriction` existentials,
+SKOS `inScheme`/`ConceptScheme` domain grouping, SHACL `NodeShape` data
+contracts, and the custom `materializedIn` data-asset links — and re-serialises
+them as RDF/XML. owlready2 then loads the result natively: the class hierarchy
+and existential restrictions drive the subsumption reasoner and the evolved
+query program exactly as for FMA/GO/Mondo, while the SKOS/SHACL/data-asset
+triples remain reachable through owlready2's graph for relational questions.
+
+The translation is a build-time helper, `scripts/ttl_to_owl.py`. rdflib is
+intentionally **not** a project dependency — install it into a throwaway venv
+for the one-off conversion:
+
+```bash
+python -m venv /tmp/conv && /tmp/conv/bin/pip install rdflib
+/tmp/conv/bin/python scripts/ttl_to_owl.py lifesci_ontology.ttl lifesci.owl
+```
+
+Then upload the produced `.owl` to the ontology S3 bucket under
+`ontologies/<name>.owl` and reference it from `ontology_config.yaml` by its
+`s3://` URI, identically to every other ontology (see
+[Ontology sources](#ontology-sources) below).
 
 ## Configuration
 

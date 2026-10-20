@@ -2182,3 +2182,148 @@ ontologies:
           what is true of the broad category, not assume features specific to one
           subtype. It flags where additional information (genetic, clinical) could
           move the diagnosis down to a more specific Mondo class.
+  - name: "LifeSci"
+    display_name: "Life Sciences Manufacturing & Supply Chain Ontology"
+    owl_file: "s3://neurosymbolicdl-storage-ontologybucket795a3498-gjp5avevev34/ontologies/lifesci.owl"
+    # Life Sciences Manufacturing & Supply Chain Ontology (lso:, v2.0.0) -- an
+    # enterprise ontology for PHARMACEUTICAL manufacturing, quality, supply
+    # chain & logistics, procurement, regulatory, pharmacovigilance, SAP ERP/
+    # finance, cold chain, warehousing, planning, trade compliance and reverse
+    # logistics. Unlike the biomedical OBO ontologies in this catalog, its value
+    # is RELATIONAL and STRUCTURAL rather than a deep is-a tree:
+    #   * ~250 classes grouped into business DOMAINS via skos:inScheme over 26
+    #     skos:ConceptSchemes (Manufacturing, Quality Management, Supply Chain,
+    #     SAP ERP, SAP Finance, Traceability, Cold Chain, etc.);
+    #   * a modest subtype hierarchy (e.g. Material -> {ActiveIngredient,
+    #     Excipient, Reagent, ...}; Biologic -> {Vaccine, CellTherapy,
+    #     GeneTherapy, Biosimilar}; Deviation -> {OutOfSpecification,
+    #     Nonconformance, ColdChainExcursion, TemperatureExcursion});
+    #   * the real content is ~250 owl:Restriction existentials wiring classes
+    #     together (e.g. Batch producedAt some ManufacturingSite; testedBy some
+    #     QualityControlTest; releasedByQP some QualifiedPerson), plus ~260
+    #     object properties with rdfs:domain/range;
+    #   * SHACL sh:NodeShape per class and a custom lso:materializedIn property
+    #     that links each class to the backing DATA ASSET (table) and its
+    #     columns -- e.g. Batch is materialized in batch_records / batch_genealogy.
+    # The file ships as Turtle with SHACL+SKOS; it is translated once to RDF/XML
+    # (scripts/ttl_to_owl.py) so owlready2 loads it like every other entry, with
+    # the SKOS/SHACL/materializedIn triples preserved for relational queries.
+    # The eval set has two complementary kinds of question so the evolved program
+    # stays competent at BOTH: (a) factual lookups grounded in the ontology's
+    # actual classes, subtype hierarchy, object-property relations and data-asset
+    # mappings, and (b) interpretive "what does this model/relationship mean"
+    # questions. Every expected_answer stays grounded in the ontology's real
+    # classes and axioms rather than free speculation.
+    questions:
+      # --- (a) Factual concept / relation / structure lookups ---
+      - question: "In this ontology, what is a Batch related to -- where is it produced, what is it made from, and who releases it?"
+        expected_answer: |
+          A Batch is defined by existential relations to the rest of the model:
+          it is producedAt some ManufacturingSite, producedFrom some Material,
+          testedBy some QualityControlTest, followsProcess some
+          ManufacturingProcess, may haveDeviation some Deviation, is shippedVia
+          some Shipment, batchExecutesRecipe some ControlRecipe, producesCoA some
+          CertificateOfAnalysis, is batchDispositioned some BatchDisposition, and
+          releasedByQP some QualifiedPerson. It also carries parent/child batch
+          genealogy. Its backing data is materialized in the batch_records and
+          batch_genealogy data assets.
+      - question: "What are the subtypes of Biologic in this ontology?"
+        expected_answer: |
+          Biologic is a subclass of Product, and has four direct subtypes:
+          Vaccine, Cell Therapy, Gene Therapy, and Biosimilar. (Cell Therapy and
+          Gene Therapy are the ATMP modalities; Biosimilar is a product highly
+          similar to an approved reference biologic.)
+      - question: "What kinds of Deviation does the ontology distinguish?"
+        expected_answer: |
+          Deviation (a departure from approved procedures/specifications) has
+          four subtypes in the ontology: Out of Specification (OOS) -- a result
+          outside spec limits; Nonconformance -- failure to meet a requirement;
+          Temperature Excursion -- a storage/shipping temperature deviation; and
+          Cold Chain Excursion -- exposure outside the qualified cold-chain range.
+          A Deviation triggersCAPA some CAPA.
+      - question: "Which business domain (concept scheme) is the Quality Control Test in, and what does it relate to?"
+        expected_answer: |
+          Quality Control Test is in the Quality Management domain
+          (skos:inScheme lso:QualityManagement). It is performedOn some Equipment,
+          testAgainstStandard some ReferenceStandard, testUsesMethod some
+          AnalyticalMethod, and measurementHasUncertainty some
+          MeasurementUncertainty. Its data is materialized in the qc_tests asset.
+      - question: "How does the ontology connect an SAP Production Order to a manufacturing Batch?"
+        expected_answer: |
+          SAP Production Order is a subclass of Work Order and lives in the SAP
+          ERP domain. It producesMaterial some SAP Material Master and
+          producesBatch some Batch, so a production order (AFKO/AFPO) is the SAP
+          execution record that yields a GMP Batch -- tying the ERP layer to the
+          quality/manufacturing layer. Its data is materialized in
+          sap_production_orders.
+      - question: "What data asset backs the Supplier class, and what qualification relations does a Supplier carry?"
+        expected_answer: |
+          Supplier is a subclass of Organization (Master Data domain) and is
+          materialized in the suppliers data asset. A Supplier is qualifiedSupplier
+          some SupplierQualification, onApprovedList some ApprovedSupplierList,
+          supplierProvidesCoC some CertificateOfConformance, and
+          supplierClassifiedAs some SupplierRelationship.
+      - question: "What is a Cold Chain Excursion, what does it affect, and what does it trigger?"
+        expected_answer: |
+          A Cold Chain Excursion is a subclass of Deviation: a temperature-
+          controlled product was exposed outside its qualified range. It occursIn
+          some Shipment, affectsEndpoint some DistributionEndpoint, violatesChain
+          some ColdChain, and triggersCAPA some CAPA. Temperature Logger Readings
+          are evidenceOf a Cold Chain Excursion. It is materialized in
+          cold_chain_excursions (with MKT, duration, disposition, estimated loss).
+      - question: "How does the ontology model serialization and track-and-trace for a packaged product?"
+        expected_answer: |
+          A Packaged Medicinal Product is unitSerializedAs some SGTIN (a
+          serialized GTIN identifying a specific saleable unit), and contains
+          ManufacturedItems. SGTIN is a subclass of GTIN and is verifiedByVRS some
+          Verification Router (DSCSA). Aggregation Events aggregate SGTINs
+          (case->pallet), Shipments are labeledAs an SSCC and documented in T3
+          Documents -- the GS1/DSCSA serialization-and-traceability chain.
+      # --- (b) Interpretive questions ---
+      - question: "What is the purpose of the lso:materializedIn relation that links classes to data assets?"
+        expected_answer: |
+          materializedIn maps each conceptual class to the concrete DATA ASSET
+          (table) that stores its instances, together with that asset's key and
+          columns (declared via the SHACL node shapes). It bridges the ontology
+          to the physical data layer: it says "instances of this concept live in
+          this table," so a question about, say, Batches can be grounded in the
+          batch_records table and its fields rather than staying purely abstract.
+          It is what makes the ontology a usable semantic layer over the
+          enterprise data warehouse rather than a standalone taxonomy.
+      - question: "Why does this ontology rely on object-property restrictions and SKOS domains instead of a deep is-a hierarchy?"
+        expected_answer: |
+          It models an enterprise process network, not a natural taxonomy. The
+          meaningful facts are how things RELATE across functions -- a Batch is
+          produced at a site, made from materials, tested, dispositioned, shipped
+          -- which are captured as existential object-property restrictions
+          (owl:someValuesFrom) rather than as subclass links. The 26 SKOS concept
+          schemes then group classes by business DOMAIN (Manufacturing, Quality,
+          Supply Chain, SAP ERP/Finance, Traceability, ...) so the flat set of
+          ~250 classes stays navigable. Subtyping is used only where a genuine
+          is-a holds (Biologic -> Vaccine; Deviation -> OOS). The result favours
+          relational reasoning and data integration over tree depth.
+      - question: "A product shows a cold chain excursion on an inbound shipment. Using the ontology's relations, what else is implicated?"
+        expected_answer: |
+          Following the ontology's relations: the Cold Chain Excursion occursIn
+          the Shipment and violatesChain the product's ColdChain, with Temperature
+          Logger Readings as evidenceOf it; it affectsEndpoint the receiving
+          Distribution Endpoint and triggersCAPA a CAPA. Because an excursion is a
+          Deviation, downstream a Batch Disposition and possibly a Product Return
+          (returnDueToExcursion) or Market Action may follow. So a single
+          excursion implicates the shipment, the logger evidence, the destination
+          endpoint, a CAPA investigation, and the quality disposition of the
+          affected batch -- a chain the relations make explicit rather than
+          requiring free inference.
+      - question: "How does the ontology connect the financial view (SAP Finance) to physical supply chain events?"
+        expected_answer: |
+          The SAP Finance domain layers monetary objects onto the physical flow.
+          An AP Invoice is invoiceForPO some SAP Purchase Order and invoiceFromVendor
+          some Supplier; a Payment Run settlesInvoice that AP Invoice. Purchase
+          Price Variance is derivedFromInvoice (standard vs actual price) for a
+          material, and Production Order Variance is varianceOnOrder some SAP
+          Production Order comparedToEstimate a Cost Estimate. FI Documents and
+          their line items post to GL Accounts, Cost Centers and Profit Centers,
+          and AR Invoices recognise revenue (feeding Gross Margin per Product). So
+          procurement, production and delivery events each have a corresponding
+          financial object, letting cost and variance be traced back to the
+          physical batch, PO or shipment that caused them.

@@ -56,7 +56,7 @@ const compute = new ComputeStack(app, `${prefix}-Compute`, {
   // Ontologies exposed as MCP answer_question_with_<NAME> tools (each also
   // gets a per-deploy builder evolve task). All configured ontologies are
   // served; the list mirrors ontology_config.yaml.
-  mcpOntologies: ['FMA', 'GO', 'CTO', 'CL', 'HPO', 'NCIt', 'OBI', 'OGMS', 'BFO', 'Mondo'],
+  mcpOntologies: ['FMA', 'GO', 'CTO', 'CL', 'HPO', 'NCIt', 'OBI', 'OGMS', 'BFO', 'Mondo', 'LifeSci'],
   // Image tags/repos are supplied by CI (Task 7). Placeholder context keys:
   webImageAsset: app.node.tryGetContext('webImage'),
   builderImageAsset: app.node.tryGetContext('builderImage'),
