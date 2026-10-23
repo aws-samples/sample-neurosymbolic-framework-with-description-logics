@@ -335,8 +335,16 @@ export class ComputeStack extends cdk.Stack {
     const mcpOntologiesCsv = mcpOntologies.join(',');
 
     const mcpTaskDef = new ecs.FargateTaskDefinition(this, 'McpTaskDef', {
-      cpu: 512,
-      memoryLimitMiB: 1024,
+      // GO's go-plus.owl (~226MB) and other large ontologies load via
+      // in-memory owlready2; at 1GB the task was OOM-killed during the load,
+      // leaving the answerer's world EMPTY so the evolved query program's
+      // world.search() returned nothing and it emitted its seeded fallback
+      // "I don't know" for every GO question. The web service hit the identical
+      // wall on select and was raised to 2 vCPU / 8GB (commit e5f2d94); the MCP
+      // service loads each configured ontology into its own world, so it needs
+      // at least the same headroom. Match it.
+      cpu: 2048,
+      memoryLimitMiB: 8192,
       volumes: [efsVolume],
       runtimePlatform: {
         cpuArchitecture: ecs.CpuArchitecture.ARM64,
