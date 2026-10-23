@@ -54,6 +54,15 @@ export class EdgeStack extends cdk.Stack {
     // ---- CloudFront ------------------------------------------------------
     const albOrigin = new origins.LoadBalancerV2Origin(props.loadBalancer, {
       protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY, // ALB is HTTP; front it with HTTPS at CloudFront
+      // CloudFront's default origin response timeout is 30s. A grounded MCP/API
+      // query (POST /mcp, /api/select) runs the neurosymbolic program plus
+      // Bedrock LLM reasoning, which routinely exceeds 30s on a cold or large
+      // ontology (e.g. GO, Mondo) — CloudFront then returns a 504 Gateway
+      // Timeout while the backend is still working. Raise the read timeout to
+      // 60s, the maximum allowed without an AWS quota increase. The ALB idle
+      // timeout defaults to 60s, so this is consistent up the chain.
+      readTimeout: cdk.Duration.seconds(60),
+      keepaliveTimeout: cdk.Duration.seconds(60),
     });
 
     // Force the SPA shell (index.html) to be revalidated on every load so a
