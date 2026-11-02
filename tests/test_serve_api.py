@@ -45,6 +45,22 @@ FAKE_PROGRAM = textwrap.dedent(
     '''
 )
 
+# A program that bound owlready2's globals via ``from ... import`` (so the
+# module-attribute repointing alone cannot reach it).
+FROM_IMPORT_PROGRAM = textwrap.dedent(
+    '''\
+    from pathlib import Path
+    from owlready2 import default_world, get_ontology
+
+    def main(onto_file, question):
+        default_world.set_backend(
+            filename=str(Path(onto_file).with_suffix(".sqlite3"))
+        )
+        onto = get_ontology(f"file://{onto_file}").load()
+        print(f"Answer: {sorted(c.name for c in onto.classes())}")
+    '''
+)
+
 # A program that raises, to exercise error propagation / HTTP 500.
 FAILING_PROGRAM = textwrap.dedent(
     '''\
@@ -89,6 +105,12 @@ class TestOntologyAnswerer:
         assert a1 is not None and "classes=['Heart', 'Liver']" in a1
         assert "q='first?'" in a1
         assert "q='second?'" in a2
+
+    def test_from_import_program_repeated_calls(self, tmp_path, tiny_owl):
+        prog = _write_program(tmp_path, FROM_IMPORT_PROGRAM)
+        answerer = OntologyAnswerer.from_program(prog, tiny_owl)
+        for q in ("a?", "b?"):
+            assert answerer.answer(q) == "['Heart', 'Liver']"
 
     def test_missing_program_raises(self, tmp_path, tiny_owl):
         with pytest.raises(FileNotFoundError):

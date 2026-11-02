@@ -38,6 +38,7 @@ import contextlib
 import importlib.util
 import io
 import sys
+import os
 import threading
 import types
 from pathlib import Path
@@ -73,6 +74,9 @@ def _is_cache_write_error(exc: BaseException) -> bool:
             return True
         cur = cur.__cause__ or cur.__context__
     return False
+
+
+_GLOBAL_PATCH_LOCK = threading.RLock()
 
 
 class OntologyAnswerer:
@@ -207,6 +211,41 @@ class OntologyAnswerer:
         return cls(program_path=Path(program_path), onto_file=Path(onto_file))
 
     @staticmethod
+    def _make_tolerant_set_backend(real, cache_file: Path):
+        """Wrap ``World.set_backend`` so a program that touches a world BEFORE
+        attaching our shared cache does not crash.
+
+        owlready2 refuses to attach an existing quadstore to a world that
+        already holds triples ("Cannot save existent quadstore ... File already
+        exists"). Evolved programs can trigger that (e.g. creating a helper
+        ontology or a private ``World()`` first). For the shared cache file we
+        open it read-only/shared (like our own reader) and, if the world is
+        already non-empty, discard its stray in-memory graph and attach
+        cleanly. Any other file passes through untouched.
+        """
+        target = os.path.abspath(str(cache_file))
+
+        def wrapper(world, *args, **kwargs):
+            filename = kwargs.get("filename")
+            if filename is None and len(args) > 1:
+                filename = args[1]
+            if filename is None or os.path.abspath(str(filename)) != target:
+                return real(world, *args, **kwargs)
+            kwargs.setdefault("exclusive", False)
+            kwargs.setdefault("read_only", True)
+            try:
+                return real(world, *args, **kwargs)
+            except ValueError as exc:
+                if "Cannot save existent quadstore" not in str(exc):
+                    raise
+                # Drop stray in-memory triples/ontologies, then attach cleanly.
+                world.graph = None
+                world.ontologies.clear()
+                return real(world, *args, **kwargs)
+
+        return wrapper
+
+    @staticmethod
     def _import_program(program_path: Path) -> types.ModuleType:
         """Import a query_program.py file as an isolated module object."""
         spec = importlib.util.spec_from_file_location(
@@ -309,8 +348,31 @@ class OntologyAnswerer:
         buf = io.StringIO()
         sink: "io.TextIOBase" = _LineTee(buf, on_line) if on_line else buf
 
+        # Programs that did ``from owlready2 import default_world, get_ontology``
+        # hold the ORIGINAL objects in their own module globals, so repointing
+        # the owlready2 module attributes alone does not reach them. Swap those
+        # bindings too for the duration of the call.
+        cache_file = self.onto_file.with_suffix(".sqlite3")
+        real_world_cls_set_backend = owlready2.World.set_backend
+        world_cls_set_backend = self._make_tolerant_set_backend(
+            real_world_cls_set_backend, cache_file
+        )
+        module_globals = vars(self._module)
+        swapped: dict = {}
+        for key, val in list(module_globals.items()):
+            if val is real_default_world:
+                swapped[key] = val
+                module_globals[key] = self._world
+            elif val is real_get_ontology:
+                swapped[key] = val
+                module_globals[key] = _patched_get_ontology
+
+        # owlready2's default/global state is process-wide, so all answerers
+        # must take turns while it is repointed.
+        _GLOBAL_PATCH_LOCK.acquire()
         owlready2.default_world = self._world
         owlready2.get_ontology = _patched_get_ontology
+        owlready2.World.set_backend = world_cls_set_backend  # type: ignore[method-assign]
         self._world.set_backend = _patched_set_backend  # type: ignore[method-assign]
         try:
             if on_line is not None:
@@ -328,7 +390,10 @@ class OntologyAnswerer:
                 sink.flush()
             owlready2.default_world = real_default_world
             owlready2.get_ontology = real_get_ontology
+            owlready2.World.set_backend = real_world_cls_set_backend  # type: ignore[method-assign]
             self._world.set_backend = real_world_set_backend  # type: ignore[method-assign]
+            module_globals.update(swapped)
+            _GLOBAL_PATCH_LOCK.release()
 
         return extract_answer(buf.getvalue())
 
