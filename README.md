@@ -109,13 +109,6 @@ provides high-level cell type classes as mapping points for cell type classes in
 ontologies representing other species"
 - **[Human phenotype ontology (HPO)](https://hpo.jax.org)** "provides a standardized
 vocabulary of phenotypic abnormalities encountered in human disease."
-- **Life Sciences Manufacturing & Supply Chain Ontology (LifeSci)** — a domain
-ontology for pharmaceutical/biologic manufacturing and supply chain (batches,
-materials, manufacturing sites, deviations, QP release, cold-chain logistics).
-Unlike the biomedical ontologies above it is authored in Turtle and layers
-SHACL node shapes and SKOS concept schemes on top of its OWL axioms, so it is
-translated offline to RDF/XML before loading — see
-[Non-OWL / Turtle source ontologies](#non-owl--turtle-source-ontologies).
 
 This framework has two main components:
 
@@ -487,8 +480,7 @@ The toolchain loads every ontology through
 [owlready2](https://owlready2.readthedocs.io/), which parses **RDF/XML,
 OWL/XML and NTriples — but not Turtle**. Some source ontologies ship only as
 Turtle (`.ttl`) and layer **SHACL** node shapes and **SKOS** concept schemes on
-top of their OWL axioms. The **LifeSci** (Life Sciences Manufacturing & Supply
-Chain) ontology is one such file.
+top of their OWL axioms.
 
 Rather than add a runtime Turtle parser (and a new runtime dependency) to the
 served image, translate the file **offline, once**, into the same RDF/XML
@@ -507,7 +499,7 @@ for the one-off conversion:
 
 ```bash
 python -m venv /tmp/conv && /tmp/conv/bin/pip install rdflib
-/tmp/conv/bin/python scripts/ttl_to_owl.py lifesci_ontology.ttl lifesci.owl
+/tmp/conv/bin/python scripts/ttl_to_owl.py my_ontology.ttl my_ontology.owl
 ```
 
 Then upload the produced `.owl` to the ontology S3 bucket under
