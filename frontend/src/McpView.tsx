@@ -86,6 +86,42 @@ function extractAnswer(json: unknown): string | null {
   }
 }
 
+// Per-ontology persistence of the last MCP run, so the question, Raw output and
+// Rendered answer survive a page reload (and switching between the Program and
+// MCP tabs, which unmounts this view). Best-effort, like useChat's last-ontology
+// memory: if localStorage is unavailable or full, the view just starts empty.
+interface SavedRun {
+  question?: string;
+  stdout?: string | null;
+  answer?: string | null;
+}
+
+const savedKey = (ontology: string) => `ndl.mcp.last.${ontology}`;
+
+function loadSaved(ontology: string): SavedRun {
+  try {
+    const raw = localStorage.getItem(savedKey(ontology));
+    return raw ? (JSON.parse(raw) as SavedRun) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveRun(ontology: string, patch: SavedRun | null): void {
+  try {
+    if (patch === null) {
+      localStorage.removeItem(savedKey(ontology));
+      return;
+    }
+    localStorage.setItem(
+      savedKey(ontology),
+      JSON.stringify({ ...loadSaved(ontology), ...patch }),
+    );
+  } catch {
+    // Unavailable (private mode / disabled) or quota exceeded — best-effort.
+  }
+}
+
 export function McpView({ ontology, questions }: Props) {
   const seed = (questions && questions[0]) || "";
   const [question, setQuestion] = useState(seed);
@@ -96,11 +132,13 @@ export function McpView({ ontology, questions }: Props) {
   const [copied, setCopied] = useState(false);
   const copyTimer = useRef<number | null>(null);
 
-  // Reset the input to the new ontology's first canned question on switch.
+  // On mount and on ontology switch, restore that ontology's last question and
+  // result if one was saved; otherwise seed the first canned question.
   useEffect(() => {
-    setQuestion((questions && questions[0]) || "");
-    setStdout(null);
-    setAnswer(null);
+    const saved = ontology ? loadSaved(ontology) : {};
+    setQuestion(saved.question ?? ((questions && questions[0]) || ""));
+    setStdout(saved.stdout ?? null);
+    setAnswer(saved.answer ?? null);
     setError(null);
   }, [ontology]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -129,6 +167,8 @@ export function McpView({ ontology, questions }: Props) {
     setError(null);
     setStdout(null);
     setAnswer(null);
+    // Drop the previous saved result so a failed run can't resurrect it on reload.
+    saveRun(ontology, { question: q, stdout: null, answer: null });
     void fetch(`${origin}/mcp`, {
       method: "POST",
       headers: {
@@ -146,11 +186,15 @@ export function McpView({ ontology, questions }: Props) {
         // Try to pretty-print JSON; fall back to the raw text if it isn't JSON.
         try {
           const parsed = JSON.parse(text);
-          setStdout(formatStdout(parsed));
-          setAnswer(extractAnswer(parsed));
+          const out = formatStdout(parsed);
+          const ans = extractAnswer(parsed);
+          setStdout(out);
+          setAnswer(ans);
+          saveRun(ontology, { question: q, stdout: out, answer: ans });
         } catch {
           setStdout(text);
           setAnswer(null);
+          saveRun(ontology, { question: q, stdout: text, answer: null });
         }
       })
       .catch((e: Error) => setError(e.message))
@@ -187,7 +231,10 @@ export function McpView({ ontology, questions }: Props) {
             type="text"
             value={question}
             placeholder="Ask a question of this ontology…"
-            onChange={(e) => setQuestion(e.target.value)}
+            onChange={(e) => {
+              setQuestion(e.target.value);
+              saveRun(ontology, { question: e.target.value });
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter") run();
             }}
