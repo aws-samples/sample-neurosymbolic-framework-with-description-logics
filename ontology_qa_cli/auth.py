@@ -45,9 +45,12 @@ state must fail loudly rather than silently allow every request.
 """
 from __future__ import annotations
 
+import logging
 import os
 import time
 from typing import Iterable, Optional
+
+logger = logging.getLogger(__name__)
 
 try:  # FastAPI/Starlette are only present with the `api` extra.
     from fastapi import FastAPI
@@ -246,6 +249,8 @@ def install_cognito_auth(
     app: "FastAPI",
     *,
     public_paths: "Optional[Iterable[str]]" = None,
+    resource_metadata_path: "Optional[str]" = None,
+    public_base_url: "Optional[str]" = None,
 ) -> bool:
     """Install Cognito JWT enforcement on ``app`` when configured.
 
@@ -255,10 +260,35 @@ def install_cognito_auth(
 
     ``public_paths`` overrides the default set of always-open paths (the ALB
     health-check endpoints). Pass an empty iterable to gate everything.
+
+    ``resource_metadata_path`` is an app-relative path (e.g.
+    ``/.well-known/oauth-protected-resource``) to the RFC 9728 Protected
+    Resource Metadata document. When set, every 401's ``WWW-Authenticate``
+    header carries a ``resource_metadata="<url>"`` parameter so an
+    RFC-9728-aware MCP client (Amazon Quick Suite) can discover the Cognito
+    authorization server from the challenge instead of being configured by
+    hand. The absolute URL is built per-request from the request's base URL.
+
+    ``public_base_url`` optionally pins the scheme + host of that metadata URL
+    (e.g. ``https://d123.cloudfront.net``), making it independent of forwarded
+    proxy headers. When unset, the scheme is derived from
+    CloudFront-Forwarded-Proto / X-Forwarded-Proto and the host from the
+    request. Supply it from the known public origin (MCP_PUBLIC_URL) so the
+    advertised URL is always the real https CloudFront URL.
     """
     cfg = CognitoConfig.from_env()
     if cfg is None:
         return False
+
+    # Normalize the pinned public base to scheme://host (drop any path like
+    # the trailing /mcp), so metadata URLs are built as <base><metadata_path>.
+    pinned_base: "Optional[str]" = None
+    if public_base_url:
+        from urllib.parse import urlsplit
+
+        parts = urlsplit(public_base_url)
+        if parts.scheme and parts.netloc:
+            pinned_base = f"{parts.scheme}://{parts.netloc}"
 
     # Fail loudly if we are configured to enforce auth but cannot verify tokens.
     try:
@@ -273,11 +303,55 @@ def install_cognito_auth(
     open_paths = frozenset(public_paths) if public_paths is not None else _PUBLIC_PATHS
     jwks = _JwksCache(cfg.jwks_url)
 
-    def _unauthorized(detail: str) -> "JSONResponse":
+    def _unauthorized(detail: str, request: "Optional[Request]" = None) -> "JSONResponse":
+        # Log the concrete reason so a 401 is diagnosable from the service logs
+        # rather than appearing as a bare "401 Unauthorized" access-log line.
+        # Critical for the SSE endpoints: EventSource never surfaces the 401
+        # body to the UI (it only sees a closed stream -> "Lost connection"),
+        # so the server log is the ONLY place the reason is visible. The token
+        # itself is never logged -- only the verifier's client-safe reason.
+        if request is not None:
+            logger.warning(
+                "401 Unauthorized %s %s -- %s",
+                request.method,
+                request.url.path,
+                detail,
+            )
+        else:
+            logger.warning("401 Unauthorized -- %s", detail)
+        # RFC 9728: advertise the Protected Resource Metadata URL in the
+        # challenge so an RFC-9728-aware client can discover the authorization
+        # server. Built from the request's base URL so it is correct behind
+        # CloudFront/ALB without hard-coding the public origin. The container is
+        # reached over plain HTTP (CloudFront -> HTTP ALB -> app), so
+        # request.base_url is http://. The TRUE viewer scheme is carried by
+        # CloudFront-Forwarded-Proto (forwarded by the ALL_VIEWER origin-request
+        # policy and NOT overwritten by the ALB, which sets its own
+        # X-Forwarded-Proto to http on its HTTP listener). Prefer it, then fall
+        # back to X-Forwarded-Proto, so the advertised metadata URL is https,
+        # which strict clients require.
+        challenge = "Bearer"
+        if resource_metadata_path and request is not None:
+            if pinned_base:
+                # Deterministic: the known public origin, header-independent.
+                base = pinned_base
+            else:
+                base = str(request.base_url).rstrip("/")
+                fwd_proto = (
+                    request.headers.get("cloudfront-forwarded-proto")
+                    or request.headers.get("x-forwarded-proto")
+                )
+                if fwd_proto:
+                    # Use the first proto if a comma-separated list is forwarded.
+                    scheme = fwd_proto.split(",", 1)[0].strip()
+                    if scheme == "https" and base.startswith("http://"):
+                        base = "https://" + base[len("http://"):]
+            md_url = base + resource_metadata_path
+            challenge = f'Bearer resource_metadata="{md_url}"'
         return JSONResponse(
             {"detail": detail},
             status_code=401,
-            headers={"WWW-Authenticate": "Bearer"},
+            headers={"WWW-Authenticate": challenge},
         )
 
     @app.middleware("http")
@@ -288,7 +362,9 @@ def install_cognito_auth(
 
         token = _extract_bearer(request)
         if token is None:
-            return _unauthorized("Missing bearer token. Authenticate via Cognito.")
+            return _unauthorized(
+                "Missing bearer token. Authenticate via Cognito.", request
+            )
         try:
             # Signature verification does blocking I/O (JWKS fetch) only on a
             # cache miss; run it in a worker thread so the event loop is free.
@@ -296,9 +372,9 @@ def install_cognito_auth(
 
             await anyio.to_thread.run_sync(_verify_token, token, cfg, jwks)
         except _AuthError as exc:
-            return _unauthorized(str(exc))
+            return _unauthorized(str(exc), request)
         except Exception as exc:  # noqa: BLE001 - never leak internals as 500 here
-            return _unauthorized(f"token verification failed: {exc}")
+            return _unauthorized(f"token verification failed: {exc}", request)
         return await call_next(request)
 
     return True

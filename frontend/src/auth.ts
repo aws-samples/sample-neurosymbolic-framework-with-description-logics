@@ -36,6 +36,19 @@ const STORAGE_KEY = "ontology_qa_tokens";
 const PKCE_VERIFIER_KEY = "ontology_qa_pkce_verifier";
 const PKCE_STATE_KEY = "ontology_qa_pkce_state";
 
+// Clock-skew guard for treating a token as already expired. Kept at 30s for the
+// synchronous header path (`currentIdToken`), which only decides whether to
+// ATTACH the token at all.
+const EXPIRY_SKEW_SECONDS = 30;
+// Proactive-refresh margin for `freshIdToken`. Wider than the skew guard so a
+// token in its final seconds is REFRESHED before an EventSource opens, rather
+// than attached-but-rejected: the browser EventSource API cannot retry with a
+// new token, and the server verifies `exp` against ITS clock, so a token that
+// still looks "current" to the 30s guard here can be `exp`-rejected server-side
+// -> the SSE stream closes with no completion frame -> "Lost connection…".
+// Refreshing when within this window closes that race.
+const PROACTIVE_REFRESH_SECONDS = 90;
+
 /** Auth is only active when the SPA was built with Cognito config. */
 export const authEnabled = (): boolean => Boolean(DOMAIN && CLIENT_ID);
 
@@ -57,12 +70,17 @@ export function clearTokens(): void {
   localStorage.removeItem(STORAGE_KEY);
 }
 
-/** A valid, unexpired id token, or null. 30s skew guard. */
-function currentIdToken(): string | null {
+/** A valid id token with at least `marginSeconds` of life left, or null. */
+function tokenValidFor(marginSeconds: number): string | null {
   const t = loadTokens();
   if (!t) return null;
-  if (t.expiresAt - 30 <= Math.floor(Date.now() / 1000)) return null;
+  if (t.expiresAt - marginSeconds <= Math.floor(Date.now() / 1000)) return null;
   return t.idToken;
+}
+
+/** A valid, unexpired id token, or null. 30s skew guard. */
+function currentIdToken(): string | null {
+  return tokenValidFor(EXPIRY_SKEW_SECONDS);
 }
 
 /**
@@ -79,9 +97,14 @@ function currentIdToken(): string | null {
  */
 export async function freshIdToken(): Promise<string | null> {
   if (!authEnabled()) return null;
-  const current = currentIdToken();
+  // Use the WIDER proactive-refresh margin here (not the 30s skew guard): if
+  // the token has less than PROACTIVE_REFRESH_SECONDS of life left, refresh it
+  // NOW so the stream that is about to open carries a token the server will
+  // still accept by the time it verifies `exp`. `currentIdToken()`'s 30s guard
+  // would wave a last-minute token through, which then 401s the SSE endpoint.
+  const current = tokenValidFor(PROACTIVE_REFRESH_SECONDS);
   if (current) return current;
-  // Stored token missing/expired: try a silent refresh, else full re-login.
+  // Stored token missing/expired/near-expiry: try a silent refresh, else full re-login.
   const refreshed = await refresh();
   if (refreshed) return refreshed.idToken;
   await ensureAuthenticated(); // refreshes or navigates to the hosted UI

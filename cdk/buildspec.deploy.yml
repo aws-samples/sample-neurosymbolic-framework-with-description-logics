@@ -1,0 +1,117 @@
+version: 0.2
+
+# Full `cdk deploy` of the Neurosymbolic-DL app on AWS CodeBuild.
+#
+# Why CodeBuild: the ECS container images are CDK `ContainerImage.fromAsset`
+# builds (Dockerfile.web / .builder / .mcp), so deploying REQUIRES a Docker
+# daemon to bundle the image assets. The bastion/EC2 host that drives this has
+# no container runtime, so the deploy runs here instead -- CodeBuild workers
+# provide docker-in-docker (requires the project's privilegedMode=true).
+#
+# This mirrors the Geneformer sagemaker/buildspec.yml pattern (same account,
+# same ECR-auth-then-build shape) but goes one step further: instead of just
+# building+pushing an image, it runs the whole CDK deploy so the ECS task
+# definitions and the CloudFront/SPA bundle are updated atomically -- a pushed
+# image alone would not roll the service, because the task def references a CDK
+# asset digest, not a floating `latest` tag.
+#
+# Required on the CodeBuild project:
+#   * image: aws/codebuild/standard:7.0 (Node 20 + Docker preinstalled)
+#   * privilegedMode: true            (docker-in-docker for fromAsset bundling)
+#   * environmentVariables:
+#       DEPLOY_STACKS   space/'s -separated stack names or "--all"
+#                       (default: "NeurosymbolicDL-Compute NeurosymbolicDL-Edge")
+#   * service role: the ndl CDK DEPLOY role (CloudFormation + the
+#       cdk-hnb659fds-* bootstrap roles / ECR / ECS / S3 asset bucket), NOT the
+#       Geneformer build role, which has no CloudFormation access.
+#   * source: this repo (the CDK app lives under cdk/).
+
+env:
+  variables:
+    # Keep CDK's temp + synth output OFF the asset root ('..' = repo root). A
+    # fromAsset context that contains the growing cdk.out recurses into itself
+    # during Docker bundling -> ENAMETOOLONG. (Same class of failure the host
+    # lessons record; harmless but cheap to pre-empt here too.)
+    CDK_OUTPUT_DIR: /tmp/ndl-cdkout
+    TMPDIR: /tmp/ndl-cdk-tmp
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 20
+    commands:
+      - node --version && docker --version
+      # Create the CDK temp/output dirs FIRST: buildx bootstrap (below) stats
+      # $TMPDIR, so it must exist before `docker buildx inspect --bootstrap`.
+      - mkdir -p "$TMPDIR" "$CDK_OUTPUT_DIR"
+      # Cross-arch build prep. The ECS task defs are ARM64 and the image assets
+      # pin platform=linux/arm64 (cdk/lib/compute-stack.ts), but this CodeBuild
+      # worker is amd64. Register QEMU via binfmt so Buildx can emulate arm64,
+      # and create a buildx builder (CDK invokes `docker buildx build` for a
+      # platform-pinned fromAsset). Without this the arm64 asset build fails
+      # with "exec format error" DURING the build. Idempotent; privilegedMode
+      # (required on the project) is what lets binfmt register handlers.
+      - docker run --rm --privileged tonistiigi/binfmt:latest --install arm64
+      - docker buildx create --name ndlbuilder --use 2>/dev/null || docker buildx use ndlbuilder
+      - docker buildx inspect --bootstrap
+      - cd "$CODEBUILD_SRC_DIR/cdk" && npm ci
+  pre_build:
+    commands:
+      # Build the React SPA FIRST. EdgeStack bundles frontend/dist via a
+      # BucketDeployment asset, so `cdk deploy` of the Edge stack fails at synth
+      # with "CannotFindAsset .../frontend/dist" if the bundle is absent. This
+      # is also what makes a frontend change (e.g. the auth token refresh) go
+      # live -- the SPA is baked into the asset at deploy time.
+      #
+      # CRITICAL: the SPA reads VITE_COGNITO_* at BUILD time to decide whether
+      # auth is on. If these are unset the bundle ships with auth DISABLED --
+      # it then sends NO `access_token`, and every authenticated API/SSE call
+      # 401s "Missing bearer token" against the auth-ON backend (the hard-reload
+      # "Lost connection while selecting the ontology" symptom).
+      #
+      # These three values are STABLE, NON-SECRET, PUBLIC config (the SPA client
+      # id and Cognito hosted-UI domain are already baked into any auth-enabled
+      # bundle and visible in the browser), so they are hardcoded here rather
+      # than fetched at build time. Earlier we derived them from the Auth/Edge
+      # stack outputs, but the CodeBuild deploy role (NlDeployServiceRole) does
+      # NOT have cloudformation:DescribeStacks, so that returned empty and the
+      # guard (correctly) failed the build. Hardcoding the known values avoids
+      # that dependency. To override (e.g. after a stack rebuild changes them),
+      # set VITE_COGNITO_* as CodeBuild environment variables -- the ${VAR:-...}
+      # defaults below use the env value when present.
+      #
+      # Source of these values (confirmed live from the Auth/Edge stack outputs):
+      #   HostedUiDomain    = neurosymbolic-dl-347181052905
+      #   SpaClientId       = 6p7aprn1bicfd2uhqgv3c8dsvh
+      #   DistributionDomain= d15j8kb5manvuj.cloudfront.net
+      #
+      # NB: CodeBuild runs EACH list item in a SEPARATE shell, so the exports
+      # and `npm run build` MUST be in the SAME command block -- exporting in a
+      # prior item leaves Vite with no VITE_COGNITO_* and silently ships auth
+      # DISABLED. Keep the exports + build together here.
+      - |
+        export VITE_COGNITO_DOMAIN="${VITE_COGNITO_DOMAIN:-https://neurosymbolic-dl-347181052905.auth.us-east-1.amazoncognito.com}"
+        export VITE_COGNITO_CLIENT_ID="${VITE_COGNITO_CLIENT_ID:-6p7aprn1bicfd2uhqgv3c8dsvh}"
+        export VITE_COGNITO_REDIRECT="${VITE_COGNITO_REDIRECT:-https://d15j8kb5manvuj.cloudfront.net/}"
+        echo "SPA auth config: domain=$VITE_COGNITO_DOMAIN client_id=$VITE_COGNITO_CLIENT_ID redirect=$VITE_COGNITO_REDIRECT"
+        test -n "$VITE_COGNITO_DOMAIN" && test -n "$VITE_COGNITO_CLIENT_ID" && test -n "$VITE_COGNITO_REDIRECT" \
+          || { echo "ERROR: missing Cognito build config; SPA would ship with auth DISABLED"; exit 1; }
+        cd "$CODEBUILD_SRC_DIR/frontend" && npm ci && npm run build
+      - test -f "$CODEBUILD_SRC_DIR/frontend/dist/index.html" || { echo "frontend build produced no dist/index.html"; exit 1; }
+      # Account/region for the CDK env (bin/app.ts reads CDK_DEFAULT_*).
+      - export CDK_DEFAULT_ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
+      - export CDK_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-east-1}"
+      - echo "Deploying into account $CDK_DEFAULT_ACCOUNT region $CDK_DEFAULT_REGION"
+      - export STACKS="${DEPLOY_STACKS:-NeurosymbolicDL-Compute NeurosymbolicDL-Edge}"
+      - echo "Target stacks -> $STACKS"
+  build:
+    commands:
+      # Full deploy. --require-approval never so CodeBuild is non-interactive;
+      # the service role is the only authorization gate. Output dir is outside
+      # the asset root (see env.variables above). Use the project-local cdk
+      # (node_modules/.bin) pinned in cdk/package.json, never a global npx one.
+      - cd "$CODEBUILD_SRC_DIR/cdk"
+      - ./node_modules/.bin/cdk deploy $STACKS --require-approval never --output "$CDK_OUTPUT_DIR" --ci
+  post_build:
+    commands:
+      - echo "Deploy finished with status $CODEBUILD_BUILD_SUCCEEDING"

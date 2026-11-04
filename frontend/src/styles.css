@@ -539,3 +539,43 @@ button.rebuild-btn:hover:not(:disabled) { background: var(--accent-2); }
 .mcp-copy svg {
   display: block;
 }
+/* Icon-only copy button docked in the top-right of the curl code area. */
+.mcp-code-wrap {
+  position: relative;
+}
+.mcp-code-wrap .mcp-code {
+  /* reserve room so the curl text never runs under the button */
+  padding-right: 44px;
+}
+.mcp-copy-inline {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  background: var(--bg);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  z-index: 1;
+}
+.mcp-copy-inline:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.mcp-copy-inline svg {
+  display: block;
+}
+/* Themed container for the rendered-markdown answer panel (the .markdown
+   child supplies its own typography; this provides the boxed surface to
+   match the Raw output <pre>). */
+.mcp-rendered {
+  background: var(--bg);
+  color: var(--text);
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}

@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
+import * as ecr_assets from 'aws-cdk-lib/aws-ecr-assets';
 import * as efs from 'aws-cdk-lib/aws-efs';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as actions from 'aws-cdk-lib/aws-elasticloadbalancingv2-actions';
@@ -89,14 +90,24 @@ export class ComputeStack extends cdk.Stack {
 
     // Images: repo-root Dockerfiles. In CI (Task 7) these become ECR image
     // references; here we point at the build context with the right Dockerfile.
+    //
+    // platform MUST be LINUX_ARM64 to match the ARM64 runtimePlatform on every
+    // task def below. CDK's fromAsset defaults to the BUILD HOST's architecture:
+    // on the local Apple Silicon (finch) host that was arm64 and matched, but
+    // the CodeBuild deploy runs on an amd64 worker, which would bake an amd64
+    // image -> "exec /usr/bin/sh: exec format error" (exit 255) on Fargate ARM64.
+    // Pinning the platform makes Buildx cross-build arm64 regardless of host.
     const webImage = ecs.ContainerImage.fromAsset(props.webImageAsset ?? '..', {
       file: 'Dockerfile.web',
+      platform: ecr_assets.Platform.LINUX_ARM64,
     });
     const builderImage = ecs.ContainerImage.fromAsset(props.builderImageAsset ?? '..', {
       file: 'Dockerfile.builder',
+      platform: ecr_assets.Platform.LINUX_ARM64,
     });
     const mcpImage = ecs.ContainerImage.fromAsset(props.mcpImageAsset ?? '..', {
       file: 'Dockerfile.mcp',
+      platform: ecr_assets.Platform.LINUX_ARM64,
     });
 
     const efsVolume: ecs.Volume = {
@@ -324,8 +335,16 @@ export class ComputeStack extends cdk.Stack {
     const mcpOntologiesCsv = mcpOntologies.join(',');
 
     const mcpTaskDef = new ecs.FargateTaskDefinition(this, 'McpTaskDef', {
-      cpu: 512,
-      memoryLimitMiB: 1024,
+      // GO's go-plus.owl (~226MB) and other large ontologies load via
+      // in-memory owlready2; at 1GB the task was OOM-killed during the load,
+      // leaving the answerer's world EMPTY so the evolved query program's
+      // world.search() returned nothing and it emitted its seeded fallback
+      // "I don't know" for every GO question. The web service hit the identical
+      // wall on select and was raised to 2 vCPU / 8GB (commit e5f2d94); the MCP
+      // service loads each configured ontology into its own world, so it needs
+      // at least the same headroom. Match it.
+      cpu: 2048,
+      memoryLimitMiB: 8192,
       volumes: [efsVolume],
       runtimePlatform: {
         cpuArchitecture: ecs.CpuArchitecture.ARM64,
@@ -355,6 +374,24 @@ export class ComputeStack extends cdk.Stack {
     );
     m2mSecret.grantRead(mcpTaskDef.taskRole);
 
+    // Values that let the MCP server publish an accurate RFC 9728 Protected
+    // Resource Metadata document and that document the manual 2LO recipe:
+    //   COGNITO_HOSTED_UI_DOMAIN - the Cognito hosted-UI domain the headless
+    //     client POSTs its client-credentials grant to (/oauth2/token). Only
+    //     the domain is needed; the server builds the token URL from it.
+    //   MCP_PUBLIC_URL - the public /mcp URL used as the RFC 9728 `resource`
+    //     identifier (falls back to the issuer when unset). Sourced from the
+    //     same `-c appDomain=...` context bin/app.ts uses (the CloudFront/custom
+    //     origin); the Edge stack owns the CloudFront domain, so Compute cannot
+    //     take it as a prop without a dependency cycle.
+    const appDomainCtx = this.node.tryGetContext('appDomain') as string | undefined;
+    const discoveryEnv: Record<string, string> = {
+      ...(props.userPoolDomain
+        ? { COGNITO_HOSTED_UI_DOMAIN: props.userPoolDomain.domainName }
+        : {}),
+      ...(appDomainCtx ? { MCP_PUBLIC_URL: `${appDomainCtx}/mcp` } : {}),
+    };
+
     const mcpContainer = mcpTaskDef.addContainer('mcp', {
       image: mcpImage,
       logging: ecs.LogDrivers.awsLogs({
@@ -371,6 +408,7 @@ export class ComputeStack extends cdk.Stack {
         // container-local ./runs and never finds it.
         ONTOLOGY_RUNS_DIR: EFS_MOUNT,
         ...cognitoEnv,
+        ...discoveryEnv,
         PORT: String(MCP_PORT),
       },
       portMappings: [{ containerPort: MCP_PORT }],
@@ -408,6 +446,19 @@ export class ComputeStack extends cdk.Stack {
     });
 
     if (httpsListener) {
+      // Public discovery rule: the RFC 9728 metadata doc must be fetchable
+      // WITHOUT auth (Amazon Quick Suite reads it unauthenticated, following
+      // the 401 `resource_metadata` hint), so forward it straight to the MCP
+      // target group with NO Cognito action. Higher priority than the /mcp*
+      // auth rule so the auth redirect never intercepts it. The app serves it
+      // publicly too (it is in the auth middleware's public-paths set).
+      httpsListener.addAction('McpDiscoveryRule', {
+        priority: 9,
+        conditions: [
+          elbv2.ListenerCondition.pathPatterns(['/.well-known/oauth-protected-resource']),
+        ],
+        action: elbv2.ListenerAction.forward([mcpTargetGroup]),
+      });
       // Authenticated path rule: `/mcp*` -> Cognito auth -> MCP target group.
       // Higher-priority (lower number) than the listener default so it wins for
       // MCP paths; everything else still falls through to the web service.
@@ -423,9 +474,17 @@ export class ComputeStack extends cdk.Stack {
       });
     } else {
       // No authenticated HTTPS listener yet (no cert/identity): expose `/mcp*`
-      // on the plain HTTP listener so the service is still reachable for
-      // testing. NOTE: unauthenticated — the authenticated rule above is the
-      // intended production path once a cert + Cognito identity are supplied.
+      // and the discovery doc on the plain HTTP listener so the service is
+      // still reachable for testing. NOTE: unauthenticated — the authenticated
+      // rule above is the intended production path once a cert + Cognito
+      // identity are supplied.
+      plainHttpListener?.addAction('McpDiscoveryRule', {
+        priority: 9,
+        conditions: [
+          elbv2.ListenerCondition.pathPatterns(['/.well-known/oauth-protected-resource']),
+        ],
+        action: elbv2.ListenerAction.forward([mcpTargetGroup]),
+      });
       plainHttpListener?.addAction('McpRule', {
         priority: 10,
         conditions: [elbv2.ListenerCondition.pathPatterns(['/mcp', '/mcp/*'])],

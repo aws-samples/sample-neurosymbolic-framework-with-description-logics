@@ -54,6 +54,15 @@ export class EdgeStack extends cdk.Stack {
     // ---- CloudFront ------------------------------------------------------
     const albOrigin = new origins.LoadBalancerV2Origin(props.loadBalancer, {
       protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY, // ALB is HTTP; front it with HTTPS at CloudFront
+      // CloudFront's default origin response timeout is 30s. A grounded MCP/API
+      // query (POST /mcp, /api/select) runs the neurosymbolic program plus
+      // Bedrock LLM reasoning, which routinely exceeds 30s on a cold or large
+      // ontology (e.g. GO, Mondo) — CloudFront then returns a 504 Gateway
+      // Timeout while the backend is still working. Raise the read timeout to
+      // 60s, the maximum allowed without an AWS quota increase. The ALB idle
+      // timeout defaults to 60s, so this is consistent up the chain.
+      readTimeout: cdk.Duration.seconds(60),
+      keepaliveTimeout: cdk.Duration.seconds(60),
     });
 
     // Force the SPA shell (index.html) to be revalidated on every load so a
@@ -124,6 +133,21 @@ export class EdgeStack extends cdk.Stack {
           responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS,
         },
         'mcp/*': {
+          origin: albOrigin,
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+          allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+          cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+          originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER,
+          responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS,
+        },
+        // RFC 9728 OAuth Protected Resource Metadata, served by the MCP service
+        // (GET /.well-known/oauth-protected-resource). Route it to the ALB
+        // origin; otherwise it falls through to the S3 default behavior and is
+        // served the SPA index.html, so an RFC-9728-aware client (Amazon Quick
+        // Suite) following the 401 `resource_metadata` hint gets HTML, not the
+        // JSON document. Exact-path behavior: the discovery doc lives at this
+        // single path, so no wildcard is needed.
+        '.well-known/oauth-protected-resource': {
           origin: albOrigin,
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
           allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,

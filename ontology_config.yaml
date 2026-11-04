@@ -2023,3 +2023,162 @@ ontologies:
           which correctly lets the membership be acquired and dropped over time
           while the person's intrinsic classification stays fixed.
 
+  - name: "Mondo"
+    display_name: "Mondo Disease Ontology"
+    owl_file: "s3://neurosymbolicdl-storage-ontologybucket795a3498-gjp5avevev34/ontologies/mondo.owl"
+    # Mondo Disease Ontology (Monarch Initiative, https://mondo.monarchinitiative.org/)
+    # -- an OBO Foundry ontology that provides a single, coherent classification
+    # of human (and some non-human) DISEASES, harmonizing the many overlapping
+    # disease resources (OMIM, Orphanet, NCIt, DOID, ICD, SNOMED, etc.) into one
+    # logically consistent hierarchy. Mondo's distinctive contribution is
+    # cross-resource EQUIVALENCE: it asserts which disease terms across those
+    # sources denote the same disease (skos:exactMatch / equivalentTo), so a
+    # Mondo id acts as a stable, source-neutral "hub" identifier. Diseases are
+    # organized by is-a subtype hierarchy and characterized by relations such as
+    # has-material-basis-in (a causal gene/variant) and disease-has-location
+    # (the affected anatomy). The eval set has two complementary kinds of
+    # question so the evolved program stays competent at BOTH:
+    #   (a) factual lookups of concepts Mondo actually defines (disease
+    #       classifications, subtype/parent relationships, genetic basis,
+    #       anatomical location, and cross-references/equivalences), and
+    #   (b) interpretive "what does this classification / mapping mean" questions.
+    # Every expected_answer stays grounded in Mondo's real class hierarchy,
+    # cross-references, and definitions so the neurosymbolic retrieval drives the
+    # answer rather than free speculation.
+    questions:
+      # --- (a) Factual concept lookups ---
+      - question: "What is 'cystic fibrosis' classified as in Mondo, and what is its genetic basis?"
+        expected_answer: |
+          Mondo classifies cystic fibrosis (MONDO:0009061) as an autosomal
+          recessive disease and, more broadly, a genetic/hereditary respiratory
+          and digestive disorder. Its material basis is the CFTR gene: the
+          disease has-material-basis-in pathogenic variants of CFTR, which impair
+          the chloride channel and cause the characteristic thick mucus affecting
+          the lungs and pancreas.
+      - question: "How does Mondo relate 'type 1 diabetes mellitus' and 'type 2 diabetes mellitus'?"
+        expected_answer: |
+          In Mondo both type 1 diabetes mellitus (MONDO:0005147) and type 2
+          diabetes mellitus (MONDO:0005148) are subtypes (is-a children) of
+          diabetes mellitus (MONDO:0005015). They are sibling classes under the
+          same parent -- distinguished by mechanism (autoimmune beta-cell
+          destruction vs. insulin resistance) -- rather than one being a subtype
+          of the other.
+      - question: "What is the purpose of a Mondo cross-reference such as an OMIM or Orphanet mapping?"
+        expected_answer: |
+          Mondo's cross-references record which terms in other disease resources
+          (OMIM, Orphanet, NCIt, DOID, ICD, SNOMED, etc.) denote the same
+          disease as a given Mondo class. The strongest of these are equivalence
+          mappings (skos:exactMatch), which assert the source term and the Mondo
+          term are the SAME disease. This lets a single Mondo id act as a stable,
+          source-neutral hub that unifies data annotated against many different
+          vocabularies.
+      - question: "How does Mondo represent 'Marfan syndrome'?"
+        expected_answer: |
+          Mondo represents Marfan syndrome (MONDO:0007947) as an autosomal
+          dominant hereditary disorder -- a connective tissue disease whose
+          material basis is pathogenic variants in the FBN1 gene (fibrillin-1).
+          It carries cross-references (e.g. to OMIM and Orphanet) that assert
+          equivalence with those resources' Marfan syndrome terms, and it sits in
+          the connective-tissue / syndromic disease branch of the hierarchy.
+      - question: "What does the Mondo relationship 'has material basis in' express?"
+        expected_answer: |
+          'Has material basis in' links a disease to the underlying causal
+          entity -- typically a gene or a specific pathogenic variant -- that the
+          disease arises from. For a Mendelian disorder it names the causative
+          gene (e.g. cystic fibrosis has-material-basis-in CFTR), making the
+          genetic etiology explicit and queryable rather than buried in free text.
+      - question: "What is a 'rare disease' designation in Mondo?"
+        expected_answer: |
+          Mondo tags many classes as rare diseases (often via a subset/slim such
+          as the Orphanet-derived rare-disease subset), meaning the disease
+          affects a small fraction of the population. These designations, drawn
+          largely from Orphanet, let the hierarchy distinguish rare disorders and
+          group them, supporting rare-disease research and diagnosis.
+      - question: "How does Mondo classify 'breast cancer'?"
+        expected_answer: |
+          Mondo classifies breast cancer (MONDO:0007254) as a subtype of
+          carcinoma / malignant neoplasm localized to the breast -- a cancer
+          (disease by is-a under neoplasm) with disease-location in the breast.
+          It carries cross-references to the corresponding NCIt, DOID, and other
+          resource terms asserting they denote the same disease.
+      - question: "What is 'sickle cell anemia' in Mondo, including its parent and genetic cause?"
+        expected_answer: |
+          Mondo represents sickle cell anemia (MONDO:0011382) as an autosomal
+          recessive hemoglobinopathy -- a subtype of anemia / inherited blood
+          disorder. Its material basis is a specific pathogenic variant in the
+          HBB (beta-globin) gene, which produces abnormal hemoglobin S and the
+          characteristic sickling of red blood cells.
+
+      # --- (b) Interpretive "what does this classification / mapping mean" questions ---
+      - question: |
+          A dataset annotates patients using OMIM ids, another using Orphanet
+          ids, for what turns out to be the same condition. How does Mondo's use
+          of equivalence cross-references let me reconcile them, and what does that
+          practically buy an analysis?
+        expected_answer: |
+          Mondo asserts, for each disease it covers, which OMIM, Orphanet, and
+          other source terms are equivalent (skos:exactMatch) to its own class.
+          Practically, mapping both datasets' ids up to their shared Mondo id
+          collapses the two vocabularies onto one hub identifier, so records that
+          used different source ids for the same disease become directly
+          comparable and can be aggregated. This is Mondo's core value: it lets an
+          analysis integrate cohorts annotated against different disease resources
+          without manually curating cross-walks, because the equivalence is
+          already encoded in the ontology.
+      - question: |
+          A disease is recorded in Mondo with 'has material basis in' a specific
+          gene and an is-a path up to a broad disease category. Walking through
+          Mondo's model, what does that combination tell me about the disease?
+        expected_answer: |
+          The two axes answer different questions. The is-a path places the
+          disease in the classification -- what KIND of disease it is (e.g. a
+          connective-tissue disorder, a cancer, an anemia) by inheriting from
+          progressively broader parents. The 'has material basis in' relation
+          names the causal entity -- the gene or variant the disease ARISES from.
+          Together they tell me both the category the disease belongs to and its
+          molecular etiology, so I can reason up the hierarchy to find related
+          diseases of the same type and, separately, group diseases by shared
+          causal gene -- two independent, queryable views Mondo keeps distinct.
+      - question: |
+          Two source terms map to the same Mondo class, but one mapping is an
+          exact match and the other is only a broad/related match. Using how Mondo
+          distinguishes mapping types, how should I treat each?
+        expected_answer: |
+          Mondo grades its cross-references by mapping precision. An exact match
+          (skos:exactMatch) asserts the source term and the Mondo class denote the
+          SAME disease, so it is safe to treat records under that source term as
+          being about the Mondo disease. A broad (or related/narrow) match only
+          asserts a looser relationship -- the source term is more general than,
+          or merely related to, the Mondo class -- so it must NOT be treated as
+          equivalence: data under it may include other diseases. Practically, I
+          integrate on exact matches and handle broader/related matches cautiously
+          (or exclude them) to avoid conflating distinct conditions.
+      - question: |
+          Why does Mondo exist as a separate "hub" ontology when resources like
+          OMIM, Orphanet, NCIt and DOID already classify diseases? What problem
+          does it solve?
+        expected_answer: |
+          Each existing resource classifies diseases for its own purpose and with
+          its own identifiers, scope, and granularity, so the same disease appears
+          under different, non-interoperable ids and the classifications disagree
+          or overlap inconsistently. Mondo solves this by providing a single,
+          logically coherent is-a hierarchy and, crucially, encoding equivalence
+          mappings that state which terms across all those resources are the same
+          disease. Practically it acts as a unifying hub: data annotated against
+          any of the member vocabularies can be brought together under stable
+          Mondo ids, giving one consistent classification to reason over instead
+          of many clashing ones.
+      - question: |
+          A patient's condition is placed under a broad Mondo parent class with
+          several more specific child subtypes. What does sitting at that level of
+          the hierarchy practically imply for interpreting the diagnosis?
+        expected_answer: |
+          Placement at a broad parent rather than a specific child means the
+          diagnosis has been characterized only to that general category, while
+          the more precise subtypes beneath it remain undifferentiated. Practically
+          it implies the disease kind is known but its specific form is not yet
+          pinned down -- so, via Mondo's is-a hierarchy, the possible refinements
+          are exactly that class's children, and any reasoning should apply only
+          what is true of the broad category, not assume features specific to one
+          subtype. It flags where additional information (genetic, clinical) could
+          move the diagnosis down to a more specific Mondo class.
