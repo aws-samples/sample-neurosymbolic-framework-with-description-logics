@@ -11,16 +11,16 @@ internals) see [`quick-mcp-integration.md`](./quick-mcp-integration.md).
 
 | Quick field | Value |
 |---|---|
-| **MCP server endpoint / URL** | `https://d15j8kb5manvuj.cloudfront.net/mcp` |
+| **MCP server endpoint / URL** | `https://<cloudfront-domain>/mcp` (Edge stack output `DistributionDomain`) |
 | **Transport** | Streamable HTTP (remote MCP) — *not* stdio |
 | **Connection type** | Public network |
 | **Authentication** | OAuth 2.0 client credentials (Service authentication / Service-to-Service / 2LO) |
-| **Token URL** | `https://neurosymbolic-dl-347181052905.auth.us-east-1.amazoncognito.com/oauth2/token` |
-| **Client ID** | `1gdhtn870npje732s65t50f62o` |
+| **Token URL** | `https://<domain-prefix>.auth.<region>.amazoncognito.com/oauth2/token` (`<domain-prefix>` = Auth stack output `HostedUiDomain`) |
+| **Client ID** | `<M2M_CLIENT_ID>` (Auth stack output `M2mClientId`) |
 | **Client Secret** | *(the M2M client secret — see "Getting the secret" below; do not commit it)* |
 | **Scope** | `neurosymbolic-mcp/mcp.invoke` *(leave blank if Quick has no scope field — Cognito returns the single configured scope anyway)* |
 
-Account: `347181052905` · Region: `us-east-1` · User pool: `us-east-1_d9KfAPrid`
+Account: `<ACCOUNT_ID>` · Region: `<REGION>` · User pool: `<USER_POOL_ID>` (Auth stack output `UserPoolId`)
 
 ---
 
@@ -44,13 +44,13 @@ Account: `347181052905` · Region: `us-east-1` · User pool: `us-east-1_d9KfAPri
 
 ## Getting the secret (admin only)
 
-The deploy/service role cannot read it. From an **ndl admin** profile:
+The deploy/service role cannot read it. From an admin profile in your deployment account:
 
 ```bash
-aws cognito-idp describe-user-pool-client --region us-east-1 \
-  --user-pool-id us-east-1_d9KfAPrid \
-  --client-id 1gdhtn870npje732s65t50f62o \
-  --query 'UserPoolClient.ClientSecret' --output text --profile <ndl-admin>
+aws cognito-idp describe-user-pool-client --region <REGION> \
+  --user-pool-id <USER_POOL_ID> \
+  --client-id <M2M_CLIENT_ID> \
+  --query 'UserPoolClient.ClientSecret' --output text --profile <admin-profile>
 ```
 
 It is also mirrored in Secrets Manager under `neurosymbolic-mcp/m2m-client`.
@@ -66,13 +66,13 @@ reconfigure Quick with the new value.
 ## Smoke-test before pointing Quick at it (optional)
 
 ```bash
-TOKEN=$(curl -s -u '1gdhtn870npje732s65t50f62o:<SECRET>' \
+TOKEN=$(curl -s -u '<M2M_CLIENT_ID>:<SECRET>' \
   -d 'grant_type=client_credentials&scope=neurosymbolic-mcp/mcp.invoke' \
-  https://neurosymbolic-dl-347181052905.auth.us-east-1.amazoncognito.com/oauth2/token \
+  https://<domain-prefix>.auth.<region>.amazoncognito.com/oauth2/token \
   | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
 
 # instant, no reasoning — confirms the token is accepted
-curl -s -X POST https://d15j8kb5manvuj.cloudfront.net/mcp \
+curl -s -X POST https://<cloudfront-domain>/mcp \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \

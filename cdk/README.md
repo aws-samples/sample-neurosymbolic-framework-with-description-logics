@@ -97,7 +97,7 @@ stays plain HTTP behind it.
 
   ```bash
   # read the stored M2M credentials
-  CREDS=$(aws secretsmanager get-secret-value --region us-east-1 \
+  CREDS=$(aws secretsmanager get-secret-value --region <REGION> \
     --secret-id neurosymbolic-mcp/m2m-client --query SecretString --output text)
   CID=$(echo "$CREDS"    | python -c 'import sys,json;print(json.load(sys.stdin)["client_id"])')
   SECRET=$(echo "$CREDS" | python -c 'import sys,json;print(json.load(sys.stdin)["client_secret"])')
@@ -105,10 +105,10 @@ stays plain HTTP behind it.
   # get an access token (valid ~1h), then call the MCP endpoint
   TOKEN=$(curl -s -u "$CID:$SECRET" \
     -d 'grant_type=client_credentials&scope=neurosymbolic-mcp/mcp.invoke' \
-    https://neurosymbolic-dl-347181052905.auth.us-east-1.amazoncognito.com/oauth2/token \
+    https://<domain-prefix>.auth.<region>.amazoncognito.com/oauth2/token \
     | python -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
 
-  curl -H "Authorization: Bearer $TOKEN" https://d15j8kb5manvuj.cloudfront.net/mcp ...
+  curl -H "Authorization: Bearer $TOKEN" https://<cloudfront-domain>/mcp ...
   ```
 
   > The secret VALUE is a Cognito-generated client secret, so CDK cannot

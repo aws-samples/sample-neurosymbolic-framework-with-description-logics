@@ -69,30 +69,50 @@ phases:
       # 401s "Missing bearer token" against the auth-ON backend (the hard-reload
       # "Lost connection while selecting the ontology" symptom).
       #
-      # These three values are STABLE, NON-SECRET, PUBLIC config (the SPA client
-      # id and Cognito hosted-UI domain are already baked into any auth-enabled
-      # bundle and visible in the browser), so they are hardcoded here rather
-      # than fetched at build time. Earlier we derived them from the Auth/Edge
-      # stack outputs, but the CodeBuild deploy role (NlDeployServiceRole) does
-      # NOT have cloudformation:DescribeStacks, so that returned empty and the
-      # guard (correctly) failed the build. Hardcoding the known values avoids
-      # that dependency. To override (e.g. after a stack rebuild changes them),
-      # set VITE_COGNITO_* as CodeBuild environment variables -- the ${VAR:-...}
-      # defaults below use the env value when present.
+      # The three values are read from the already-deployed stacks' outputs, so
+      # nothing account-specific is hardcoded and a fork gets its own values.
+      # This needs cloudformation:DescribeStacks on the CodeBuild deploy role
+      # (NlDeployServiceRole). Any value can be overridden by setting the
+      # matching VITE_COGNITO_* CodeBuild environment variable -- the
+      # ${VAR:-...} forms below use the env value when present.
       #
-      # Source of these values (confirmed live from the Auth/Edge stack outputs):
-      #   HostedUiDomain    = neurosymbolic-dl-347181052905
-      #   SpaClientId       = 6p7aprn1bicfd2uhqgv3c8dsvh
-      #   DistributionDomain= d15j8kb5manvuj.cloudfront.net
+      #   VITE_COGNITO_DOMAIN    <- NeurosymbolicDL-Auth output HostedUiDomain.
+      #     The output is the domain PREFIX only (UserPoolDomain.domainName,
+      #     i.e. neurosymbolic-dl-<account>), so it is wrapped into the full
+      #     hosted-UI URL. If the lookup is empty, the prefix is rebuilt exactly
+      #     as auth-stack.ts creates it, from the deploying account.
+      #   VITE_COGNITO_CLIENT_ID <- NeurosymbolicDL-Auth output SpaClientId.
+      #   VITE_COGNITO_REDIRECT  <- NeurosymbolicDL-Edge output DistributionDomain,
+      #     as https://<domain>/.
+      #
+      # The client id and redirect have no derivable fallback. On a very first
+      # deploy (Edge stack not created yet) set VITE_COGNITO_REDIRECT, or the
+      # guard below stops the build rather than ship an auth-DISABLED bundle.
       #
       # NB: CodeBuild runs EACH list item in a SEPARATE shell, so the exports
       # and `npm run build` MUST be in the SAME command block -- exporting in a
       # prior item leaves Vite with no VITE_COGNITO_* and silently ships auth
       # DISABLED. Keep the exports + build together here.
       - |
-        export VITE_COGNITO_DOMAIN="${VITE_COGNITO_DOMAIN:-https://neurosymbolic-dl-347181052905.auth.us-east-1.amazoncognito.com}"
-        export VITE_COGNITO_CLIENT_ID="${VITE_COGNITO_CLIENT_ID:-6p7aprn1bicfd2uhqgv3c8dsvh}"
-        export VITE_COGNITO_REDIRECT="${VITE_COGNITO_REDIRECT:-https://d15j8kb5manvuj.cloudfront.net/}"
+        COGNITO_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
+        # Print one stack output; empty (never "None") if missing or denied.
+        stack_out() {
+          v="$(aws cloudformation describe-stacks --stack-name "$1" \
+            --query "Stacks[0].Outputs[?OutputKey=='$2'].OutputValue" \
+            --output text 2>/dev/null || true)"
+          [ "$v" = "None" ] && v=""
+          printf '%s' "$v"
+        }
+        COGNITO_PREFIX="$(stack_out NeurosymbolicDL-Auth HostedUiDomain)"
+        if [ -z "$COGNITO_PREFIX" ]; then
+          echo "HostedUiDomain output unavailable; deriving the prefix from the account"
+          COGNITO_PREFIX="neurosymbolic-dl-$(aws sts get-caller-identity --query Account --output text)"
+        fi
+        SPA_CLIENT_ID="$(stack_out NeurosymbolicDL-Auth SpaClientId)"
+        DIST_DOMAIN="$(stack_out NeurosymbolicDL-Edge DistributionDomain)"
+        export VITE_COGNITO_DOMAIN="${VITE_COGNITO_DOMAIN:-https://${COGNITO_PREFIX}.auth.${COGNITO_REGION}.amazoncognito.com}"
+        export VITE_COGNITO_CLIENT_ID="${VITE_COGNITO_CLIENT_ID:-$SPA_CLIENT_ID}"
+        export VITE_COGNITO_REDIRECT="${VITE_COGNITO_REDIRECT:-${DIST_DOMAIN:+https://${DIST_DOMAIN}/}}"
         echo "SPA auth config: domain=$VITE_COGNITO_DOMAIN client_id=$VITE_COGNITO_CLIENT_ID redirect=$VITE_COGNITO_REDIRECT"
         test -n "$VITE_COGNITO_DOMAIN" && test -n "$VITE_COGNITO_CLIENT_ID" && test -n "$VITE_COGNITO_REDIRECT" \
           || { echo "ERROR: missing Cognito build config; SPA would ship with auth DISABLED"; exit 1; }

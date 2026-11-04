@@ -30,19 +30,19 @@ convenience on top of it.
 | **Token URL** | `https://<hosted-ui-domain>.auth.<region>.amazoncognito.com/oauth2/token` | `HostedUiDomain` output of the **Auth** stack |
 | **Scope** | `neurosymbolic-mcp/mcp.invoke` | `M2mScope` output of the **Auth** stack |
 
-Live values for the `ndl` account (`347181052905`, `us-east-1`):
+Values for your deployment (from the Auth stack outputs):
 
 | Field | Value |
 |---|---|
-| MCP server endpoint | `https://d15j8kb5manvuj.cloudfront.net/mcp` |
-| Client ID | `1gdhtn870npje732s65t50f62o` |
-| Token URL | `https://neurosymbolic-dl-347181052905.auth.us-east-1.amazoncognito.com/oauth2/token` |
+| MCP server endpoint | `https://<cloudfront-domain>/mcp` |
+| Client ID | `<M2M_CLIENT_ID>` |
+| Token URL | `https://<domain-prefix>.auth.<region>.amazoncognito.com/oauth2/token` |
 | Scope | `neurosymbolic-mcp/mcp.invoke` |
-| User pool id | `us-east-1_d9KfAPrid` |
+| User pool id | `<USER_POOL_ID>` |
 
-The hosted-UI domain prefix is `neurosymbolic-dl-<account-id>` (see
-`cdk/lib/auth-stack.ts`), so in the ndl account it is
-`https://neurosymbolic-dl-347181052905.auth.us-east-1.amazoncognito.com/oauth2/token`.
+The hosted-UI domain prefix is `neurosymbolic-dl-<ACCOUNT_ID>` (see
+`cdk/lib/auth-stack.ts`), so the token URL is
+`https://neurosymbolic-dl-<ACCOUNT_ID>.auth.<region>.amazoncognito.com/oauth2/token`.
 
 ### Fetch the live values (admin profile — the service role has no `cognito-idp`)
 
@@ -50,21 +50,21 @@ The hosted-UI domain prefix is `neurosymbolic-dl-<account-id>` (see
 # MCP endpoint (CloudFront domain) — Edge stack
 aws cloudformation describe-stacks --stack-name NeurosymbolicDL-Edge \
   --query "Stacks[0].Outputs[?OutputKey=='DistributionDomain'].OutputValue" \
-  --output text --profile <ndl-admin>
+  --output text --profile <admin-profile>
 
 # M2M client id, hosted-UI domain, and scope — Auth stack
 aws cloudformation describe-stacks --stack-name NeurosymbolicDL-Auth \
   --query "Stacks[0].Outputs[?OutputKey=='M2mClientId'].OutputValue" \
-  --output text --profile <ndl-admin>
+  --output text --profile <admin-profile>
 aws cloudformation describe-stacks --stack-name NeurosymbolicDL-Auth \
   --query "Stacks[0].Outputs[?OutputKey=='HostedUiDomain'].OutputValue" \
-  --output text --profile <ndl-admin>
+  --output text --profile <admin-profile>
 
 # the M2M client secret (user pool id is the UserPoolId Auth-stack output)
 aws cognito-idp describe-user-pool-client \
   --user-pool-id <UserPoolId> \
   --client-id <M2mClientId> \
-  --query 'UserPoolClient.ClientSecret' --output text --profile <ndl-admin>
+  --query 'UserPoolClient.ClientSecret' --output text --profile <admin-profile>
 ```
 
 > The M2M client id + secret are also mirrored in Secrets Manager under
@@ -118,7 +118,7 @@ scope-less request Quick sends yields a token with that scope. No shim needed.
 ```bash
 TOKEN=$(curl -s -u '<M2mClientId>:<secret>' \
   -d 'grant_type=client_credentials' \
-  https://neurosymbolic-dl-347181052905.auth.us-east-1.amazoncognito.com/oauth2/token \
+  https://<domain-prefix>.auth.<region>.amazoncognito.com/oauth2/token \
   | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
 
 # MCP initialize through CloudFront (note the required Accept header)
