@@ -92,23 +92,27 @@ grounded, verifiable answer (in another internal representation); and
 
 3. an LLM inference converts this internal answer back into natural language.
 
-We here demonstrate this system with working code and with five different
-real-world ontologies:
+We here demonstrate this system with working code and with ten different
+real-world ontologies. Each is configured in
+[`ontology_config.yaml`](ontology_config.yaml), served by the web app, and
+exposed as an `answer_question_with_<NAME>` tool by the MCP server:
 
-- **[FMA](https://bioportal.bioontology.org/ontologies/FMA)** (Foundational Model
-of Anatomy) — a comprehensive ontology of human anatomy
-- **[Gene Ontology](https://geneontology.org) (GO)** — is the world's largest source
-of information on the functions of genes
-- **[SNOMED CT](https://www.snomed.org)** — is a systematically organized clinical
-terminology covering diseases, findings, procedures, and more
-- **[Cell Ontology (CL)](http://obofoundry.org/ontology/cl.html)** - is "an ontology 
-designed to classify and describe cell types across different organisms. It serves
-as a resource for model organism and bioinformatics databases. The ontology covers
-a broad range of cell types in animal cells, with over 2700 cell type classes, and
-provides high-level cell type classes as mapping points for cell type classes in
-ontologies representing other species"
-- **[Human phenotype ontology (HPO)](https://hpo.jax.org)** "provides a standardized
-vocabulary of phenotypic abnormalities encountered in human disease."
+| Name | Ontology | Description |
+|---|---|---|
+| `FMA` | [Foundational Model of Anatomy](https://bioportal.bioontology.org/ontologies/FMA) | A comprehensive ontology of human anatomy |
+| `GO` | [Gene Ontology](https://geneontology.org) | The world's largest source of information on the functions of genes (served from the extended `go-plus` release) |
+| `CTO` | [Clinical Trial Ontology](https://github.com/ClinicalTrialOntology/CTO) | Concepts describing clinical trials: design, phases, interventions, outcomes and participants |
+| `CL` | [Cell Ontology](http://obofoundry.org/ontology/cl.html) | Classifies and describes cell types across organisms, with over 2,700 cell type classes |
+| `HPO` | [Human Phenotype Ontology](https://hpo.jax.org) | A standardized vocabulary of phenotypic abnormalities encountered in human disease |
+| `NCIt` | [NCI Thesaurus](https://ncithesaurus.nci.nih.gov) | The National Cancer Institute's reference terminology for cancer, clinical care and translational research |
+| `OBI` | [Ontology for Biomedical Investigations](http://obi-ontology.org) | Describes the protocols, instruments, materials, data and analyses of biomedical investigations |
+| `OGMS` | [Ontology for General Medical Science](https://github.com/OGMS/ogms) | A formal framework for the clinical domain: disease, disorder, diagnosis, signs and symptoms |
+| `BFO` | [Basic Formal Ontology](https://basic-formal-ontology.org) | The top-level ontology underpinning the OBO Foundry ontologies above |
+| `Mondo` | [Mondo Disease Ontology](https://mondo.monarchinitiative.org) | A unified disease ontology that harmonizes OMIM, Orphanet, NCIt, DOID and other disease resources |
+
+The toolchain has also been exercised against
+[SNOMED CT](https://www.snomed.org) (see the statistics below), which is not
+part of the served catalog.
 
 This framework has two main components:
 
@@ -211,6 +215,70 @@ queried by writing a Python program that uses an API to traverse the ontology.
 This means that querying a description logic ontology in an agentic system
 requires the writing and critiquing a _program_, not just a declarative query
 (such as a `SQL SELECT`).
+
+## Reasoners for description logics
+
+A description logic _reasoner_ is the engine that draws conclusions from an
+ontology: it classifies concepts into a subsumption hierarchy, checks
+consistency, and decides which individuals belong to which concepts. The two
+most widely used general-purpose OWL 2 DL reasoners are
+[HermiT](http://www.hermit-reasoner.com) and
+[Openllet](https://github.com/Galigator/openllet) (the maintained successor of
+Pellet). Both are sound and complete for the full expressive power of OWL 2 DL
+(the description logic _SROIQ(D)_), and both are bundled with owlready2, the
+Python OWL library this project uses.
+
+Neither one suits this project, because we need two things at the same time:
+
+1. **Expressive power.** The ontologies served here use the full range of OWL
+   constructs: existential restrictions over roles (for example, a disease's
+   _disease location_ or a gene's _material basis_), class intersections, and
+   cross-ontology equivalence axioms. A reasoner restricted to a lightweight
+   profile such as OWL 2 EL (for example, [ELK](https://github.com/liveontologies/elk-reasoner))
+   scales well, but it gives up exactly the constructs that make these
+   ontologies useful for question answering.
+
+2. **Large A-boxes.** These are not toy ontologies. As the statistics below
+   show, several have millions of triples and hundreds of thousands of
+   classes and individuals. A description logic knowledge base has two parts:
+   the _T-box_ (terminology: the concepts and the axioms relating them) and
+   the _A-box_ (assertions about individuals). Tableau reasoners like HermiT
+   and Openllet were designed primarily for T-box reasoning. Reasoning over
+   large A-boxes (instance checking, realization, and conjunctive queries over
+   many individuals) is where they scale worst. Reasoning in _SROIQ_ is
+   N2EXPTIME-complete in the worst case, and both reasoners build their
+   models in memory inside a JVM. In practice, on ontologies of this size,
+   that means classification and A-box queries take minutes to hours or run
+   out of memory, rather than answering an interactive question in seconds.
+
+In short, the existing reasoners force a choice: full expressivity on small
+ontologies (HermiT, Openllet), or scale with a restricted language (EL
+reasoners). A question-answering system over large biomedical ontologies needs
+both.
+
+We therefore developed a custom reasoner, tailored to the queries a
+question-answering system actually asks, rather than general-purpose
+entailment. Instead of reasoning over the whole knowledge base in memory, it
+works directly on owlready2's SQLite quadstore. The ontology is parsed once
+into an on-disk cache and then opened read-only, so many queries run
+concurrently without re-parsing or lock contention. On top of that store, the
+reasoner (`ontology_qa_cli/subsumption.py`) computes answers deterministically,
+with no LLM in the reasoning path:
+
+- **Subsumption queries** ("what are _all_ the kinds of X?") are answered by
+  the transitive closure of the `is-a` (`rdfs:subClassOf`) hierarchy. The
+  result is complete with respect to the asserted hierarchy, not a sample
+  proposed by a language model.
+- **Role-restricted queries** ("all diseases of X located in the eye")
+  further filter that set to the classes carrying the matching existential
+  restriction, so the queries keep the ontology's expressive role structure.
+- **Concept resolution** maps a natural-language phrase to an ontology class
+  by exact, then fuzzy, label match, skipping obsolete classes. Ambiguous
+  phrases come back as a list of candidates rather than being guessed at.
+
+The evolved query programs that the builder produces (described above) run
+against the same pre-loaded quadstore, so every ontology is loaded once per
+process and answers in interactive time.
 
 ## Ontology statistics
 
