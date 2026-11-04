@@ -126,6 +126,14 @@ export class ComputeStack extends cdk.Stack {
       // app silently falls back to its hardcoded defaults, ignoring these.
       ONTOLOGY_QA_BEDROCK_REGION: props.bedrockRegion,
       ONTOLOGY_QA_BEDROCK_MODEL: props.bedrockModel,
+      // Durable S3 store for evolved query programs (ontology_qa_cli/program_store.py).
+      // EFS already persists built programs across tasks/restarts WITHIN a
+      // deployment; this gives a deployment-independent copy so programs survive
+      // an EFS/stack teardown and are shared across machines. The builder uploads
+      // a completed run here on success; the web/MCP tasks hydrate from here when
+      // the local EFS runs/ has nothing for an ontology. Reusing the ontology
+      // bucket under a dedicated programs/ prefix (OWL inputs live under ontologies/).
+      PROGRAM_STORE_S3: `s3://${props.ontologyBucket.bucketName}/programs`,
     };
 
     // Application-level Cognito JWT auth (ontology_qa_cli/auth.py). Injected
@@ -509,7 +517,10 @@ export class ComputeStack extends cdk.Stack {
       },
     });
     this.builderTaskDefinition.addToTaskRolePolicy(bedrockInvoke);
-    props.ontologyBucket.grantRead(this.builderTaskDefinition.taskRole);
+    // Builder WRITES evolved programs to the durable store (programs/ prefix) in
+    // addition to reading OWL inputs (ontologies/ prefix), so it needs write.
+    // Web/MCP tasks only hydrate (read), so they keep grantRead above.
+    props.ontologyBucket.grantReadWrite(this.builderTaskDefinition.taskRole);
     props.artifactBucket.grantReadWrite(this.builderTaskDefinition.taskRole);
     props.fileSystem.grantReadWrite(this.builderTaskDefinition.taskRole);
 
