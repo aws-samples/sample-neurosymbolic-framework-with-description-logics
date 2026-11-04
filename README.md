@@ -111,8 +111,7 @@ exposed as an `answer_question_with_<NAME>` tool by the MCP server:
 | `Mondo` | [Mondo Disease Ontology](https://mondo.monarchinitiative.org) | A unified disease ontology that harmonizes OMIM, Orphanet, NCIt, DOID and other disease resources |
 
 The toolchain has also been exercised against
-[SNOMED CT](https://www.snomed.org) (see the statistics below), which is not
-part of the served catalog.
+[SNOMED CT](https://www.snomed.org), which is not part of the served catalog.
 
 This framework has two main components:
 
@@ -284,17 +283,34 @@ process and answers in interactive time.
 
 The ontologies used here are not toy ontologies, they are actively used in
 biomedical research. The following table shows some descriptive statistics
-for these ontologies:
+for the ten ontologies the system serves. They range from small upper-level
+ontologies (BFO, OGMS) to NCIt, with more than 13 million lines of OWL:
 
 <!-- Regenerate with: uv run python -m ontology_qa_cli.ontology_stats -->
 
 | Ontology | File Size | Lines | Classes | Object Properties | Data Properties | Individuals | Axioms (Restrictions) |
 |----------|-----------|-------|---------|-------------------|-----------------|-------------|----------------------|
-| [FMA](https://bioportal.bioontology.org/ontologies/FMA) | 254 MB | 3,877,972 | 104,721 | 139 | 29 | 2 | 157,831 |
-| [Gene Ontology](https://geneontology.org) (GO) | 226 MB | 3,902,991 | 84,523 | 319 | 0 | 48 | 105,495 |
-| [SNOMED CT](https://www.snomed.org) | 202 MB | 2,977,123 | 796,512 | 0 | — | — | 1,069,097 |
-| [Cell Ontology (CL)](http://obofoundry.org/ontology/cl.html) | 63 MB | 1,011,425 | 386,110 | — | — | — | 1,105,244 |
-| [Human phenotype ontology (HPO)](https://hpo.jax.org) | 81 MB | 1,358,876 | 32,085 | 235 | 0 | 0 | 20,599 |
+| [Foundational Model of Anatomy](https://bioportal.bioontology.org/ontologies/FMA) (FMA) | 198 MB | 3,877,474 | 104,721 | 139 | 29 | 2 | 157,749 |
+| [Gene Ontology](https://geneontology.org) (GO, `go-plus`) | 227 MB | 3,916,206 | 85,169 | 321 | 0 | 48 | 105,666 |
+| [Clinical Trial Ontology](https://github.com/ClinicalTrialOntology/CTO) (CTO) | 1.0 MB | 20,063 | 298 | 18 | 0 | 5 | 5 |
+| [Cell Ontology](http://obofoundry.org/ontology/cl.html) (CL) | 63 MB | 1,012,887 | —¹ | — | — | — | — |
+| [Human Phenotype Ontology](https://hpo.jax.org) (HPO, `hp-full`) | 82 MB | 1,371,283 | 32,772 | 236 | 0 | 0 | 20,891 |
+| [NCI Thesaurus](https://ncithesaurus.nci.nih.gov) (NCIt) | 774 MB | 13,176,840 | 209,910 | 97 | 0 | 0 | 58,704 |
+| [Ontology for Biomedical Investigations](http://obi-ontology.org) (OBI) | 10 MB | 164,564 | 5,240 | 91 | 9 | 302 | 2,353 |
+| [Ontology for General Medical Science](https://github.com/OGMS/ogms) (OGMS) | 292 KB | 4,320 | 186 | 0 | 0 | 18 | 0 |
+| [Basic Formal Ontology](https://basic-formal-ontology.org) (BFO) | 154 KB | 1,715 | 35 | 0 | 0 | 0 | 0 |
+| [Mondo Disease Ontology](https://mondo.monarchinitiative.org) (Mondo) | 243 MB | 4,052,159 | 63,573 | 327 | 0 | 18 | 32,808 |
+
+Statistics were computed with `ontology_qa_cli.ontology_stats` on the public
+OBO Foundry release of each ontology (fetched November 2026), so they can
+differ slightly from the copy a given deployment serves. "Axioms
+(Restrictions)" counts the OWL restrictions that appear in class `is-a`
+definitions.
+
+¹ The current public CL release does not load in owlready2, because one
+imported term (`STATO_0000416`) is declared as both a property and a class.
+It declares about 19,000 `owl:Class` entities. The served copy is an earlier
+release that loads normally.
 
 ## Prerequisites
 
