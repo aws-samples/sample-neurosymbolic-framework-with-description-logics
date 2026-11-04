@@ -92,7 +92,7 @@ aws cognito-idp describe-user-pool-client \
    `client_id` claim is in the container's accepted-audience list).
 5. **Enable the tools.** After the connector saves, Quick runs `tools/list` and
    should show one tool per configured ontology:
-   `answer_question_with_FMA / GO / CTO / CL / HPO / NCIt / OBI / OGMS / BFO`.
+   `answer_question_with_FMA / GO / CTO / CL / HPO / NCIt / OBI / OGMS / BFO / Mondo`.
    Enable them for the relevant Quick agent/space.
 6. **Smoke-test from the agent.** Ask a question that routes to a tool, e.g.
    *"What is apoptosis?"* → the agent calls `answer_question_with_GO` and

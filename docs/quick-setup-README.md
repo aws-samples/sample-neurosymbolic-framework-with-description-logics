@@ -32,8 +32,8 @@ Account: `<ACCOUNT_ID>` · Region: `<REGION>` · User pool: `<USER_POOL_ID>` (Au
 4. **Authentication** → **Service authentication** (client credentials), then
    paste **Token URL**, **Client ID**, **Client Secret** (and **Scope** if the
    field exists).
-5. **Save.** Quick mints a token and runs `tools/list`; you should see nine tools:
-   `answer_question_with_FMA / GO / CTO / CL / HPO / NCIt / OBI / OGMS / BFO`.
+5. **Save.** Quick mints a token and runs `tools/list`; you should see ten tools:
+   `answer_question_with_FMA / GO / CTO / CL / HPO / NCIt / OBI / OGMS / BFO / Mondo`.
 6. Enable the tools for the agent/space, then ask e.g. *"What is apoptosis?"* —
    the agent calls `answer_question_with_GO` and returns a grounded answer.
 
